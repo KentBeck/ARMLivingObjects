@@ -18,8 +18,11 @@ extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr,
 extern uint64_t frame_receiver(uint64_t *fp);
 
 // frame_method(fp) -> uint64_t
-// Read the method from a frame at FP - 1*W.
 extern uint64_t frame_method(uint64_t *fp);
+extern uint64_t frame_flags(uint64_t *fp);
+extern uint64_t frame_num_args(uint64_t *fp);
+extern uint64_t frame_is_block(uint64_t *fp);
+extern uint64_t frame_has_context(uint64_t *fp);
 
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
@@ -155,6 +158,18 @@ int main()
 
     // Test: read method from frame at FP - 1*W
     ASSERT_EQ(frame_method(fp), fake_method, "frame_method reads method at FP-1*W");
+
+    // Test: read flags from frame at FP - 2*W
+    ASSERT_EQ(frame_flags(fp), 2 << 8, "frame_flags reads flags (num_args=2)");
+
+    // Test: decode num_args from flags byte 1
+    ASSERT_EQ(frame_num_args(fp), 2, "frame_num_args decodes 2");
+
+    // Test: decode is_block from flags byte 2
+    ASSERT_EQ(frame_is_block(fp), 0, "frame_is_block is 0 for method");
+
+    // Test: decode has_context from flags byte 0
+    ASSERT_EQ(frame_has_context(fp), 0, "frame_has_context is 0 initially");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

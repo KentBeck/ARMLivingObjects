@@ -7,6 +7,10 @@
 .global _activate_method
 .global _frame_receiver
 .global _frame_method
+.global _frame_flags
+.global _frame_num_args
+.global _frame_is_block
+.global _frame_has_context
 
 .align 2
 
@@ -145,5 +149,32 @@ _frame_receiver:
 // Returns the method at FP - 1*W (offset -8).
 _frame_method:
     ldr     x0, [x0, #-8]      // method is at FP - 1*8
+    ret
+
+// frame_flags(fp) -> uint64_t
+// Returns the full flags word at FP - 2*W.
+_frame_flags:
+    ldr     x0, [x0, #-16]     // flags at FP - 2*8
+    ret
+
+// frame_num_args(fp) -> uint64_t
+// Returns num_args from flags byte 1.
+_frame_num_args:
+    ldr     x1, [x0, #-16]     // flags word
+    ubfx    x0, x1, #8, #8     // extract byte 1 (bits 15:8)
+    ret
+
+// frame_is_block(fp) -> uint64_t
+// Returns is_block from flags byte 2.
+_frame_is_block:
+    ldr     x1, [x0, #-16]
+    ubfx    x0, x1, #16, #8    // extract byte 2 (bits 23:16)
+    ret
+
+// frame_has_context(fp) -> uint64_t
+// Returns has_context from flags byte 0.
+_frame_has_context:
+    ldr     x1, [x0, #-16]
+    and     x0, x1, #0xFF      // extract byte 0 (bits 7:0)
     ret
 

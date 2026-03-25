@@ -67,10 +67,10 @@ push nil context slot, push receiver (again), push nil for each temp.
 ### 3. Frame Field Access
 
 - [x] read method from frame at FP - 1\*W
-- [ ] read flags from frame at FP - 2\*W
-- [ ] decode num_args from flags byte 1
-- [ ] decode is_block from flags byte 2
-- [ ] decode has_context from flags byte 0
+- [x] read flags from frame at FP - 2\*W
+- [x] decode num_args from flags byte 1
+- [x] decode is_block from flags byte 2
+- [x] decode has_context from flags byte 0
 
 ### 4. Temporary Variable Access (temporary:in:)
 
