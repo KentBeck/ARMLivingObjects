@@ -26,6 +26,8 @@ extern uint64_t frame_has_context(uint64_t *fp);
 extern uint64_t frame_temp(uint64_t *fp, uint64_t index);
 extern uint64_t frame_arg(uint64_t *fp, uint64_t index);
 extern void frame_store_temp(uint64_t *fp, uint64_t index, uint64_t value);
+extern void frame_return(uint64_t **sp_ptr, uint64_t **fp_ptr,
+                         uint64_t *ip_ptr, uint64_t return_value);
 
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
@@ -189,6 +191,55 @@ int main()
     // Test: store into temp 0 and read it back
     frame_store_temp(fp, 0, 0xDEAD);
     ASSERT_EQ(frame_temp(fp, 0), 0xDEAD, "store_temp(0) then frame_temp(0)");
+
+    // --- Section 5: Return ---
+
+    // Test: return from a 0-arg method
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    uint64_t ip = 0;
+    uint64_t caller_fp_val = 0xCAFE;
+    uint64_t caller_ip_val = 0xF00D;
+    // Simulate caller: set FP to a "caller frame" value, then do a send
+    fp = (uint64_t *)caller_fp_val;   // fake caller FP
+    ip = caller_ip_val;               // fake caller IP
+    stack_push(&sp, stack, receiver); // push receiver
+    activate_method(&sp, &fp, ip, fake_method, 0, 0);
+    // Now return with value 99
+    frame_return(&sp, &fp, &ip, 99);
+    ASSERT_EQ(stack_top(&sp), 99, "return 0-arg: result on stack");
+    ASSERT_EQ((uint64_t)fp, caller_fp_val, "return 0-arg: FP restored");
+    ASSERT_EQ(ip, caller_ip_val, "return 0-arg: IP restored");
+
+    // Test: return from a 1-arg method
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = (uint64_t *)caller_fp_val;
+    ip = caller_ip_val;
+    stack_push(&sp, stack, receiver);
+    stack_push(&sp, stack, arg0);
+    uint64_t *sp_before_send = sp;
+    activate_method(&sp, &fp, ip, fake_method, 1, 0);
+    frame_return(&sp, &fp, &ip, 77);
+    ASSERT_EQ(stack_top(&sp), 77, "return 1-arg: result on stack");
+    ASSERT_EQ((uint64_t)fp, caller_fp_val, "return 1-arg: FP restored");
+    // SP should point where receiver was (arg consumed)
+    ASSERT_EQ((uint64_t)sp, (uint64_t)(sp_before_send + 1),
+              "return 1-arg: SP at receiver slot (arg popped)");
+
+    // Test: return from a 2-arg method
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = (uint64_t *)caller_fp_val;
+    ip = caller_ip_val;
+    stack_push(&sp, stack, receiver);
+    stack_push(&sp, stack, arg0);
+    stack_push(&sp, stack, arg1);
+    sp_before_send = sp;
+    activate_method(&sp, &fp, ip, fake_method, 2, 0);
+    frame_return(&sp, &fp, &ip, 55);
+    ASSERT_EQ(stack_top(&sp), 55, "return 2-arg: result on stack");
+    ASSERT_EQ((uint64_t)fp, caller_fp_val, "return 2-arg: FP restored");
+    ASSERT_EQ((uint64_t)sp, (uint64_t)(sp_before_send + 2),
+              "return 2-arg: SP at receiver slot (both args popped)");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

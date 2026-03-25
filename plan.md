@@ -88,9 +88,9 @@ Dismantle the frame: set SP = FP + frameStackedReceiverOffset,
 restore FP from saved caller FP, restore IP from saved caller IP,
 write return value at new SP top.
 
-- [ ] return from a 0-arg method: caller's FP and IP restored, result on stack
-- [ ] return from a 1-arg method: arg is popped, result replaces receiver+args
-- [ ] return from a 2-arg method: both args popped correctly
+- [x] return from a 0-arg method: caller's FP and IP restored, result on stack
+- [x] return from a 1-arg method: arg is popped, result replaces receiver+args
+- [x] return from a 2-arg method: both args popped correctly
 
 ### 6. Bytecode Implementations
 

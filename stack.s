@@ -14,6 +14,7 @@
 .global _frame_temp
 .global _frame_arg
 .global _frame_store_temp
+.global _frame_return
 
 .align 2
 
@@ -209,4 +210,44 @@ _frame_store_temp:
     lsl     x1, x1, #3
     sub     x3, x0, x1
     str     x2, [x3]
+    ret
+
+// frame_return(sp_ptr, fp_ptr, ip_ptr, return_value)
+// x0 = pointer to SP variable
+// x1 = pointer to FP variable
+// x2 = pointer to IP variable (receives restored caller IP)
+// x3 = return value
+//
+// Dismantles the current frame:
+//   1. Read num_args from flags at FP - 2*W
+//   2. Set SP = FP + (2 + num_args) * W  (pop frame + args, point at receiver slot)
+//   3. Store return_value at SP (replaces receiver)
+//   4. Restore caller FP from FP + 0
+//   5. Restore caller IP from FP + 1*W
+_frame_return:
+    ldr     x4, [x1]           // x4 = current FP
+
+    // Read num_args from flags (byte 1 of flags word at FP - 2*W)
+    ldr     x5, [x4, #-16]     // flags word
+    ubfx    x5, x5, #8, #8     // num_args
+
+    // SP = FP + (2 + num_args) * 8  (points at receiver slot in caller)
+    add     x5, x5, #2
+    lsl     x5, x5, #3
+    add     x6, x4, x5         // new SP
+
+    // Store return value at new SP (replaces receiver)
+    str     x3, [x6]
+
+    // Restore caller FP
+    ldr     x7, [x4]           // saved caller FP at FP + 0
+    str     x7, [x1]           // write back FP
+
+    // Restore caller IP
+    ldr     x8, [x4, #8]       // saved caller IP at FP + 1*W
+    str     x8, [x2]           // write back IP
+
+    // Write back SP
+    str     x6, [x0]
+
     ret
