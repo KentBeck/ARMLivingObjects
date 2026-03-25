@@ -134,6 +134,21 @@ int main()
     // flags should encode num_args=1 in byte 1
     ASSERT_EQ(fp[FRAME_FLAGS] & 0xFF00, 1 << 8, "activate 1/0: flags encode num_args=1");
 
+    // Test: activate with 2 args, 1 temp: verify args and temp layout
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    uint64_t arg1 = 0xBBBB;
+    stack_push(&sp, stack, receiver); // caller pushes receiver
+    stack_push(&sp, stack, arg0);     // caller pushes arg 0
+    stack_push(&sp, stack, arg1);     // caller pushes arg 1
+    activate_method(&sp, &fp, fake_ip, fake_method, 2, 1);
+    ASSERT_EQ(fp[FRAME_RECEIVER], receiver, "activate 2/1: receiver");
+    // Args are in stack order: last pushed (arg1) is closest to frame
+    ASSERT_EQ(fp[2], arg1, "activate 2/1: arg 1 at FP+2*W (last pushed)");
+    ASSERT_EQ(fp[3], arg0, "activate 2/1: arg 0 at FP+3*W (first pushed)");
+    ASSERT_EQ(fp[FRAME_TEMP0], 0, "activate 2/1: temp 0 initialized to 0");
+    ASSERT_EQ(fp[FRAME_FLAGS] & 0xFF00, 2 << 8, "activate 2/1: flags encode num_args=2");
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }
