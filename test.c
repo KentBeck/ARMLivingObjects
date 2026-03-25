@@ -87,6 +87,16 @@ int main()
     // Test: read receiver from frame via ARM64 function
     ASSERT_EQ(frame_receiver(fp), receiver, "frame_receiver reads receiver at FP-4*W");
 
+    // Test: activate a method with 0 args, 1 temp: temp initialized to 0
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    stack_push(&sp, stack, receiver); // caller pushes receiver
+    activate_method(&sp, &fp, fake_ip, fake_method, 0, 1);
+    ASSERT_EQ(fp[FRAME_RECEIVER], receiver, "activate 0/1: receiver");
+    ASSERT_EQ(fp[FRAME_TEMP0], 0, "activate 0/1: temp 0 initialized to 0");
+    ASSERT_EQ((uint64_t)sp, (uint64_t)&fp[FRAME_TEMP0],
+              "activate 0/1: SP points at temp 0 (last pushed)");
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }
