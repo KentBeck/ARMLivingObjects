@@ -6,6 +6,7 @@
 .global _stack_top
 .global _activate_method
 .global _frame_receiver
+.global _frame_method
 
 .align 2
 
@@ -137,5 +138,12 @@ _stack_top:
 // Returns the receiver at FP - 4*W (offset -32).
 _frame_receiver:
     ldr     x0, [x0, #-32]     // receiver is at FP - 4*8
+    ret
+
+// frame_method(fp) -> uint64_t
+// x0 = frame pointer
+// Returns the method at FP - 1*W (offset -8).
+_frame_method:
+    ldr     x0, [x0, #-8]      // method is at FP - 1*8
     ret
 

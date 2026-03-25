@@ -17,6 +17,10 @@ extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr,
 // Read the receiver from a frame at FP - 4*W.
 extern uint64_t frame_receiver(uint64_t *fp);
 
+// frame_method(fp) -> uint64_t
+// Read the method from a frame at FP - 1*W.
+extern uint64_t frame_method(uint64_t *fp);
+
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
@@ -148,6 +152,9 @@ int main()
     ASSERT_EQ(fp[3], arg0, "activate 2/1: arg 0 at FP+3*W (first pushed)");
     ASSERT_EQ(fp[FRAME_TEMP0], 0, "activate 2/1: temp 0 initialized to 0");
     ASSERT_EQ(fp[FRAME_FLAGS] & 0xFF00, 2 << 8, "activate 2/1: flags encode num_args=2");
+
+    // Test: read method from frame at FP - 1*W
+    ASSERT_EQ(frame_method(fp), fake_method, "frame_method reads method at FP-1*W");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

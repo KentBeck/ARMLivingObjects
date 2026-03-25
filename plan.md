@@ -66,7 +66,7 @@ push nil context slot, push receiver (again), push nil for each temp.
 
 ### 3. Frame Field Access
 
-- [ ] read method from frame at FP - 1\*W
+- [x] read method from frame at FP - 1\*W
 - [ ] read flags from frame at FP - 2\*W
 - [ ] decode num_args from flags byte 1
 - [ ] decode is_block from flags byte 2
