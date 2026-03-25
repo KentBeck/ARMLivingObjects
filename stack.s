@@ -11,6 +11,9 @@
 .global _frame_num_args
 .global _frame_is_block
 .global _frame_has_context
+.global _frame_temp
+.global _frame_arg
+.global _frame_store_temp
 
 .align 2
 
@@ -178,3 +181,32 @@ _frame_has_context:
     and     x0, x1, #0xFF      // extract byte 0 (bits 7:0)
     ret
 
+// frame_temp(fp, index) -> uint64_t
+// x0 = frame pointer, x1 = temp index (0-based)
+// Temp N is at FP - (5+N)*W
+_frame_temp:
+    add     x1, x1, #5          // offset = 5 + index
+    lsl     x1, x1, #3          // offset * 8
+    sub     x2, x0, x1          // FP - offset
+    ldr     x0, [x2]
+    ret
+
+// frame_arg(fp, arg_index) -> uint64_t
+// x0 = frame pointer, x1 = arg index (0-based, where 0 = last pushed arg)
+// Arg N is at FP + (2+N)*W
+_frame_arg:
+    add     x1, x1, #2          // offset = 2 + index
+    lsl     x1, x1, #3          // offset * 8
+    add     x2, x0, x1          // FP + offset
+    ldr     x0, [x2]
+    ret
+
+// frame_store_temp(fp, index, value)
+// x0 = frame pointer, x1 = temp index, x2 = value
+// Stores value at FP - (5+index)*W
+_frame_store_temp:
+    add     x1, x1, #5
+    lsl     x1, x1, #3
+    sub     x3, x0, x1
+    str     x2, [x3]
+    ret

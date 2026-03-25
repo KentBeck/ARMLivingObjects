@@ -77,10 +77,10 @@ push nil context slot, push receiver (again), push nil for each temp.
 Temps and args are split: args above the frame, temps below.
 Access requires knowing num_args from the flags word.
 
-- [ ] access temp 0 (first temp after receiver) at FP - 5\*W
-- [ ] access arg 0 when num_args=1: located at FP + 2\*W
-- [ ] access arg 1 when num_args=2: located at FP + 3\*W
-- [ ] store into a temporary variable (STORE_TEMPORARY_VARIABLE, bytecode 5)
+- [x] access temp 0 (first temp after receiver) at FP - 5\*W
+- [x] access arg 0 when num_args=1: located at FP + 2\*W
+- [x] access arg 1 when num_args=2: located at FP + 3\*W
+- [x] store into a temporary variable (STORE_TEMPORARY_VARIABLE, bytecode 5)
 
 ### 5. Return (commonCallerReturn)
 

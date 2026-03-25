@@ -23,6 +23,9 @@ extern uint64_t frame_flags(uint64_t *fp);
 extern uint64_t frame_num_args(uint64_t *fp);
 extern uint64_t frame_is_block(uint64_t *fp);
 extern uint64_t frame_has_context(uint64_t *fp);
+extern uint64_t frame_temp(uint64_t *fp, uint64_t index);
+extern uint64_t frame_arg(uint64_t *fp, uint64_t index);
+extern void frame_store_temp(uint64_t *fp, uint64_t index, uint64_t value);
 
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
@@ -170,6 +173,22 @@ int main()
 
     // Test: decode has_context from flags byte 0
     ASSERT_EQ(frame_has_context(fp), 0, "frame_has_context is 0 initially");
+
+    // --- Section 4: Temporary Variable Access ---
+    // Use the 2-arg, 1-temp frame from above (still in fp)
+
+    // Test: access temp 0 at FP - 5*W
+    ASSERT_EQ(frame_temp(fp, 0), 0, "frame_temp(0) reads temp 0 (was 0)");
+
+    // Test: access arg 0 (last pushed = arg1) at FP + 2*W
+    ASSERT_EQ(frame_arg(fp, 0), arg1, "frame_arg(0) reads arg1 (last pushed)");
+
+    // Test: access arg 1 (first pushed = arg0) at FP + 3*W
+    ASSERT_EQ(frame_arg(fp, 1), arg0, "frame_arg(1) reads arg0 (first pushed)");
+
+    // Test: store into temp 0 and read it back
+    frame_store_temp(fp, 0, 0xDEAD);
+    ASSERT_EQ(frame_temp(fp, 0), 0xDEAD, "store_temp(0) then frame_temp(0)");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
