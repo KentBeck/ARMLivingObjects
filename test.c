@@ -4,6 +4,7 @@
 
 // ARM64 assembly functions
 extern void stack_push(uint64_t **sp_ptr, uint64_t *stack_base, uint64_t value);
+extern uint64_t stack_pop(uint64_t **sp_ptr);
 extern uint64_t stack_top(uint64_t **sp_ptr);
 
 #define STACK_WORDS 64
@@ -35,6 +36,12 @@ int main()
     // Test: push a value onto a stack and read it back
     stack_push(&sp, stack, 42);
     ASSERT_EQ(stack_top(&sp), 42, "push a value and read it back");
+
+    // Test: push two values and pop one, reading the remaining top
+    stack_push(&sp, stack, 100);
+    stack_push(&sp, stack, 200);
+    stack_pop(&sp);
+    ASSERT_EQ(stack_top(&sp), 100, "push two values and pop one");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

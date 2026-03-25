@@ -19,7 +19,7 @@ Arguments live above the frame in the caller's stack area.
 ## Tests
 
 - [x] push a value onto a stack and read it back
-- [ ] push two values and pop one, reading the remaining top
+- [x] push two values and pop one, reading the remaining top
 - [ ] activate a method: build a frame with saved IP, saved FP, method, flags, context slot, receiver
 - [ ] read receiver from a frame at a known offset from FP
 - [ ] read a temporary variable from a frame
