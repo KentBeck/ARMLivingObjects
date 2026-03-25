@@ -199,3 +199,14 @@ of execution to process events. Also checked on backward branches.
 - [ ] normal stackLimit: overflow check passes for normal execution
 - [ ] interrupt: set stackLimit to max, next frame build triggers event check
 - [ ] backward branch checks stackLimit for breaking out of infinite loops
+
+### 15. Simulated Execution Scenarios
+
+End-to-end tests composing activate, bytecodes, and return.
+
+- [ ] call a method, push self, return: receiver is on top of caller's stack
+- [ ] call a method with 1 arg, push arg, return: arg value on caller's stack
+- [ ] call a method, store into temp, push temp, return: temp value on caller's stack
+- [ ] call a method, push instance variable, return: field value on caller's stack
+- [ ] nested send: method A calls method B, B returns, A returns, result on original stack
+- [ ] call a method, push self, push arg, send message (nested), return result up
