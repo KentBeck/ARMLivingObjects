@@ -13,6 +13,10 @@ extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr,
                             uint64_t saved_ip, uint64_t method,
                             uint64_t num_args, uint64_t num_temps);
 
+// frame_receiver(fp) -> uint64_t
+// Read the receiver from a frame at FP - 4*W.
+extern uint64_t frame_receiver(uint64_t *fp);
+
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
@@ -79,6 +83,9 @@ int main()
     ASSERT_EQ(fp[FRAME_RECEIVER], receiver, "activate 0/0: receiver");
     ASSERT_EQ((uint64_t)sp, (uint64_t)&fp[FRAME_RECEIVER],
               "activate 0/0: SP points at receiver (last pushed)");
+
+    // Test: read receiver from frame via ARM64 function
+    ASSERT_EQ(frame_receiver(fp), receiver, "frame_receiver reads receiver at FP-4*W");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

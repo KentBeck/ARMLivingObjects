@@ -59,7 +59,7 @@ push saved IP, push saved FP, set FP = SP, push method, push flags,
 push nil context slot, push receiver (again), push nil for each temp.
 
 - [x] activate a method with 0 args, 0 temps: verify frame is built with correct layout
-- [ ] read receiver from a frame at FP - 4\*W
+- [x] read receiver from a frame at FP - 4\*W
 - [ ] activate a method with 0 args, 1 temp: verify temp is initialized to 0 (nil)
 - [ ] activate a method with 1 arg, 0 temps: verify arg is accessible above the frame
 - [ ] activate a method with 2 args, 1 temp: verify args and temp layout
