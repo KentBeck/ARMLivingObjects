@@ -337,6 +337,92 @@ int main()
     bc_pop(&sp);
     ASSERT_EQ(stack_top(&sp), 0x111, "POP: top removed, original remains");
 
+    // --- Section 15: Simulated Execution Scenarios ---
+
+    // Scenario 1: call a method, push self, return → receiver on caller's stack
+    // Smalltalk: obj foo   where foo is: ^self
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = (uint64_t *)caller_fp_val;
+    ip = caller_ip_val;
+    stack_push(&sp, stack, receiver);                 // caller pushes receiver
+    activate_method(&sp, &fp, ip, fake_method, 0, 0); // send #foo
+    bc_push_self(&sp, &fp);                           // pushSelf
+    bc_return_stack_top(&sp, &fp, &ip);               // returnStackTop
+    ASSERT_EQ(stack_top(&sp), receiver,
+              "scenario: ^self returns receiver to caller");
+    ASSERT_EQ((uint64_t)fp, caller_fp_val,
+              "scenario: ^self restores caller FP");
+
+    // Scenario 2: call with 1 arg, push arg, return → arg on caller's stack
+    // Smalltalk: obj foo: x   where foo: is: ^x
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = (uint64_t *)caller_fp_val;
+    ip = caller_ip_val;
+    stack_push(&sp, stack, receiver);
+    stack_push(&sp, stack, 0xAAAA); // push arg
+    activate_method(&sp, &fp, ip, fake_method, 1, 0);
+    // arg 0 is at FP+2*W, which is frame_arg(fp, 0)
+    // To push it, we treat it as a temp access (but it's above the frame)
+    // For now we use bc_push_temp won't work for args — we need a different approach
+    // Actually, in Cog the bytecode indexes args and temps uniformly.
+    // But our current bc_push_temp only accesses below-FP temps.
+    // Let's just manually push the arg value for now:
+    stack_push(&sp, stack, frame_arg(fp, 0));
+    bc_return_stack_top(&sp, &fp, &ip);
+    ASSERT_EQ(stack_top(&sp), 0xAAAA,
+              "scenario: ^arg returns arg to caller");
+
+    // Scenario 3: call, store into temp, push temp, return
+    // Smalltalk: foo   | t | t := 42. ^t
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = (uint64_t *)caller_fp_val;
+    ip = caller_ip_val;
+    stack_push(&sp, stack, receiver);
+    activate_method(&sp, &fp, ip, fake_method, 0, 1);
+    stack_push(&sp, stack, 42);         // pushLiteral 42
+    bc_store_temp(&sp, &fp, 0);         // storeTemp 0
+    bc_push_temp(&sp, &fp, 0);          // pushTemp 0
+    bc_return_stack_top(&sp, &fp, &ip); // returnStackTop
+    ASSERT_EQ(stack_top(&sp), 42,
+              "scenario: store+push temp returns 42");
+
+    // Scenario 4: push instance variable, return
+    // Smalltalk: foo   ^instVar2   (field index 2)
+    uint64_t obj3_fields[4] = {100, 200, 300, 400};
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = (uint64_t *)caller_fp_val;
+    ip = caller_ip_val;
+    stack_push(&sp, stack, (uint64_t)obj3_fields);
+    activate_method(&sp, &fp, ip, fake_method, 0, 0);
+    bc_push_inst_var(&sp, &fp, 2); // pushInstVar 2
+    bc_return_stack_top(&sp, &fp, &ip);
+    ASSERT_EQ(stack_top(&sp), 300,
+              "scenario: ^instVar2 returns 300");
+
+    // Scenario 5: nested send — A calls B, B returns, A returns
+    // Smalltalk: A>>foo  ^self bar.   B>>bar  ^self
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = (uint64_t *)caller_fp_val;
+    ip = caller_ip_val;
+    // Enter method A (foo)
+    stack_push(&sp, stack, receiver);
+    activate_method(&sp, &fp, ip, fake_method, 0, 0);
+    uint64_t a_ip = 0x3000; // A's IP at point of send
+    // A sends #bar: push self as receiver for bar
+    bc_push_self(&sp, &fp);
+    // Enter method B (bar)
+    activate_method(&sp, &fp, a_ip, fake_method, 0, 0);
+    // B executes: ^self
+    bc_push_self(&sp, &fp);
+    bc_return_stack_top(&sp, &fp, &ip);
+    // Now back in A; bar's result (receiver) is on stack
+    // A returns that result
+    bc_return_stack_top(&sp, &fp, &ip);
+    ASSERT_EQ(stack_top(&sp), receiver,
+              "scenario: nested A>>foo calls B>>bar, returns receiver");
+    ASSERT_EQ((uint64_t)fp, caller_fp_val,
+              "scenario: nested send restores original caller FP");
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }
