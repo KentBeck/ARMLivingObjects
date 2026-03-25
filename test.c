@@ -121,6 +121,19 @@ int main()
     ASSERT_EQ((uint64_t)sp, (uint64_t)&fp[FRAME_TEMP0 - 2],
               "activate 0/3: SP points at temp 2");
 
+    // Test: activate with 1 arg, 0 temps: arg accessible above frame
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    uint64_t arg0 = 0xAAAA;
+    stack_push(&sp, stack, receiver); // caller pushes receiver
+    stack_push(&sp, stack, arg0);     // caller pushes arg 0
+    activate_method(&sp, &fp, fake_ip, fake_method, 1, 0);
+    ASSERT_EQ(fp[FRAME_RECEIVER], receiver, "activate 1/0: receiver");
+    // arg 0 is at FP + 2*W (above saved IP)
+    ASSERT_EQ(fp[2], arg0, "activate 1/0: arg 0 at FP+2*W");
+    // flags should encode num_args=1 in byte 1
+    ASSERT_EQ(fp[FRAME_FLAGS] & 0xFF00, 1 << 8, "activate 1/0: flags encode num_args=1");
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }
