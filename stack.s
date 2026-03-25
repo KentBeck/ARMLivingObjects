@@ -15,6 +15,15 @@
 .global _frame_arg
 .global _frame_store_temp
 .global _frame_return
+.global _bc_push_self
+.global _bc_push_temp
+.global _bc_push_inst_var
+.global _bc_push_literal
+.global _bc_store_temp
+.global _bc_store_inst_var
+.global _bc_return_stack_top
+.global _bc_duplicate
+.global _bc_pop
 
 .align 2
 
@@ -250,4 +259,139 @@ _frame_return:
     // Write back SP
     str     x6, [x0]
 
+    ret
+
+// === Bytecode Implementations ===
+// All bytecodes take (sp_ptr, fp_ptr) as first two args.
+// Additional args vary per bytecode.
+
+// bc_push_self(sp_ptr, fp_ptr)
+// Bytecode 3: PUSH_SELF — push receiver from FP - 4*W onto stack
+_bc_push_self:
+    ldr     x2, [x1]           // x2 = FP
+    ldr     x3, [x2, #-32]     // receiver at FP - 4*8
+    ldr     x4, [x0]           // x4 = SP
+    sub     x4, x4, #8
+    str     x3, [x4]           // push receiver
+    str     x4, [x0]           // write back SP
+    ret
+
+// bc_push_temp(sp_ptr, fp_ptr, index)
+// Bytecode 2: PUSH_TEMPORARY_VARIABLE — push temp N onto stack
+// x2 = temp index
+_bc_push_temp:
+    ldr     x3, [x1]           // x3 = FP
+    add     x4, x2, #5         // offset = 5 + index
+    lsl     x4, x4, #3         // * 8
+    sub     x5, x3, x4         // FP - offset
+    ldr     x6, [x5]           // temp value
+    ldr     x7, [x0]           // SP
+    sub     x7, x7, #8
+    str     x6, [x7]           // push
+    str     x7, [x0]           // write back SP
+    ret
+
+// bc_push_inst_var(sp_ptr, fp_ptr, field_index)
+// Bytecode 1: PUSH_INSTANCE_VARIABLE — push field N of receiver
+// x2 = field index
+// Receiver is treated as a pointer to an array of uint64_t fields.
+_bc_push_inst_var:
+    ldr     x3, [x1]           // FP
+    ldr     x4, [x3, #-32]     // receiver pointer
+    lsl     x5, x2, #3         // field_index * 8
+    add     x6, x4, x5
+    ldr     x7, [x6]           // load field
+    ldr     x8, [x0]           // SP
+    sub     x8, x8, #8
+    str     x7, [x8]
+    str     x8, [x0]
+    ret
+
+// bc_push_literal(sp_ptr, fp_ptr, literal_index)
+// Bytecode 0: PUSH_LITERAL — push literal N from method's literal area
+// x2 = literal index
+// The method pointer (at FP - 1*W) is treated as a pointer to an array of
+// uint64_t values, where entry 0 is the literal at index 0.
+_bc_push_literal:
+    ldr     x3, [x1]           // FP
+    ldr     x4, [x3, #-8]      // method pointer
+    lsl     x5, x2, #3         // literal_index * 8
+    add     x6, x4, x5
+    ldr     x7, [x6]           // load literal
+    ldr     x8, [x0]           // SP
+    sub     x8, x8, #8
+    str     x7, [x8]
+    str     x8, [x0]
+    ret
+
+// bc_store_temp(sp_ptr, fp_ptr, index)
+// Bytecode 5: STORE_TEMPORARY_VARIABLE — pop and store into temp N
+// x2 = temp index
+_bc_store_temp:
+    ldr     x3, [x0]           // SP
+    ldr     x4, [x3]           // pop value
+    add     x3, x3, #8
+    str     x3, [x0]           // write back SP
+    ldr     x5, [x1]           // FP
+    add     x6, x2, #5
+    lsl     x6, x6, #3
+    sub     x7, x5, x6         // FP - (5+index)*8
+    str     x4, [x7]           // store into temp
+    ret
+
+// bc_store_inst_var(sp_ptr, fp_ptr, field_index)
+// Bytecode 4: STORE_INSTANCE_VARIABLE — pop and store into receiver field N
+// x2 = field index
+_bc_store_inst_var:
+    ldr     x3, [x0]           // SP
+    ldr     x4, [x3]           // pop value
+    add     x3, x3, #8
+    str     x3, [x0]           // write back SP
+    ldr     x5, [x1]           // FP
+    ldr     x6, [x5, #-32]     // receiver pointer
+    lsl     x7, x2, #3
+    add     x8, x6, x7
+    str     x4, [x8]           // store into field
+    ret
+
+// bc_return_stack_top(sp_ptr, fp_ptr, ip_ptr)
+// Bytecode 7: RETURN_STACK_TOP — pop top of stack and return to caller
+// x2 = pointer to IP variable
+_bc_return_stack_top:
+    // Pop return value
+    ldr     x3, [x0]           // SP
+    ldr     x4, [x3]           // return value
+    // Now do frame_return logic inline
+    ldr     x5, [x1]           // FP
+    ldr     x6, [x5, #-16]     // flags
+    ubfx    x6, x6, #8, #8     // num_args
+    add     x6, x6, #2
+    lsl     x6, x6, #3
+    add     x7, x5, x6         // new SP = FP + (2+num_args)*8
+    str     x4, [x7]           // store return value
+    ldr     x8, [x5]           // saved caller FP
+    str     x8, [x1]           // restore FP
+    ldr     x9, [x5, #8]       // saved caller IP
+    str     x9, [x2]           // restore IP
+    str     x7, [x0]           // write back SP
+    ret
+
+// bc_duplicate(sp_ptr)
+// Bytecode 12: DUPLICATE — push a copy of top of stack
+// x0 = pointer to SP
+_bc_duplicate:
+    ldr     x1, [x0]           // SP
+    ldr     x2, [x1]           // top value
+    sub     x1, x1, #8
+    str     x2, [x1]           // push copy
+    str     x1, [x0]           // write back SP
+    ret
+
+// bc_pop(sp_ptr)
+// Bytecode 11: POP — discard top of stack
+// x0 = pointer to SP
+_bc_pop:
+    ldr     x1, [x0]           // SP
+    add     x1, x1, #8         // pop
+    str     x1, [x0]           // write back SP
     ret

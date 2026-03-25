@@ -94,15 +94,15 @@ write return value at new SP top.
 
 ### 6. Bytecode Implementations
 
-- [ ] PUSH_SELF (bytecode 3): push receiver from current frame onto stack
-- [ ] PUSH_TEMPORARY_VARIABLE (bytecode 2): push temp N onto stack
-- [ ] PUSH_INSTANCE_VARIABLE (bytecode 1): push field N of receiver onto stack
-- [ ] PUSH_LITERAL (bytecode 0): push literal N from method's literal area
-- [ ] STORE_TEMPORARY_VARIABLE (bytecode 5): pop and store into temp N
-- [ ] STORE_INSTANCE_VARIABLE (bytecode 4): pop and store into receiver field N
-- [ ] RETURN_STACK_TOP (bytecode 7): return top of stack to caller
-- [ ] DUPLICATE (bytecode 12): push a copy of top of stack
-- [ ] POP (bytecode 11): discard top of stack — done as stack_pop
+- [x] PUSH_SELF (bytecode 3): push receiver from current frame onto stack
+- [x] PUSH_TEMPORARY_VARIABLE (bytecode 2): push temp N onto stack
+- [x] PUSH_INSTANCE_VARIABLE (bytecode 1): push field N of receiver onto stack
+- [x] PUSH_LITERAL (bytecode 0): push literal N from method's literal area
+- [x] STORE_TEMPORARY_VARIABLE (bytecode 5): pop and store into temp N
+- [x] STORE_INSTANCE_VARIABLE (bytecode 4): pop and store into receiver field N
+- [x] RETURN_STACK_TOP (bytecode 7): return top of stack to caller
+- [x] DUPLICATE (bytecode 12): push a copy of top of stack
+- [x] POP (bytecode 11): discard top of stack — done as stack_pop
 
 ### 7. Marriage — Lazy Context Creation
 

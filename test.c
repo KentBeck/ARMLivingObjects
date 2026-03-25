@@ -29,6 +29,17 @@ extern void frame_store_temp(uint64_t *fp, uint64_t index, uint64_t value);
 extern void frame_return(uint64_t **sp_ptr, uint64_t **fp_ptr,
                          uint64_t *ip_ptr, uint64_t return_value);
 
+// Bytecode functions
+extern void bc_push_self(uint64_t **sp_ptr, uint64_t **fp_ptr);
+extern void bc_push_temp(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t index);
+extern void bc_push_inst_var(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t field_index);
+extern void bc_push_literal(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t literal_index);
+extern void bc_store_temp(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t index);
+extern void bc_store_inst_var(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t field_index);
+extern void bc_return_stack_top(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t *ip_ptr);
+extern void bc_duplicate(uint64_t **sp_ptr);
+extern void bc_pop(uint64_t **sp_ptr);
+
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
@@ -240,6 +251,91 @@ int main()
     ASSERT_EQ((uint64_t)fp, caller_fp_val, "return 2-arg: FP restored");
     ASSERT_EQ((uint64_t)sp, (uint64_t)(sp_before_send + 2),
               "return 2-arg: SP at receiver slot (both args popped)");
+
+    // --- Section 6: Bytecode Implementations ---
+
+    // Test: PUSH_SELF (bytecode 3)
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    stack_push(&sp, stack, receiver);
+    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    bc_push_self(&sp, &fp);
+    ASSERT_EQ(stack_top(&sp), receiver, "PUSH_SELF: receiver on stack");
+
+    // Test: PUSH_TEMPORARY_VARIABLE (bytecode 2)
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    stack_push(&sp, stack, receiver);
+    activate_method(&sp, &fp, fake_ip, fake_method, 0, 1);
+    frame_store_temp(fp, 0, 0x1234);
+    bc_push_temp(&sp, &fp, 0);
+    ASSERT_EQ(stack_top(&sp), 0x1234, "PUSH_TEMP: temp 0 on stack");
+
+    // Test: PUSH_INSTANCE_VARIABLE (bytecode 1)
+    // Receiver is a pointer to an array of fields
+    uint64_t obj_fields[4] = {0x10, 0x20, 0x30, 0x40};
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    stack_push(&sp, stack, (uint64_t)obj_fields);
+    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    bc_push_inst_var(&sp, &fp, 2);
+    ASSERT_EQ(stack_top(&sp), 0x30, "PUSH_INST_VAR: field 2 on stack");
+
+    // Test: PUSH_LITERAL (bytecode 0)
+    // Method pointer is treated as array of literals
+    uint64_t literals[3] = {0xAAA, 0xBBB, 0xCCC};
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    stack_push(&sp, stack, receiver);
+    activate_method(&sp, &fp, fake_ip, (uint64_t)literals, 0, 0);
+    bc_push_literal(&sp, &fp, 1);
+    ASSERT_EQ(stack_top(&sp), 0xBBB, "PUSH_LITERAL: literal 1 on stack");
+
+    // Test: STORE_TEMPORARY_VARIABLE (bytecode 5)
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    stack_push(&sp, stack, receiver);
+    activate_method(&sp, &fp, fake_ip, fake_method, 0, 1);
+    stack_push(&sp, stack, 0x5678); // push value to store
+    bc_store_temp(&sp, &fp, 0);
+    ASSERT_EQ(frame_temp(fp, 0), 0x5678, "STORE_TEMP: value in temp 0");
+
+    // Test: STORE_INSTANCE_VARIABLE (bytecode 4)
+    uint64_t obj2_fields[3] = {0, 0, 0};
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    stack_push(&sp, stack, (uint64_t)obj2_fields);
+    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    stack_push(&sp, stack, 0x9999);
+    bc_store_inst_var(&sp, &fp, 1);
+    ASSERT_EQ(obj2_fields[1], 0x9999, "STORE_INST_VAR: value in field 1");
+
+    // Test: RETURN_STACK_TOP (bytecode 7)
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = (uint64_t *)caller_fp_val;
+    ip = caller_ip_val;
+    stack_push(&sp, stack, receiver);
+    activate_method(&sp, &fp, ip, fake_method, 0, 0);
+    stack_push(&sp, stack, 42); // push return value
+    bc_return_stack_top(&sp, &fp, &ip);
+    ASSERT_EQ(stack_top(&sp), 42, "RETURN_STACK_TOP: result on caller stack");
+    ASSERT_EQ((uint64_t)fp, caller_fp_val, "RETURN_STACK_TOP: FP restored");
+    ASSERT_EQ(ip, caller_ip_val, "RETURN_STACK_TOP: IP restored");
+
+    // Test: DUPLICATE (bytecode 12)
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    stack_push(&sp, stack, 0x777);
+    bc_duplicate(&sp);
+    ASSERT_EQ(stack_top(&sp), 0x777, "DUPLICATE: top is copy");
+    stack_pop(&sp);
+    ASSERT_EQ(stack_top(&sp), 0x777, "DUPLICATE: original still there");
+
+    // Test: POP (bytecode 11) via bc_pop
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    stack_push(&sp, stack, 0x111);
+    stack_push(&sp, stack, 0x222);
+    bc_pop(&sp);
+    ASSERT_EQ(stack_top(&sp), 0x111, "POP: top removed, original remains");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
