@@ -97,14 +97,22 @@ _activate_method:
     sub     x6, x6, #8
     str     x10, [x6]
 
-    // Push 0 for each local temp
+    // Zero-initialize local temps using stp to clear 2 words per instruction
     mov     x19, x5            // x19 = num_temps counter
     cbz     x19, .Ltemps_done
-.Ltemps_loop:
+    // Handle odd temp: if count is odd, zero one slot first
+    tbnz    x19, #0, .Ltemps_odd
+    b       .Ltemps_pairs
+.Ltemps_odd:
     sub     x6, x6, #8
     str     xzr, [x6]
     sub     x19, x19, #1
-    cbnz    x19, .Ltemps_loop
+    cbz     x19, .Ltemps_done
+.Ltemps_pairs:
+    // Zero two words at a time: stp xzr, xzr, [x6, #-16]!
+    stp     xzr, xzr, [x6, #-16]!
+    sub     x19, x19, #2
+    cbnz    x19, .Ltemps_pairs
 .Ltemps_done:
 
     // Write back SP and FP
