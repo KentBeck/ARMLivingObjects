@@ -331,11 +331,12 @@ _bc_push_inst_var:
 // bc_push_literal(sp_ptr, fp_ptr, literal_index)
 // Bytecode 0: PUSH_LITERAL — push literal N from method's literal area
 // x2 = literal index
-// The method pointer (at FP - 1*W) is treated as a pointer to an array of
-// uint64_t values, where entry 0 is the literal at index 0.
+// Method is a CompiledMethod object at FP - 1*W.
+// Literals start at field CM_FIRST_LITERAL (field 3) = header(3) + 3 = offset 48 bytes.
 _bc_push_literal:
     ldr     x3, [x1]           // FP
-    ldr     x4, [x3, #-8]      // method pointer
+    ldr     x4, [x3, #-8]      // method (CompiledMethod object pointer)
+    add     x4, x4, #48        // skip to CM_FIRST_LITERAL (3 header + 3 fields = 48 bytes)
     lsl     x5, x2, #3         // literal_index * 8
     add     x6, x4, x5
     ldr     x7, [x6]           // load literal

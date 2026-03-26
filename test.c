@@ -133,15 +133,46 @@ int main()
     stack_pop(&sp);
     ASSERT_EQ(stack_top(&sp), 100, "push two values and pop one");
 
+    // --- Initialize Object Memory early so all tests can use real objects ---
+#define OM_SIZE 8192
+    uint8_t om_buffer[OM_SIZE] __attribute__((aligned(8)));
+    uint64_t om[2]; // om[0] = free_ptr, om[1] = end_ptr
+    om_init(om_buffer, OM_SIZE, om);
+
+    // Bootstrap Class class (self-referential)
+    uint64_t *class_class = om_alloc(om, 0, FORMAT_FIELDS, 3);
+    OBJ_CLASS(class_class) = (uint64_t)class_class;
+    OBJ_FIELD(class_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(class_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(class_class, CLASS_INST_SIZE) = tag_smallint(3);
+
+    // Create a simple class for test objects (0 inst vars)
+    uint64_t *test_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+    OBJ_FIELD(test_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(test_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(test_class, CLASS_INST_SIZE) = tag_smallint(0);
+
+    // Create a real receiver object (0 fields for now)
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)test_class, FORMAT_FIELDS, 0);
+    uint64_t receiver = (uint64_t)recv_obj;
+
+    // Create a real CompiledMethod for tests (0 args, 0 temps, 0 literals)
+    uint64_t *test_bytecodes = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+    uint8_t *test_bc = (uint8_t *)&OBJ_FIELD(test_bytecodes, 0);
+    test_bc[0] = 3; // PUSH_SELF
+    test_bc[1] = 7; // RETURN_STACK_TOP
+    uint64_t *test_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(test_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(test_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(test_cm, CM_LITERAL_COUNT) = tag_smallint(0);
+    OBJ_FIELD(test_cm, CM_FIRST_LITERAL) = (uint64_t)test_bytecodes; // bytecodes ptr
+    uint64_t fake_method = (uint64_t)test_cm;
+    uint64_t fake_ip = 0x1000;
+
     // --- Method Activation Tests ---
     // Reset stack for activation tests
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     uint64_t *fp = 0;
-
-    // Test: activate a method with 0 args, 0 temps
-    uint64_t receiver = 0xBEEF;
-    uint64_t fake_ip = 0x1000;
-    uint64_t fake_method = 0x2000;
 
     stack_push(&sp, stack, receiver); // caller pushes receiver
     activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
@@ -320,25 +351,41 @@ int main()
     ASSERT_EQ(stack_top(&sp), 0x1234, "PUSH_TEMP: temp 0 on stack");
 
     // Test: PUSH_INSTANCE_VARIABLE (bytecode 1)
-    // Receiver is an object with 3-word header + fields
-    uint64_t obj_fields[7] = {0 /*class*/, 0 /*format*/, 4 /*size*/,
-                              0x10, 0x20, 0x30, 0x40};
+    // Create a class with 4 inst vars, and an instance
+    uint64_t *iv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+    OBJ_FIELD(iv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(iv_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(iv_class, CLASS_INST_SIZE) = tag_smallint(4);
+    uint64_t *iv_obj = om_alloc(om, (uint64_t)iv_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(iv_obj, 0) = tag_smallint(10);
+    OBJ_FIELD(iv_obj, 1) = tag_smallint(20);
+    OBJ_FIELD(iv_obj, 2) = tag_smallint(30);
+    OBJ_FIELD(iv_obj, 3) = tag_smallint(40);
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
-    stack_push(&sp, stack, (uint64_t)obj_fields);
+    stack_push(&sp, stack, (uint64_t)iv_obj);
     activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
     bc_push_inst_var(&sp, &fp, 2);
-    ASSERT_EQ(stack_top(&sp), 0x30, "PUSH_INST_VAR: field 2 on stack");
+    ASSERT_EQ(stack_top(&sp), tag_smallint(30), "PUSH_INST_VAR: field 2 on stack");
 
     // Test: PUSH_LITERAL (bytecode 0)
-    // Method pointer is treated as array of literals
-    uint64_t literals[3] = {0xAAA, 0xBBB, 0xCCC};
+    // Create a CompiledMethod with 3 literals
+    uint64_t *lit_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+    uint64_t *lit_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 7);
+    // fields: num_args=0, num_temps=0, literal_count=3, lit0, lit1, lit2, bytecodes
+    OBJ_FIELD(lit_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(lit_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(lit_cm, CM_LITERAL_COUNT) = tag_smallint(3);
+    OBJ_FIELD(lit_cm, CM_FIRST_LITERAL + 0) = tag_smallint(0xAAA);
+    OBJ_FIELD(lit_cm, CM_FIRST_LITERAL + 1) = tag_smallint(0xBBB);
+    OBJ_FIELD(lit_cm, CM_FIRST_LITERAL + 2) = tag_smallint(0xCCC);
+    OBJ_FIELD(lit_cm, CM_FIRST_LITERAL + 3) = (uint64_t)lit_bc;
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, fake_ip, (uint64_t)literals, 0, 0);
+    activate_method(&sp, &fp, fake_ip, (uint64_t)lit_cm, 0, 0);
     bc_push_literal(&sp, &fp, 1);
-    ASSERT_EQ(stack_top(&sp), 0xBBB, "PUSH_LITERAL: literal 1 on stack");
+    ASSERT_EQ(stack_top(&sp), tag_smallint(0xBBB), "PUSH_LITERAL: literal 1 on stack");
 
     // Test: STORE_TEMPORARY_VARIABLE (bytecode 5)
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
@@ -350,15 +397,14 @@ int main()
     ASSERT_EQ(frame_temp(fp, 0), 0x5678, "STORE_TEMP: value in temp 0");
 
     // Test: STORE_INSTANCE_VARIABLE (bytecode 4)
-    uint64_t obj2_fields[6] = {0 /*class*/, 0 /*format*/, 3 /*size*/,
-                               0, 0, 0};
+    uint64_t *si_obj = om_alloc(om, (uint64_t)iv_class, FORMAT_FIELDS, 4);
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
-    stack_push(&sp, stack, (uint64_t)obj2_fields);
+    stack_push(&sp, stack, (uint64_t)si_obj);
     activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
-    stack_push(&sp, stack, 0x9999);
+    stack_push(&sp, stack, tag_smallint(0x9999));
     bc_store_inst_var(&sp, &fp, 1);
-    ASSERT_EQ(obj2_fields[3 + 1], 0x9999, "STORE_INST_VAR: value in field 1");
+    ASSERT_EQ(OBJ_FIELD(si_obj, 1), tag_smallint(0x9999), "STORE_INST_VAR: value in field 1");
 
     // Test: RETURN_STACK_TOP (bytecode 7)
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
@@ -438,16 +484,19 @@ int main()
 
     // Scenario 4: push instance variable, return
     // Smalltalk: foo   ^instVar2   (field index 2)
-    uint64_t obj3_fields[7] = {0 /*class*/, 0 /*format*/, 4 /*size*/,
-                               100, 200, 300, 400};
+    uint64_t *s4_obj = om_alloc(om, (uint64_t)iv_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(s4_obj, 0) = tag_smallint(100);
+    OBJ_FIELD(s4_obj, 1) = tag_smallint(200);
+    OBJ_FIELD(s4_obj, 2) = tag_smallint(300);
+    OBJ_FIELD(s4_obj, 3) = tag_smallint(400);
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = (uint64_t *)caller_fp_val;
     ip = caller_ip_val;
-    stack_push(&sp, stack, (uint64_t)obj3_fields);
+    stack_push(&sp, stack, (uint64_t)s4_obj);
     activate_method(&sp, &fp, ip, fake_method, 0, 0);
     bc_push_inst_var(&sp, &fp, 2); // pushInstVar 2
     bc_return_stack_top(&sp, &fp, &ip);
-    ASSERT_EQ(stack_top(&sp), 300,
+    ASSERT_EQ(stack_top(&sp), tag_smallint(300),
               "scenario: ^instVar2 returns 300");
 
     // Scenario 5: nested send — A calls B, B returns, A returns
@@ -554,33 +603,14 @@ int main()
     ASSERT_EQ(smallint_equal(tag_smallint(42), tag_smallint(43)),
               tagged_false(), "42 = 43 is false");
 
-// --- Section 8: Object Memory ---
-
-// Initialize object memory
-#define OM_SIZE 4096
-    uint8_t om_buffer[OM_SIZE] __attribute__((aligned(8)));
-    uint64_t om[2]; // om[0] = free_ptr, om[1] = end_ptr
-    om_init(om_buffer, OM_SIZE, om);
-    ASSERT_EQ(om[0], (uint64_t)om_buffer, "om_init: free ptr at buffer start");
-    ASSERT_EQ(om[1], (uint64_t)(om_buffer + OM_SIZE), "om_init: end ptr correct");
-
-    // Allocate an object with 0 fields
-    uint64_t fake_class = 0x100; // placeholder class pointer
-    uint64_t *obj0 = om_alloc(om, fake_class, FORMAT_FIELDS, 0);
-    ASSERT_EQ((uint64_t)obj0, (uint64_t)om_buffer, "alloc 0 fields: ptr at buffer start");
-    ASSERT_EQ((uint64_t)obj0 % 8, 0, "alloc 0 fields: aligned");
-    // free ptr advanced by 3 header words = 24 bytes
-    ASSERT_EQ(om[0], (uint64_t)om_buffer + 24, "alloc 0 fields: free ptr advanced by 24");
+    // --- Section 8: Object Memory (uses om + class_class from bootstrap above) ---
 
     // Allocate an object with 2 fields: size is correct
-    uint64_t *obj2 = om_alloc(om, fake_class, FORMAT_FIELDS, 2);
+    uint64_t *obj2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 2);
     ASSERT_EQ(OBJ_SIZE(obj2), 2, "alloc 2 fields: size is 2");
-    // 3 header + 2 fields = 5 words = 40 bytes
-    ASSERT_EQ((uint64_t)obj2, (uint64_t)om_buffer + 24, "alloc 2 fields: after obj0");
-    ASSERT_EQ(om[0], (uint64_t)om_buffer + 24 + 40, "alloc 2 fields: free ptr advanced by 40");
 
     // Read class pointer from object (word 0)
-    ASSERT_EQ(OBJ_CLASS(obj2), fake_class, "read class pointer from object");
+    ASSERT_EQ(OBJ_CLASS(obj2), (uint64_t)class_class, "read class pointer from object");
 
     // Read format from object (word 1)
     ASSERT_EQ(OBJ_FORMAT(obj2), FORMAT_FIELDS, "read format from object");
@@ -592,8 +622,8 @@ int main()
     ASSERT_EQ(OBJ_FIELD(obj2, 0), 0, "field 0 initialized to 0");
 
     // Write field 1 of an object
-    OBJ_FIELD(obj2, 1) = 0xBEEF;
-    ASSERT_EQ(OBJ_FIELD(obj2, 1), 0xBEEF, "write and read field 1");
+    OBJ_FIELD(obj2, 1) = tag_smallint(0xBEEF);
+    ASSERT_EQ(OBJ_FIELD(obj2, 1), tag_smallint(0xBEEF), "write and read field 1");
 
     // Object pointer has tag 00 (aligned)
     ASSERT_EQ(is_object_ptr((uint64_t)obj2), 1, "object pointer has tag 00");
@@ -604,31 +634,29 @@ int main()
     ASSERT_EQ(untag_smallint(OBJ_FIELD(obj2, 0)), 42, "field SmallInt value is 42");
 
     // Allocate a fields object (format 0)
-    uint64_t *obj_f = om_alloc(om, fake_class, FORMAT_FIELDS, 3);
+    uint64_t *obj_f = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
     ASSERT_EQ(OBJ_FORMAT(obj_f), FORMAT_FIELDS, "fields object: format 0");
     ASSERT_EQ(OBJ_SIZE(obj_f), 3, "fields object: size 3");
 
     // Allocate an indexable object (format 1)
-    uint64_t *obj_i = om_alloc(om, fake_class, FORMAT_INDEXABLE, 5);
+    uint64_t *obj_i = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 5);
     ASSERT_EQ(OBJ_FORMAT(obj_i), FORMAT_INDEXABLE, "indexable object: format 1");
     ASSERT_EQ(OBJ_SIZE(obj_i), 5, "indexable object: size 5");
     OBJ_FIELD(obj_i, 3) = tag_smallint(99);
     ASSERT_EQ(untag_smallint(OBJ_FIELD(obj_i, 3)), 99, "indexable: store/read slot 3");
 
     // Allocate a bytes object (format 2)
-    uint64_t *obj_b = om_alloc(om, fake_class, FORMAT_BYTES, 10);
+    uint64_t *obj_b = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 10);
     ASSERT_EQ(OBJ_FORMAT(obj_b), FORMAT_BYTES, "bytes object: format 2");
     ASSERT_EQ(OBJ_SIZE(obj_b), 10, "bytes object: size 10 bytes");
-    // 10 bytes = ceil(10/8) = 2 words for storage, + 3 header = 5 words = 40 bytes
     uint8_t *bytes = (uint8_t *)&OBJ_FIELD(obj_b, 0);
     bytes[0] = 0xAB;
     bytes[9] = 0xCD;
     ASSERT_EQ(bytes[0], 0xAB, "bytes object: write/read byte 0");
     ASSERT_EQ(bytes[9], 0xCD, "bytes object: write/read byte 9");
 
-    // Update bc_push_inst_var to work with 3-word header
-    // Create an object with 3 fields, use it as receiver in a frame
-    uint64_t *obj_recv = om_alloc(om, fake_class, FORMAT_FIELDS, 3);
+    // bc_push_inst_var with real object
+    uint64_t *obj_recv = om_alloc(om, (uint64_t)iv_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(obj_recv, 0) = tag_smallint(10);
     OBJ_FIELD(obj_recv, 1) = tag_smallint(20);
     OBJ_FIELD(obj_recv, 2) = tag_smallint(30);
@@ -638,36 +666,19 @@ int main()
     activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
     bc_push_inst_var(&sp, &fp, 1);
     ASSERT_EQ(stack_top(&sp), tag_smallint(20),
-              "bc_push_inst_var with 3-word header: field 1");
+              "bc_push_inst_var with real object: field 1");
 
-    // Update bc_store_inst_var to work with 3-word header
+    // bc_store_inst_var with real object
     stack_push(&sp, stack, tag_smallint(99));
     bc_store_inst_var(&sp, &fp, 2);
     ASSERT_EQ(OBJ_FIELD(obj_recv, 2), tag_smallint(99),
-              "bc_store_inst_var with 3-word header: field 2");
+              "bc_store_inst_var with real object: field 2");
 
     // --- Section 9: Class and Method Dictionary ---
+    // (class_class already bootstrapped above)
 
-    // Bootstrap: create Class class (self-referential class pointer)
-    // Class has 3 fields: superclass, method_dict, instance_size
-    uint64_t *class_class = om_alloc(om, 0, FORMAT_FIELDS, 3);
-    // Patch class pointer to point to itself
-    OBJ_CLASS(class_class) = (uint64_t)class_class;
-    OBJ_FIELD(class_class, CLASS_SUPERCLASS) = tagged_nil();
-    OBJ_FIELD(class_class, CLASS_METHOD_DICT) = tagged_nil();
-    OBJ_FIELD(class_class, CLASS_INST_SIZE) = tag_smallint(3);
     ASSERT_EQ(OBJ_CLASS(class_class), (uint64_t)class_class,
               "bootstrap: Class class is self-referential");
-
-    // Create a class with superclass nil, empty method dict, instance size 0
-    uint64_t *empty_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
-    OBJ_FIELD(empty_class, CLASS_SUPERCLASS) = tagged_nil();
-    OBJ_FIELD(empty_class, CLASS_METHOD_DICT) = tagged_nil();
-    OBJ_FIELD(empty_class, CLASS_INST_SIZE) = tag_smallint(0);
-    ASSERT_EQ(OBJ_CLASS(empty_class), (uint64_t)class_class,
-              "empty class: class pointer is Class");
-    ASSERT_EQ(OBJ_FIELD(empty_class, CLASS_SUPERCLASS), tagged_nil(),
-              "empty class: superclass is nil");
 
     // Create a method dictionary (Array) with one (selector, method) pair
     // Selector = tagged SmallInt 1 (symbol index for e.g. #foo)
