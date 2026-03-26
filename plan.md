@@ -142,27 +142,33 @@ false = 0x0B
 
 ### 8. Object Model
 
-Minimal object layout: every heap object has a header followed by fields.
+Object memory is a fixed-size buffer with a bump allocator.
+Crash (trap) when memory is exhausted.
 
-    Header (1 word):
-      bits 63:32 = class index (index into a class table)
-      bits 31:16 = format (0=fields, 1=bytes, 2=words, ...)
-      bits 15:0  = size (number of slots, not counting header)
+Every heap object has a 2-word header followed by fields:
+
+    Header:
+      word 0 = class pointer (tagged object pointer to a Class object)
+      word 1 = size (number of field slots, not counting header)
 
     Fields (size words):
       slot 0, slot 1, ... slot N-1   (all tagged values)
 
 Object pointers are 8-byte aligned, tag bits 00.
+The allocator returns a pointer to word 0 (the class pointer).
 
-- [ ] allocate an object: bump allocator returns aligned pointer
-- [ ] read class index from object header
-- [ ] read size from object header
-- [ ] read field 0 from an object (at header + 1\*W)
+- [ ] initialize object memory: fixed buffer, free pointer at start
+- [ ] allocate an object with 0 fields: returns aligned pointer, advances free ptr
+- [ ] allocate an object with 2 fields: size is correct
+- [ ] crash on out-of-memory: allocating beyond buffer traps
+- [ ] read class pointer from object (word 0)
+- [ ] read size from object (word 1)
+- [ ] read field 0 from an object (at header + 2\*W)
 - [ ] write field 1 of an object
 - [ ] object pointer has tag 00 (aligned)
 - [ ] fields store tagged values (e.g., SmallInteger in a field)
-- [ ] update bc_push_inst_var to work with tagged object pointers
-- [ ] update bc_store_inst_var to work with tagged object pointers
+- [ ] update bc_push_inst_var to work with object header layout
+- [ ] update bc_store_inst_var to work with object header layout
 
 ### 9. Class and Method Dictionary
 
