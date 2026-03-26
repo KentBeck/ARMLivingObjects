@@ -287,9 +287,9 @@ No primitive needed for ifTrue:ifFalse: — it's just a normal send.
 SEND_MESSAGE must detect tagged true (0x07) and false (0x0B) and
 look up their classes from the class table, like SmallInteger.
 
-- [ ] create a Block object with receiver and CM
-- [ ] PUSH_CLOSURE bytecode: creates block from literal CM + current receiver
-- [ ] Block value primitive: activates block's CM, returns result
+- [x] create a Block object with receiver and CM
+- [x] PUSH_CLOSURE bytecode: creates block from literal CM + current receiver
+- [x] Block value primitive: activates block's CM, returns result
 - [ ] True class with ifTrue:ifFalse: method (pushes arg 0, sends value, returns)
 - [ ] False class with ifTrue:ifFalse: method (pushes arg 1, sends value, returns)
 - [ ] SEND_MESSAGE detects tagged true/false and uses class table

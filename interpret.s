@@ -1,10 +1,11 @@
 // interpret.s — Bytecode dispatch loop
 //
-// interpret(sp_ptr, fp_ptr, ip, class_table) -> result (tagged value)
+// interpret(sp_ptr, fp_ptr, ip, class_table, om) -> result (tagged value)
 // x0 = pointer to SP variable
 // x1 = pointer to FP variable
 // x2 = IP: pointer to first bytecode (in a ByteArray's data area)
-// x3 = pointer to class table: [0]=SmallInteger class, [1]=... (tagged obj ptrs)
+// x3 = pointer to class table: [0]=SmallInteger, [1]=Block, [2]=True, [3]=False
+// x4 = pointer to om {free_ptr, end_ptr} pair (for allocation)
 //
 // Runs bytecodes until RETURN_STACK_TOP (7) or HALT (13).
 // Returns the result value (top of stack at exit).
@@ -49,6 +50,7 @@ _interpret:
     mov     x23, x2             // x23 = bytecodes base
     ldr     x24, [x20]          // x24 = entry frame FP (for detecting top-level return)
     mov     x25, x3             // x25 = class table pointer
+    mov     x26, x4             // x26 = om pointer
 
 .Ldispatch:
     ldrb    w22, [x21], #1      // fetch opcode, advance IP
@@ -75,6 +77,7 @@ _interpret:
     .long   .Lbc_pop             - .Ldispatch_table  // 11
     .long   .Lbc_duplicate       - .Ldispatch_table  // 12
     .long   .Lbc_halt            - .Ldispatch_table  // 13
+    .long   .Lbc_push_closure    - .Ldispatch_table  // 14
 
 // --- Bytecode handlers ---
 // Each reads operands from [x21] (IP), advances IP, operates on stack via x19/x20.
@@ -250,6 +253,8 @@ _interpret:
     b.eq    .Lprim_eq
     cmp     x3, #5              // PRIM_SMALLINT_MUL
     b.eq    .Lprim_mul
+    cmp     x3, #9              // PRIM_BLOCK_VALUE
+    b.eq    .Lprim_block_value
     brk     #4                  // unknown primitive
 
 .Lprim_add:
@@ -319,6 +324,46 @@ _interpret:
     str     x5, [x19]
     b       .Ldispatch
 
+.Lprim_block_value:
+    // Block>>value: receiver is a Block object on stack.
+    // Block field 0 (offset 24) = home receiver
+    // Block field 1 (offset 32) = CompiledMethod
+    // Pop block from stack, activate its CM with the home receiver, continue dispatch.
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // block object (the receiver of #value)
+    add     x5, x5, #8         // pop block
+    str     x5, [x19]
+
+    ldr     x7, [x6, #24]      // home receiver (block field 0)
+    ldr     x8, [x6, #32]      // CM (block field 1)
+
+    // Read num_temps from CM
+    ldr     x3, [x8, #40]      // num_temps (tagged)
+    asr     x3, x3, #2         // untag
+
+    // Push home receiver as the "receiver" for activation
+    ldr     x5, [x19]
+    sub     x5, x5, #8
+    str     x7, [x5]
+    str     x5, [x19]
+
+    // Activate: call _activate_method(sp_ptr, fp_ptr, saved_ip, method, num_args, num_temps)
+    mov     x5, x3             // num_temps
+    mov     x4, #0             // 0 args (no-arg block)
+    mov     x3, x8             // method = block's CM
+    mov     x2, x21            // saved IP = current IP
+    mov     x1, x20            // fp_ptr
+    mov     x0, x19            // sp_ptr
+    bl      _activate_method
+
+    // Set IP to block CM's bytecodes
+    ldr     x6, [x20]          // new FP
+    ldr     x7, [x6, #-8]      // method (block's CM)
+    ldr     x10, [x7, #56]     // CM_BYTECODES → ByteArray
+    add     x23, x10, #24      // skip header → data
+    mov     x21, x23
+    b       .Ldispatch
+
 .Lbc_return_stack_top:
     // Pop return value, dismantle frame
     ldr     x6, [x19]          // SP
@@ -386,6 +431,35 @@ _interpret:
     ldr     x7, [x6]
     sub     x6, x6, #8
     str     x7, [x6]
+    str     x6, [x19]
+    b       .Ldispatch
+
+.Lbc_push_closure:
+    // PUSH_CLOSURE: read literal_index, get CM from literals,
+    // allocate Block(2 fields: home_receiver, cm), push Block.
+    READ_U32                    // w5 = literal index
+    ldr     x6, [x20]          // FP
+    ldr     x7, [x6, #-8]      // current method
+    ldr     x7, [x7, #48]      // CM_LITERALS → Array
+    add     x7, x7, #24        // skip Array header
+    ldr     x9, [x7, x5, lsl #3]   // x9 = block CM (from literals)
+    ldr     x10, [x6, #-32]    // x10 = current receiver (home receiver)
+    // Allocate Block: om_alloc(om, block_class, FORMAT_FIELDS, 2)
+    mov     x0, x26             // om
+    ldr     x1, [x25, #8]      // class_table[1] = Block class
+    mov     x2, #0              // FORMAT_FIELDS
+    mov     x3, #2              // 2 fields
+    // Save volatile state
+    stp     x9, x10, [sp, #-16]!
+    bl      _om_alloc
+    ldp     x9, x10, [sp], #16
+    // x0 = new Block object
+    str     x10, [x0, #24]     // field 0 = home receiver (offset 24 = header)
+    str     x9, [x0, #32]      // field 1 = CM (offset 32)
+    // Push Block onto stack
+    ldr     x6, [x19]          // SP
+    sub     x6, x6, #8
+    str     x0, [x6]
     str     x6, [x19]
     b       .Ldispatch
 
