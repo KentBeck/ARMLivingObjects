@@ -43,6 +43,20 @@ extern void bc_pop(uint64_t **sp_ptr);
 // Tagged pointer functions
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
+extern uint64_t get_tag(uint64_t value);
+extern uint64_t is_smallint(uint64_t value);
+extern uint64_t is_object_ptr(uint64_t value);
+extern uint64_t is_immediate_float(uint64_t value);
+extern uint64_t is_special(uint64_t value);
+extern uint64_t tagged_nil(void);
+extern uint64_t tagged_true(void);
+extern uint64_t tagged_false(void);
+extern uint64_t is_nil(uint64_t value);
+extern uint64_t is_boolean(uint64_t value);
+extern uint64_t smallint_add(uint64_t a, uint64_t b);
+extern uint64_t smallint_sub(uint64_t a, uint64_t b);
+extern uint64_t smallint_less_than(uint64_t a, uint64_t b);
+extern uint64_t smallint_equal(uint64_t a, uint64_t b);
 
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
@@ -437,6 +451,75 @@ int main()
     tagged = tag_smallint(42);
     ASSERT_EQ(untag_smallint(tagged), 42, "SmallInt 42: encode/decode roundtrip");
     ASSERT_EQ(tagged, (42ULL << 2) | 1, "SmallInt 42: raw tagged value is 169");
+
+    // Test: encode SmallInteger -1 and decode it back
+    tagged = tag_smallint(-1);
+    ASSERT_EQ((int64_t)untag_smallint(tagged), -1, "SmallInt -1: encode/decode roundtrip");
+
+    // Test: detect tag: SmallInteger has bits 1:0 == 01
+    ASSERT_EQ(get_tag(tag_smallint(42)), 1, "tag of SmallInt is 01");
+    ASSERT_EQ(is_smallint(tag_smallint(42)), 1, "is_smallint(SmallInt 42)");
+
+    // Test: detect tag: object pointer has bits 1:0 == 00
+    uint64_t aligned_ptr = 0x1000; // 8-byte aligned, tag 00
+    ASSERT_EQ(get_tag(aligned_ptr), 0, "tag of object pointer is 00");
+    ASSERT_EQ(is_object_ptr(aligned_ptr), 1, "is_object_ptr(0x1000)");
+    ASSERT_EQ(is_smallint(aligned_ptr), 0, "is_smallint(obj ptr) is 0");
+
+    // Test: detect tag: immediate float has bits 1:0 == 10
+    uint64_t fake_float = 0x42 | 2; // tag 10
+    ASSERT_EQ(get_tag(fake_float), 2, "tag of immediate float is 10");
+    ASSERT_EQ(is_immediate_float(fake_float), 1, "is_immediate_float");
+
+    // Test: detect tag: special object has bits 1:0 == 11
+    ASSERT_EQ(get_tag(tagged_nil()), 3, "tag of nil is 11");
+    ASSERT_EQ(is_special(tagged_nil()), 1, "is_special(nil)");
+
+    // Test: nil is the tagged value 0x03
+    ASSERT_EQ(tagged_nil(), 0x03, "nil == 0x03");
+
+    // Test: true is the tagged value 0x07
+    ASSERT_EQ(tagged_true(), 0x07, "true == 0x07");
+
+    // Test: false is the tagged value 0x0B
+    ASSERT_EQ(tagged_false(), 0x0B, "false == 0x0B");
+
+    // Test: is_nil check
+    ASSERT_EQ(is_nil(tagged_nil()), 1, "is_nil(nil) == 1");
+    ASSERT_EQ(is_nil(tagged_true()), 0, "is_nil(true) == 0");
+    ASSERT_EQ(is_nil(tag_smallint(0)), 0, "is_nil(SmallInt 0) == 0");
+
+    // Test: is_boolean check
+    ASSERT_EQ(is_boolean(tagged_true()), 1, "is_boolean(true) == 1");
+    ASSERT_EQ(is_boolean(tagged_false()), 1, "is_boolean(false) == 1");
+    ASSERT_EQ(is_boolean(tagged_nil()), 0, "is_boolean(nil) == 0");
+    ASSERT_EQ(is_boolean(tag_smallint(7)), 0, "is_boolean(SmallInt 7) == 0");
+
+    // Test: SmallInteger addition
+    uint64_t a = tag_smallint(3);
+    uint64_t b = tag_smallint(4);
+    uint64_t sum = smallint_add(a, b);
+    ASSERT_EQ(untag_smallint(sum), 7, "3 + 4 = 7");
+    ASSERT_EQ(is_smallint(sum), 1, "sum is tagged SmallInt");
+
+    // Test: SmallInteger subtraction
+    uint64_t diff = smallint_sub(tag_smallint(10), tag_smallint(3));
+    ASSERT_EQ(untag_smallint(diff), 7, "10 - 3 = 7");
+    ASSERT_EQ(is_smallint(diff), 1, "diff is tagged SmallInt");
+
+    // Test: SmallInteger less-than
+    ASSERT_EQ(smallint_less_than(tag_smallint(3), tag_smallint(5)),
+              tagged_true(), "3 < 5 is true");
+    ASSERT_EQ(smallint_less_than(tag_smallint(5), tag_smallint(3)),
+              tagged_false(), "5 < 3 is false");
+    ASSERT_EQ(smallint_less_than(tag_smallint(3), tag_smallint(3)),
+              tagged_false(), "3 < 3 is false");
+
+    // Test: SmallInteger equality
+    ASSERT_EQ(smallint_equal(tag_smallint(42), tag_smallint(42)),
+              tagged_true(), "42 = 42 is true");
+    ASSERT_EQ(smallint_equal(tag_smallint(42), tag_smallint(43)),
+              tagged_false(), "42 = 43 is false");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

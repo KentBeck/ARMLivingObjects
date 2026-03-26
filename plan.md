@@ -125,20 +125,20 @@ false = 0x0B
 
 - [x] encode SmallInteger 0 and decode it back
 - [x] encode SmallInteger 42 and decode it back
-- [ ] encode SmallInteger -1 and decode it back
-- [ ] detect tag: SmallInteger has bits 1:0 == 01
-- [ ] detect tag: object pointer has bits 1:0 == 00
-- [ ] detect tag: immediate float has bits 1:0 == 10
-- [ ] detect tag: special object has bits 1:0 == 11
-- [ ] nil is the tagged value 0x03
-- [ ] true is the tagged value 0x07
-- [ ] false is the tagged value 0x0B
-- [ ] is_nil check: compare to 0x03
-- [ ] is_boolean check: (value & ~0b1000) == 0b0011 matches true and false
-- [ ] SmallInteger addition: decode both, add, re-encode
-- [ ] SmallInteger subtraction
-- [ ] SmallInteger less-than comparison: returns tagged true or false
-- [ ] SmallInteger equality: returns tagged true or false
+- [x] encode SmallInteger -1 and decode it back
+- [x] detect tag: SmallInteger has bits 1:0 == 01
+- [x] detect tag: object pointer has bits 1:0 == 00
+- [x] detect tag: immediate float has bits 1:0 == 10
+- [x] detect tag: special object has bits 1:0 == 11
+- [x] nil is the tagged value 0x03
+- [x] true is the tagged value 0x07
+- [x] false is the tagged value 0x0B
+- [x] is_nil check: compare to 0x03
+- [x] is_boolean check: value == 7 || value == 11
+- [x] SmallInteger addition: decode both, add, re-encode
+- [x] SmallInteger subtraction
+- [x] SmallInteger less-than comparison: returns tagged true or false
+- [x] SmallInteger equality: returns tagged true or false
 
 ### 8. Object Model
 
