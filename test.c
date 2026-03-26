@@ -40,6 +40,10 @@ extern void bc_return_stack_top(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t *
 extern void bc_duplicate(uint64_t **sp_ptr);
 extern void bc_pop(uint64_t **sp_ptr);
 
+// Tagged pointer functions
+extern uint64_t tag_smallint(int64_t value);
+extern int64_t untag_smallint(uint64_t tagged);
+
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
@@ -422,6 +426,12 @@ int main()
               "scenario: nested A>>foo calls B>>bar, returns receiver");
     ASSERT_EQ((uint64_t)fp, caller_fp_val,
               "scenario: nested send restores original caller FP");
+
+    // --- Section 7: Tagged Pointers ---
+
+    // Test: encode SmallInteger 0 and decode it back
+    uint64_t tagged = tag_smallint(0);
+    ASSERT_EQ(untag_smallint(tagged), 0, "SmallInt 0: encode/decode roundtrip");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

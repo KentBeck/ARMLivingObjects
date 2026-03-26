@@ -123,7 +123,7 @@ nil = 0x03
 true = 0x07
 false = 0x0B
 
-- [ ] encode SmallInteger 0 and decode it back
+- [x] encode SmallInteger 0 and decode it back
 - [ ] encode SmallInteger 42 and decode it back
 - [ ] encode SmallInteger -1 and decode it back
 - [ ] detect tag: SmallInteger has bits 1:0 == 01

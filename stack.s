@@ -24,6 +24,8 @@
 .global _bc_return_stack_top
 .global _bc_duplicate
 .global _bc_pop
+.global _tag_smallint
+.global _untag_smallint
 
 .align 2
 
@@ -394,4 +396,20 @@ _bc_pop:
     ldr     x1, [x0]           // SP
     add     x1, x1, #8         // pop
     str     x1, [x0]           // write back SP
+    ret
+
+// === Tagged Pointers ===
+// Tag bits (1:0): 00=object pointer, 01=SmallInteger, 10=float, 11=special
+
+// tag_smallint(int64_t value) -> uint64_t
+// Encode: (value << 2) | 0b01
+_tag_smallint:
+    lsl     x0, x0, #2
+    orr     x0, x0, #1
+    ret
+
+// untag_smallint(uint64_t tagged) -> int64_t
+// Decode: arithmetic right shift 2
+_untag_smallint:
+    asr     x0, x0, #2
     ret
