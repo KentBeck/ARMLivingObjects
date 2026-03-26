@@ -1,7 +1,7 @@
 CC = clang
 AS = as
 
-ASM_SRCS = stack_ops.s frame.s bytecode.s tagged.s object.s lookup.s
+ASM_SRCS = stack_ops.s frame.s bytecode.s tagged.s object.s lookup.s interpret.s
 ASM_OBJS = $(ASM_SRCS:.s=.o)
 
 test: test.c $(ASM_OBJS)

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 // ARM64 assembly functions
 extern void stack_push(uint64_t **sp_ptr, uint64_t *stack_base, uint64_t value);
@@ -87,6 +88,25 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr,
 extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector);
 // Class-based lookup: walks superclass chain
 extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
+
+// Bytecode dispatch loop
+extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip);
+
+// Bytecode opcodes
+#define BC_PUSH_LITERAL 0
+#define BC_PUSH_INST_VAR 1
+#define BC_PUSH_TEMP 2
+#define BC_PUSH_SELF 3
+#define BC_STORE_INST_VAR 4
+#define BC_STORE_TEMP 5
+#define BC_SEND_MESSAGE 6
+#define BC_RETURN 7
+#define BC_JUMP 8
+#define BC_JUMP_IF_TRUE 9
+#define BC_JUMP_IF_FALSE 10
+#define BC_POP 11
+#define BC_DUPLICATE 12
+#define BC_HALT 13
 
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
@@ -440,10 +460,10 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = (uint64_t *)caller_fp_val;
     ip = caller_ip_val;
-    stack_push(&sp, stack, receiver);                 // caller pushes receiver
+    stack_push(&sp, stack, receiver);            // caller pushes receiver
     activate_method(&sp, &fp, ip, method, 0, 0); // send #foo
-    bc_push_self(&sp, &fp);                           // pushSelf
-    bc_return_stack_top(&sp, &fp, &ip);               // returnStackTop
+    bc_push_self(&sp, &fp);                      // pushSelf
+    bc_return_stack_top(&sp, &fp, &ip);          // returnStackTop
     ASSERT_EQ(stack_top(&sp), receiver,
               "scenario: ^self returns receiver to caller");
     ASSERT_EQ((uint64_t)fp, caller_fp_val,
@@ -756,6 +776,140 @@ int main()
     found = class_lookup(recv_class, sel_foo);
     ASSERT_EQ(found, (uint64_t)fake_cm,
               "lookup from receiver: class -> method dict -> method");
+
+// --- Section 10: Bytecode Dispatch Loop ---
+
+// Helper: write a 4-byte little-endian uint32 into bytecodes
+#define WRITE_U32(ptr, val)    \
+    do                         \
+    {                          \
+        uint32_t _v = (val);   \
+        memcpy((ptr), &_v, 4); \
+    } while (0)
+
+    // Test: dispatch a single PUSH_LITERAL and HALT
+    // Method with 1 literal (tag_smallint(42)), bytecodes: PUSH_LITERAL 0, HALT
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&dbc[1], 0); // literal index 0
+        dbc[5] = BC_HALT;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(1);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = tag_smallint(42);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = 0;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(42), "dispatch: PUSH_LITERAL 0 + HALT");
+    }
+
+    // Test: dispatch PUSH_LITERAL then RETURN_STACK_TOP: value returned
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&dbc[1], 0);
+        dbc[5] = BC_RETURN;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(1);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = tag_smallint(99);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)caller_fp_val;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, caller_ip_val, (uint64_t)d_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(99),
+                  "dispatch: PUSH_LITERAL + RETURN returns value");
+    }
+
+    // Test: dispatch PUSH_SELF then RETURN_STACK_TOP
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_SELF;
+        dbc[1] = BC_RETURN;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)caller_fp_val;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, caller_ip_val, (uint64_t)d_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, receiver, "dispatch: PUSH_SELF + RETURN");
+    }
+
+    // Test: dispatch PUSH_TEMP, PUSH_TEMP sequence + HALT
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_TEMP;
+        WRITE_U32(&dbc[1], 0); // temp 0
+        dbc[5] = BC_PUSH_TEMP;
+        WRITE_U32(&dbc[6], 1); // temp 1
+        dbc[10] = BC_HALT;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(2);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = 0;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 2);
+        // Store values into temps manually
+        frame_store_temp(fp, 0, tag_smallint(10));
+        frame_store_temp(fp, 1, tag_smallint(20));
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(20), "dispatch: PUSH_TEMP 0, PUSH_TEMP 1 + HALT");
+    }
+
+    // Test: dispatch STORE_TEMP then PUSH_TEMP: round-trip
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&dbc[1], 0); // push literal 0 (= 77)
+        dbc[5] = BC_STORE_TEMP;
+        WRITE_U32(&dbc[6], 0); // store into temp 0
+        dbc[10] = BC_PUSH_TEMP;
+        WRITE_U32(&dbc[11], 0); // push temp 0
+        dbc[15] = BC_RETURN;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(1);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(1);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = tag_smallint(77);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)caller_fp_val;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, caller_ip_val, (uint64_t)d_cm, 0, 1);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(77),
+                  "dispatch: PUSH_LIT, STORE_TEMP, PUSH_TEMP, RETURN");
+    }
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

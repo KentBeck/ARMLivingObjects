@@ -225,11 +225,11 @@ bytecode array.
       br    x_handler            // tail to handler
       // each handler jumps back to loop
 
-- [ ] dispatch a single PUSH_LITERAL bytecode and stop
-- [ ] dispatch PUSH_LITERAL then RETURN_STACK_TOP: value returned
-- [ ] dispatch PUSH_SELF then RETURN_STACK_TOP
-- [ ] dispatch PUSH_TEMP, PUSH_TEMP, sequence
-- [ ] dispatch STORE_TEMP then PUSH_TEMP: round-trip through dispatch
+- [x] dispatch a single PUSH_LITERAL bytecode and stop
+- [x] dispatch PUSH_LITERAL then RETURN_STACK_TOP: value returned
+- [x] dispatch PUSH_SELF then RETURN_STACK_TOP
+- [x] dispatch PUSH_TEMP, PUSH_TEMP, sequence
+- [x] dispatch STORE_TEMP then PUSH_TEMP: round-trip through dispatch
 - [ ] dispatch JUMP: IP advances to target
 - [ ] dispatch JUMP_IF_TRUE with tagged true: jumps
 - [ ] dispatch JUMP_IF_TRUE with tagged false: falls through
