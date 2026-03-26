@@ -145,14 +145,18 @@ false = 0x0B
 Object memory is a fixed-size buffer with a bump allocator.
 Crash (trap) when memory is exhausted.
 
-Every heap object has a 2-word header followed by fields:
+Every heap object has a 3-word header followed by slots:
 
     Header:
       word 0 = class pointer (tagged object pointer to a Class object)
-      word 1 = size (number of field slots, not counting header)
+      word 1 = format tag:
+                 0 = fields (named instance variables, all tagged pointers)
+                 1 = indexable (variable-size array of tagged pointers)
+                 2 = bytes (variable-size array of raw bytes)
+      word 2 = size (number of slots: field count, array length, or byte count)
 
-    Fields (size words):
-      slot 0, slot 1, ... slot N-1   (all tagged values)
+    Slots (size words for format 0 and 1, ceil(size/8) words for format 2):
+      slot 0, slot 1, ... slot N-1
 
 Object pointers are 8-byte aligned, tag bits 00.
 The allocator returns a pointer to word 0 (the class pointer).
@@ -162,13 +166,17 @@ The allocator returns a pointer to word 0 (the class pointer).
 - [ ] allocate an object with 2 fields: size is correct
 - [ ] crash on out-of-memory: allocating beyond buffer traps
 - [ ] read class pointer from object (word 0)
-- [ ] read size from object (word 1)
-- [ ] read field 0 from an object (at header + 2\*W)
+- [ ] read format from object (word 1)
+- [ ] read size from object (word 2)
+- [ ] read field 0 from an object (at header + 3\*W)
 - [ ] write field 1 of an object
 - [ ] object pointer has tag 00 (aligned)
 - [ ] fields store tagged values (e.g., SmallInteger in a field)
-- [ ] update bc_push_inst_var to work with object header layout
-- [ ] update bc_store_inst_var to work with object header layout
+- [ ] allocate a fields object (format 0): stores tagged pointers
+- [ ] allocate an indexable object (format 1): variable-size array
+- [ ] allocate a bytes object (format 2): raw byte storage
+- [ ] update bc_push_inst_var to work with 3-word header
+- [ ] update bc_store_inst_var to work with 3-word header
 
 ### 9. Class and Method Dictionary
 
