@@ -244,7 +244,7 @@ in the new method.
 
 - [x] send a 0-arg message: look up, activate, dispatch callee
 - [x] send a 1-arg message: arg and receiver popped, method activated
-- [ ] send to superclass: method found in superclass
+- [x] send to superclass: method found in superclass
 - [ ] message not understood: signal error (for now, halt)
 - [x] full scenario: create object, send message, method pushes inst var, returns
 

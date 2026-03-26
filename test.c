@@ -1255,6 +1255,66 @@ int main()
                   "SEND 1-arg: self withArg: 777 returns self");
     }
 
+    // Test: send to superclass — method found in superclass
+    {
+        // Parent class has method #greet that returns literal 0 (= 999)
+        uint64_t *greet_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *gbc = (uint8_t *)&OBJ_FIELD(greet_bc, 0);
+        gbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&gbc[1], 0);
+        gbc[5] = BC_RETURN;
+
+        uint64_t *greet_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(greet_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(greet_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(greet_cm, CM_LITERAL_COUNT) = tag_smallint(1);
+        OBJ_FIELD(greet_cm, CM_FIRST_LITERAL + 0) = tag_smallint(999);
+        OBJ_FIELD(greet_cm, CM_FIRST_LITERAL + 1) = (uint64_t)greet_bc;
+
+        uint64_t sel_greet = tag_smallint(30);
+        uint64_t *par_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(par_md, 0) = sel_greet;
+        OBJ_FIELD(par_md, 1) = (uint64_t)greet_cm;
+
+        uint64_t *par_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(par_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(par_class, CLASS_METHOD_DICT) = (uint64_t)par_md;
+        OBJ_FIELD(par_class, CLASS_INST_SIZE) = tag_smallint(0);
+
+        // Child class: empty method dict, superclass = par_class
+        uint64_t *child_cls = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(child_cls, CLASS_SUPERCLASS) = (uint64_t)par_class;
+        OBJ_FIELD(child_cls, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(child_cls, CLASS_INST_SIZE) = tag_smallint(0);
+
+        // Instance of child class
+        uint64_t *child_obj = om_alloc(om, (uint64_t)child_cls, FORMAT_FIELDS, 0);
+
+        // Caller: push self, send #greet, return
+        uint64_t *sc_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *scb = (uint8_t *)&OBJ_FIELD(sc_bc, 0);
+        scb[0] = BC_PUSH_SELF;
+        scb[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&scb[2], 0); // selector index 0
+        WRITE_U32(&scb[6], 0); // 0 args
+        scb[10] = BC_RETURN;
+
+        uint64_t *sc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(sc_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(sc_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(sc_cm, CM_LITERAL_COUNT) = tag_smallint(1);
+        OBJ_FIELD(sc_cm, CM_FIRST_LITERAL + 0) = sel_greet;
+        OBJ_FIELD(sc_cm, CM_FIRST_LITERAL + 1) = (uint64_t)sc_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)child_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)sc_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(sc_bc, 0));
+        ASSERT_EQ(result, tag_smallint(999),
+                  "SEND superclass: child sends #greet, found in parent");
+    }
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }
