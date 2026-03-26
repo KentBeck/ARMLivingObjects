@@ -1066,6 +1066,128 @@ int main()
                   "dispatch: JUMP_IF_FALSE with true falls through");
     }
 
+    // --- Section 11: Message Send ---
+
+    // Create a class with a method that returns self (^self)
+    // Method: PUSH_SELF, RETURN_STACK_TOP
+    {
+        // bytecodes for "^self"
+        uint64_t *self_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+        uint8_t *sbc = (uint8_t *)&OBJ_FIELD(self_bc, 0);
+        sbc[0] = BC_PUSH_SELF;
+        sbc[1] = BC_RETURN;
+
+        // CompiledMethod: 0 args, 0 temps, 0 literals, bytecodes
+        uint64_t *self_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(self_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(self_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(self_cm, CM_LITERAL_COUNT) = tag_smallint(0);
+        OBJ_FIELD(self_cm, CM_FIRST_LITERAL) = (uint64_t)self_bc;
+
+        // selector for #yourself = tagged SmallInt 10
+        uint64_t sel_yourself = tag_smallint(10);
+
+        // method dict with one entry
+        uint64_t *send_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(send_md, 0) = sel_yourself;
+        OBJ_FIELD(send_md, 1) = (uint64_t)self_cm;
+
+        // class with this method dict
+        uint64_t *send_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(send_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(send_class, CLASS_METHOD_DICT) = (uint64_t)send_md;
+        OBJ_FIELD(send_class, CLASS_INST_SIZE) = tag_smallint(0);
+
+        // instance of this class
+        uint64_t *send_obj = om_alloc(om, (uint64_t)send_class, FORMAT_FIELDS, 0);
+
+        // Caller method: PUSH_SELF, SEND #yourself (0 args), RETURN
+        // The caller's literal 0 = sel_yourself
+        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *cbc = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        cbc[0] = BC_PUSH_SELF; // push receiver as send target
+        cbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&cbc[2], 0); // selector index 0 (= sel_yourself)
+        WRITE_U32(&cbc[6], 0); // arg count 0
+        cbc[10] = BC_RETURN;
+
+        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERAL_COUNT) = tag_smallint(1);
+        OBJ_FIELD(caller_cm, CM_FIRST_LITERAL + 0) = sel_yourself;
+        OBJ_FIELD(caller_cm, CM_FIRST_LITERAL + 1) = (uint64_t)caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)0xCAFE; // caller FP sentinel
+        stack_push(&sp, stack, (uint64_t)send_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0));
+        ASSERT_EQ(result, (uint64_t)send_obj,
+                  "SEND 0-arg: self yourself returns self");
+    }
+
+    // Test: send a 1-arg message
+    // Method: ^arg (push temp 0 which is the arg, return)
+    // Wait — args are above the frame. In our frame layout, arg0 is at FP+2*W.
+    // For dispatch, we'd need a PUSH_ARG bytecode or unified temp/arg indexing.
+    // For now, test with a method that just returns self to keep it simple.
+
+    // Test: full scenario: create object, send message, method pushes inst var, returns
+    {
+        // Class with 1 inst var
+        uint64_t *pt_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(pt_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(pt_class, CLASS_INST_SIZE) = tag_smallint(1);
+
+        // Method #x: push inst var 0, return
+        uint64_t *x_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *xbc = (uint8_t *)&OBJ_FIELD(x_bc, 0);
+        xbc[0] = BC_PUSH_INST_VAR;
+        WRITE_U32(&xbc[1], 0); // field 0
+        xbc[5] = BC_RETURN;
+
+        uint64_t *x_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(x_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(x_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(x_cm, CM_LITERAL_COUNT) = tag_smallint(0);
+        OBJ_FIELD(x_cm, CM_FIRST_LITERAL) = (uint64_t)x_bc;
+
+        uint64_t sel_x = tag_smallint(20);
+        uint64_t *pt_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(pt_md, 0) = sel_x;
+        OBJ_FIELD(pt_md, 1) = (uint64_t)x_cm;
+        OBJ_FIELD(pt_class, CLASS_METHOD_DICT) = (uint64_t)pt_md;
+
+        // Instance with x=42
+        uint64_t *pt_obj = om_alloc(om, (uint64_t)pt_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(pt_obj, 0) = tag_smallint(42);
+
+        // Caller: push self, send #x, return
+        uint64_t *c2_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *c2b = (uint8_t *)&OBJ_FIELD(c2_bc, 0);
+        c2b[0] = BC_PUSH_SELF;
+        c2b[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&c2b[2], 0); // selector index 0
+        WRITE_U32(&c2b[6], 0); // 0 args
+        c2b[10] = BC_RETURN;
+
+        uint64_t *c2_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(c2_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(c2_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(c2_cm, CM_LITERAL_COUNT) = tag_smallint(1);
+        OBJ_FIELD(c2_cm, CM_FIRST_LITERAL + 0) = sel_x;
+        OBJ_FIELD(c2_cm, CM_FIRST_LITERAL + 1) = (uint64_t)c2_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)pt_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)c2_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(c2_bc, 0));
+        ASSERT_EQ(result, tag_smallint(42),
+                  "SEND: obj x returns inst var 0 (42)");
+    }
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }

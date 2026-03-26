@@ -242,11 +242,11 @@ The send bytecode: pop args and receiver, look up selector in
 receiver's class, activate the found method, continue dispatch
 in the new method.
 
-- [ ] send a 0-arg message: look up, activate, dispatch callee
+- [x] send a 0-arg message: look up, activate, dispatch callee
 - [ ] send a 1-arg message: arg and receiver popped, method activated
 - [ ] send to superclass: method found in superclass
 - [ ] message not understood: signal error (for now, halt)
-- [ ] full scenario: create object, send message, method pushes self, returns
+- [x] full scenario: create object, send message, method pushes inst var, returns
 
 ### 12. Primitives
 

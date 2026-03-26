@@ -44,7 +44,8 @@ _interpret:
     mov     x19, x0             // x19 = sp_ptr
     mov     x20, x1             // x20 = fp_ptr
     mov     x21, x2             // x21 = IP
-    mov     x23, x2             // x23 = bytecodes base (constant)
+    mov     x23, x2             // x23 = bytecodes base
+    ldr     x24, [x20]          // x24 = entry frame FP (for detecting top-level return)
 
 .Ldispatch:
     ldrb    w22, [x21], #1      // fetch opcode, advance IP
@@ -159,26 +160,97 @@ _interpret:
     b       .Ldispatch
 
 .Lbc_send_message:
-    // TODO: implement in Section 11
-    brk     #2                  // not yet implemented
+    // Read selector_index (4 bytes) and arg_count (4 bytes)
+    READ_U32                    // w5 = selector_index
+    mov     x9, x5             // x9 = selector_index (save before next READ_U32 clobbers w5)
+    READ_U32                    // w5 = arg_count
+    mov     x10, x5             // x10 = arg_count
+
+    // Get selector from current method's literals
+    ldr     x11, [x20]          // FP
+    ldr     x12, [x11, #-8]    // current method (CompiledMethod)
+    add     x13, x12, #48      // CM_FIRST_LITERAL offset (header 24 + field3*8 = 24+24=48)
+    ldr     x14, [x13, x9, lsl #3]  // selector (tagged SmallInt)
+
+    // Get receiver from stack: at SP + arg_count * 8
+    ldr     x15, [x19]         // SP
+    ldr     x0, [x15, x10, lsl #3]  // receiver
+
+    // Look up receiver's class and find method
+    ldr     x0, [x0]           // receiver's class pointer (OBJ_CLASS = word 0)
+    mov     x1, x14            // selector
+    // Save volatile state before function call
+    stp     x9, x10, [sp, #-16]!
+    str     x14, [sp, #-16]!   // save selector
+    bl      _class_lookup       // x0 = found method or 0
+    ldr     x14, [sp], #16
+    ldp     x9, x10, [sp], #16
+
+    // Check if method was found
+    cbz     x0, .Lsend_not_found
+
+    // x0 = found CompiledMethod, x10 = arg_count, x21 = IP (past SEND operands)
+    // Read num_temps from found method
+    ldr     x3, [x0, #32]      // num_temps (tagged) at method + header(24) + field1(8)
+    asr     x3, x3, #2         // untag num_temps
+
+    // Activate: call _activate_method(sp_ptr, fp_ptr, saved_ip, method, num_args, num_temps)
+    mov     x5, x3             // num_temps
+    mov     x4, x10            // num_args
+    mov     x3, x0             // method (CompiledMethod pointer)
+    mov     x2, x21            // saved IP = current IP (will be restored on return)
+    mov     x1, x20            // fp_ptr
+    mov     x0, x19            // sp_ptr
+    bl      _activate_method
+
+    // Set IP to new method's bytecodes
+    // bytecodes_ptr = method + (3 + 3 + literal_count) * 8
+    ldr     x6, [x20]          // new FP
+    ldr     x7, [x6, #-8]      // new method
+    ldr     x9, [x7, #40]      // literal_count (tagged) at method+24+16
+    asr     x9, x9, #2         // untag
+    add     x9, x9, #6         // 3 header + 3 + literal_count
+    ldr     x10, [x7, x9, lsl #3]   // bytecodes object pointer
+    add     x23, x10, #24      // skip ByteArray header → data
+    mov     x21, x23            // IP = start of new method's bytecodes
+    b       .Ldispatch
+
+.Lsend_not_found:
+    brk     #3                  // message not understood (trap for now)
 
 .Lbc_return_stack_top:
-    // Pop return value, dismantle frame, exit interpreter
+    // Pop return value, dismantle frame
     ldr     x6, [x19]          // SP
-    ldr     x0, [x6]           // return value (will be our result)
-    // Dismantle frame
-    ldr     x7, [x20]          // FP
-    ldr     x8, [x7, #-16]     // flags
-    ubfx    x8, x8, #8, #8     // num_args
-    add     x8, x8, #2
-    lsl     x8, x8, #3
-    add     x9, x7, x8         // new SP
-    str     x0, [x9]           // store result at new SP
-    ldr     x10, [x7]          // saved caller FP
-    str     x10, [x20]
-    // Don't restore caller IP — we're exiting the interpreter
-    str     x9, [x19]
-    b       .Lexit
+    ldr     x0, [x6]           // return value
+    ldr     x7, [x20]          // FP (frame being dismantled)
+    ldr     x9, [x7, #-16]     // flags
+    ubfx    x9, x9, #8, #8     // num_args
+    add     x9, x9, #2
+    lsl     x9, x9, #3
+    add     x10, x7, x9        // new SP = FP + (2+num_args)*8
+    str     x0, [x10]          // store result at new SP (replaces receiver)
+    ldr     x11, [x7]          // saved caller FP
+    ldr     x12, [x7, #8]      // saved caller IP
+    str     x10, [x19]         // write back SP
+    str     x11, [x20]         // write back FP
+
+    // Is this the entry frame? (FP we're dismantling == entry FP)
+    cmp     x7, x24
+    b.eq    .Lexit              // yes → exit interpreter with result in x0
+
+    // Continue in caller: restore IP and recompute bytecodes base
+    mov     x21, x12            // restore IP from saved caller IP
+
+    // Recompute x23 = bytecodes base from caller's method
+    // bytecodes_ptr is at method_obj + (3 + 3 + literal_count) * 8
+    //   3 header words + CM_FIRST_LITERAL(3) + literal_count
+    ldr     x13, [x11, #-8]    // caller method (CompiledMethod) at new FP - 1*W
+    ldr     x14, [x13, #40]    // literal_count (tagged) at method + header(24) + field2(16)
+    asr     x14, x14, #2       // untag
+    add     x14, x14, #6       // 3 header + 3 fields before literals + literal_count
+    ldr     x15, [x13, x14, lsl #3]  // bytecodes object pointer
+    add     x23, x15, #24      // skip ByteArray 3-word header → data
+    b       .Ldispatch
 
 .Lbc_jump:
     READ_U32                    // x5 = absolute offset from bytecodes base
