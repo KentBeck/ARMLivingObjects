@@ -53,17 +53,16 @@ _bc_push_inst_var:
     str     x8, [x0]
     ret
 
-// Bytecode 0: PUSH_LITERAL — push literal N from method's literal area
+// Bytecode 0: PUSH_LITERAL — push literal N from method's literals Array
 // x2 = literal index
-// Method is a CompiledMethod object at FP - 1*W.
-// Literals start at CM_FIRST_LITERAL (field 3) = header(3) + 3 = offset 48 bytes.
+// Method at FP-1*W. CM_LITERALS (field 3) at method+48 → Array object.
+// Array data starts at array+24 (skip 3-word header).
 _bc_push_literal:
     ldr     x3, [x1]           // FP
     ldr     x4, [x3, #-8]      // method (CompiledMethod object pointer)
-    add     x4, x4, #56        // skip to CM_FIRST_LITERAL (header 24 + field4 * 8)
-    lsl     x5, x2, #3
-    add     x6, x4, x5
-    ldr     x7, [x6]
+    ldr     x4, [x4, #48]      // literals Array pointer
+    add     x4, x4, #24        // skip Array's 3-word header
+    ldr     x7, [x4, x2, lsl #3]  // literal value
     ldr     x8, [x0]           // SP
     sub     x8, x8, #8
     str     x7, [x8]

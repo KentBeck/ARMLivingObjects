@@ -77,13 +77,12 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr,
 #define CLASS_METHOD_DICT 1
 #define CLASS_INST_SIZE 2
 
-// CompiledMethod field indices
+// CompiledMethod field indices (always 5 fields)
 #define CM_PRIMITIVE 0
 #define CM_NUM_ARGS 1
 #define CM_NUM_TEMPS 2
-#define CM_LITERAL_COUNT 3
-#define CM_FIRST_LITERAL 4
-// bytecodes field is at CM_FIRST_LITERAL + literal_count
+#define CM_LITERALS 3  // pointer to Array object (or tagged nil if none)
+#define CM_BYTECODES 4 // pointer to ByteArray object
 
 // Primitive indices
 #define PRIM_NONE 0
@@ -208,8 +207,8 @@ int main()
     OBJ_FIELD(test_cm, CM_PRIMITIVE) = tag_smallint(0);
     OBJ_FIELD(test_cm, CM_NUM_ARGS) = tag_smallint(0);
     OBJ_FIELD(test_cm, CM_NUM_TEMPS) = tag_smallint(0);
-    OBJ_FIELD(test_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-    OBJ_FIELD(test_cm, CM_FIRST_LITERAL) = (uint64_t)test_bytecodes; // bytecodes ptr
+    OBJ_FIELD(test_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(test_cm, CM_BYTECODES) = (uint64_t)test_bytecodes;
     uint64_t method = (uint64_t)test_cm;
     uint64_t fake_ip = 0x1000;
 
@@ -415,16 +414,17 @@ int main()
     // Test: PUSH_LITERAL (bytecode 0)
     // Create a CompiledMethod with 3 literals
     uint64_t *lit_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
-    uint64_t *lit_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 8);
+    uint64_t *lit_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
     // fields: num_args=0, num_temps=0, literal_count=3, lit0, lit1, lit2, bytecodes
     OBJ_FIELD(lit_cm, CM_PRIMITIVE) = tag_smallint(0);
     OBJ_FIELD(lit_cm, CM_NUM_ARGS) = tag_smallint(0);
     OBJ_FIELD(lit_cm, CM_NUM_TEMPS) = tag_smallint(0);
-    OBJ_FIELD(lit_cm, CM_LITERAL_COUNT) = tag_smallint(3);
-    OBJ_FIELD(lit_cm, CM_FIRST_LITERAL + 0) = tag_smallint(0xAAA);
-    OBJ_FIELD(lit_cm, CM_FIRST_LITERAL + 1) = tag_smallint(0xBBB);
-    OBJ_FIELD(lit_cm, CM_FIRST_LITERAL + 2) = tag_smallint(0xCCC);
-    OBJ_FIELD(lit_cm, CM_FIRST_LITERAL + 3) = (uint64_t)lit_bc;
+    uint64_t *_lits_0 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+    OBJ_FIELD(_lits_0, 0) = tag_smallint(0xAAA);
+    OBJ_FIELD(_lits_0, 1) = tag_smallint(0xBBB);
+    OBJ_FIELD(_lits_0, 2) = tag_smallint(0xCCC);
+    OBJ_FIELD(lit_cm, CM_LITERALS) = (uint64_t)_lits_0;
+    OBJ_FIELD(lit_cm, CM_BYTECODES) = (uint64_t)lit_bc;
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, receiver);
@@ -775,24 +775,23 @@ int main()
     bc[2] = 0; // padding
     bc[3] = 0;
 
-    uint64_t *cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+    uint64_t *cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
     OBJ_FIELD(cm, CM_PRIMITIVE) = tag_smallint(0);
     OBJ_FIELD(cm, CM_NUM_ARGS) = tag_smallint(1);
     OBJ_FIELD(cm, CM_NUM_TEMPS) = tag_smallint(2);
-    OBJ_FIELD(cm, CM_LITERAL_COUNT) = tag_smallint(1);
-    OBJ_FIELD(cm, CM_FIRST_LITERAL) = tag_smallint(42);        // literal 0
-    OBJ_FIELD(cm, CM_FIRST_LITERAL + 1) = (uint64_t)bytecodes; // bytecodes ptr
+    uint64_t *_lits_1 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(_lits_1, 0) = tag_smallint(42);
+    OBJ_FIELD(cm, CM_LITERALS) = (uint64_t)_lits_1;
+    OBJ_FIELD(cm, CM_BYTECODES) = (uint64_t)bytecodes;
 
     // Read num_args and num_temps from a CompiledMethod
     ASSERT_EQ(untag_smallint(OBJ_FIELD(cm, CM_NUM_ARGS)), 1,
               "CompiledMethod: num_args = 1");
     ASSERT_EQ(untag_smallint(OBJ_FIELD(cm, CM_NUM_TEMPS)), 2,
               "CompiledMethod: num_temps = 2");
-    ASSERT_EQ(untag_smallint(OBJ_FIELD(cm, CM_LITERAL_COUNT)), 1,
-              "CompiledMethod: literal_count = 1");
-    ASSERT_EQ(OBJ_FIELD(cm, CM_FIRST_LITERAL), tag_smallint(42),
+    ASSERT_EQ(OBJ_FIELD(_lits_1, 0), tag_smallint(42),
               "CompiledMethod: literal 0 = 42");
-    ASSERT_EQ(OBJ_FIELD(cm, CM_FIRST_LITERAL + 1), (uint64_t)bytecodes,
+    ASSERT_EQ(OBJ_FIELD(cm, CM_BYTECODES), (uint64_t)bytecodes,
               "CompiledMethod: bytecodes pointer");
 
     // Look up class from receiver's header, then find method
@@ -822,13 +821,14 @@ int main()
         WRITE_U32(&dbc[1], 0); // literal index 0
         dbc[5] = BC_HALT;
 
-        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(1);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = tag_smallint(42);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = (uint64_t)d_bc;
+        uint64_t *_lits_2 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(_lits_2, 0) = tag_smallint(42);
+        OBJ_FIELD(d_cm, CM_LITERALS) = (uint64_t)_lits_2;
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = 0;
@@ -846,13 +846,14 @@ int main()
         WRITE_U32(&dbc[1], 0);
         dbc[5] = BC_RETURN;
 
-        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(1);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = tag_smallint(99);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = (uint64_t)d_bc;
+        uint64_t *_lits_3 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(_lits_3, 0) = tag_smallint(99);
+        OBJ_FIELD(d_cm, CM_LITERALS) = (uint64_t)_lits_3;
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)caller_fp_val;
@@ -874,8 +875,8 @@ int main()
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = (uint64_t)d_bc;
+        OBJ_FIELD(d_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)caller_fp_val;
@@ -899,8 +900,8 @@ int main()
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(2);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = (uint64_t)d_bc;
+        OBJ_FIELD(d_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = 0;
@@ -925,13 +926,14 @@ int main()
         WRITE_U32(&dbc[11], 0); // push temp 0
         dbc[15] = BC_RETURN;
 
-        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(1);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(1);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL) = tag_smallint(77);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = (uint64_t)d_bc;
+        uint64_t *_lits_4 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(_lits_4, 0) = tag_smallint(77);
+        OBJ_FIELD(d_cm, CM_LITERALS) = (uint64_t)_lits_4;
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)caller_fp_val;
@@ -961,14 +963,15 @@ int main()
         WRITE_U32(&dbc[11], 1);
         dbc[15] = BC_HALT;
 
-        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 7);
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(2);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tag_smallint(111);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(222);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = (uint64_t)d_bc;
+        uint64_t *_lits_5 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(_lits_5, 0) = tag_smallint(111);
+        OBJ_FIELD(_lits_5, 1) = tag_smallint(222);
+        OBJ_FIELD(d_cm, CM_LITERALS) = (uint64_t)_lits_5;
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = 0;
@@ -992,15 +995,16 @@ int main()
         WRITE_U32(&dbc[16], 2);
         dbc[20] = BC_HALT;
 
-        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 8);
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(3);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tagged_true();
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(111);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = tag_smallint(222);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 3) = (uint64_t)d_bc;
+        uint64_t *_lits_6 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(_lits_6, 0) = tagged_true();
+        OBJ_FIELD(_lits_6, 1) = tag_smallint(111);
+        OBJ_FIELD(_lits_6, 2) = tag_smallint(222);
+        OBJ_FIELD(d_cm, CM_LITERALS) = (uint64_t)_lits_6;
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = 0;
@@ -1022,14 +1026,15 @@ int main()
         WRITE_U32(&dbc[11], 1);
         dbc[15] = BC_HALT; // stops here after fall-through
 
-        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 7);
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(2);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tagged_false();
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(111);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = (uint64_t)d_bc;
+        uint64_t *_lits_7 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(_lits_7, 0) = tagged_false();
+        OBJ_FIELD(_lits_7, 1) = tag_smallint(111);
+        OBJ_FIELD(d_cm, CM_LITERALS) = (uint64_t)_lits_7;
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = 0;
@@ -1054,15 +1059,16 @@ int main()
         WRITE_U32(&dbc[16], 2); // jump target
         dbc[20] = BC_HALT;
 
-        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 8);
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(3);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tagged_false();
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(111);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = tag_smallint(333);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 3) = (uint64_t)d_bc;
+        uint64_t *_lits_8 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(_lits_8, 0) = tagged_false();
+        OBJ_FIELD(_lits_8, 1) = tag_smallint(111);
+        OBJ_FIELD(_lits_8, 2) = tag_smallint(333);
+        OBJ_FIELD(d_cm, CM_LITERALS) = (uint64_t)_lits_8;
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = 0;
@@ -1084,14 +1090,15 @@ int main()
         WRITE_U32(&dbc[11], 1); // falls through
         dbc[15] = BC_HALT;
 
-        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 7);
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(d_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(2);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tagged_true();
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(444);
-        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = (uint64_t)d_bc;
+        uint64_t *_lits_9 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(_lits_9, 0) = tagged_true();
+        OBJ_FIELD(_lits_9, 1) = tag_smallint(444);
+        OBJ_FIELD(d_cm, CM_LITERALS) = (uint64_t)_lits_9;
+        OBJ_FIELD(d_cm, CM_BYTECODES) = (uint64_t)d_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = 0;
@@ -1118,8 +1125,8 @@ int main()
         OBJ_FIELD(self_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(self_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(self_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(self_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(self_cm, CM_FIRST_LITERAL) = (uint64_t)self_bc;
+        OBJ_FIELD(self_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(self_cm, CM_BYTECODES) = (uint64_t)self_bc;
 
         // selector for #yourself = tagged SmallInt 10
         uint64_t sel_yourself = tag_smallint(10);
@@ -1148,13 +1155,14 @@ int main()
         WRITE_U32(&cbc[6], 0); // arg count 0
         cbc[10] = BC_RETURN;
 
-        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_LITERAL_COUNT) = tag_smallint(1);
-        OBJ_FIELD(caller_cm, CM_FIRST_LITERAL + 0) = sel_yourself;
-        OBJ_FIELD(caller_cm, CM_FIRST_LITERAL + 1) = (uint64_t)caller_bc;
+        uint64_t *_lits_10 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(_lits_10, 0) = sel_yourself;
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)_lits_10;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)0xCAFE; // caller FP sentinel
@@ -1189,8 +1197,8 @@ int main()
         OBJ_FIELD(x_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(x_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(x_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(x_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(x_cm, CM_FIRST_LITERAL) = (uint64_t)x_bc;
+        OBJ_FIELD(x_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(x_cm, CM_BYTECODES) = (uint64_t)x_bc;
 
         uint64_t sel_x = tag_smallint(20);
         uint64_t *pt_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
@@ -1211,13 +1219,14 @@ int main()
         WRITE_U32(&c2b[6], 0); // 0 args
         c2b[10] = BC_RETURN;
 
-        uint64_t *c2_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        uint64_t *c2_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(c2_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(c2_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(c2_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(c2_cm, CM_LITERAL_COUNT) = tag_smallint(1);
-        OBJ_FIELD(c2_cm, CM_FIRST_LITERAL + 0) = sel_x;
-        OBJ_FIELD(c2_cm, CM_FIRST_LITERAL + 1) = (uint64_t)c2_bc;
+        uint64_t *_lits_11 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(_lits_11, 0) = sel_x;
+        OBJ_FIELD(c2_cm, CM_LITERALS) = (uint64_t)_lits_11;
+        OBJ_FIELD(c2_cm, CM_BYTECODES) = (uint64_t)c2_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)0xCAFE;
@@ -1252,8 +1261,8 @@ int main()
         OBJ_FIELD(wa_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(wa_cm, CM_NUM_ARGS) = tag_smallint(1);
         OBJ_FIELD(wa_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(wa_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(wa_cm, CM_FIRST_LITERAL) = (uint64_t)wa_bc;
+        OBJ_FIELD(wa_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(wa_cm, CM_BYTECODES) = (uint64_t)wa_bc;
 
         uint64_t sel_withArg = tag_smallint(30);
         uint64_t *wa_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
@@ -1278,14 +1287,15 @@ int main()
         WRITE_U32(&c3b[11], 1); // 1 arg
         c3b[15] = BC_RETURN;
 
-        uint64_t *c3_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 7);
+        uint64_t *c3_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(c3_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(c3_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(c3_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(c3_cm, CM_LITERAL_COUNT) = tag_smallint(2);
-        OBJ_FIELD(c3_cm, CM_FIRST_LITERAL + 0) = tag_smallint(777);
-        OBJ_FIELD(c3_cm, CM_FIRST_LITERAL + 1) = sel_withArg;
-        OBJ_FIELD(c3_cm, CM_FIRST_LITERAL + 2) = (uint64_t)c3_bc;
+        uint64_t *_lits_12 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(_lits_12, 0) = tag_smallint(777);
+        OBJ_FIELD(_lits_12, 1) = sel_withArg;
+        OBJ_FIELD(c3_cm, CM_LITERALS) = (uint64_t)_lits_12;
+        OBJ_FIELD(c3_cm, CM_BYTECODES) = (uint64_t)c3_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)0xCAFE;
@@ -1306,13 +1316,14 @@ int main()
         WRITE_U32(&gbc[1], 0);
         gbc[5] = BC_RETURN;
 
-        uint64_t *greet_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        uint64_t *greet_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(greet_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(greet_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(greet_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(greet_cm, CM_LITERAL_COUNT) = tag_smallint(1);
-        OBJ_FIELD(greet_cm, CM_FIRST_LITERAL + 0) = tag_smallint(999);
-        OBJ_FIELD(greet_cm, CM_FIRST_LITERAL + 1) = (uint64_t)greet_bc;
+        uint64_t *_lits_13 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(_lits_13, 0) = tag_smallint(999);
+        OBJ_FIELD(greet_cm, CM_LITERALS) = (uint64_t)_lits_13;
+        OBJ_FIELD(greet_cm, CM_BYTECODES) = (uint64_t)greet_bc;
 
         uint64_t sel_greet = tag_smallint(30);
         uint64_t *par_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
@@ -1342,13 +1353,14 @@ int main()
         WRITE_U32(&scb[6], 0); // 0 args
         scb[10] = BC_RETURN;
 
-        uint64_t *sc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        uint64_t *sc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(sc_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(sc_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(sc_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(sc_cm, CM_LITERAL_COUNT) = tag_smallint(1);
-        OBJ_FIELD(sc_cm, CM_FIRST_LITERAL + 0) = sel_greet;
-        OBJ_FIELD(sc_cm, CM_FIRST_LITERAL + 1) = (uint64_t)sc_bc;
+        uint64_t *_lits_14 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(_lits_14, 0) = sel_greet;
+        OBJ_FIELD(sc_cm, CM_LITERALS) = (uint64_t)_lits_14;
+        OBJ_FIELD(sc_cm, CM_BYTECODES) = (uint64_t)sc_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)0xCAFE;
@@ -1376,32 +1388,32 @@ int main()
         OBJ_FIELD(plus_cm, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_ADD);
         OBJ_FIELD(plus_cm, CM_NUM_ARGS) = tag_smallint(1);
         OBJ_FIELD(plus_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(plus_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(plus_cm, CM_FIRST_LITERAL) = (uint64_t)prim_bc;
+        OBJ_FIELD(plus_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(plus_cm, CM_BYTECODES) = (uint64_t)prim_bc;
 
         // -
         uint64_t *sub_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(sub_cm, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_SUB);
         OBJ_FIELD(sub_cm, CM_NUM_ARGS) = tag_smallint(1);
         OBJ_FIELD(sub_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(sub_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(sub_cm, CM_FIRST_LITERAL) = (uint64_t)prim_bc;
+        OBJ_FIELD(sub_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(sub_cm, CM_BYTECODES) = (uint64_t)prim_bc;
 
         // <
         uint64_t *lt_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(lt_cm, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_LT);
         OBJ_FIELD(lt_cm, CM_NUM_ARGS) = tag_smallint(1);
         OBJ_FIELD(lt_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(lt_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(lt_cm, CM_FIRST_LITERAL) = (uint64_t)prim_bc;
+        OBJ_FIELD(lt_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(lt_cm, CM_BYTECODES) = (uint64_t)prim_bc;
 
         // =
         uint64_t *eq_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(eq_cm, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_EQ);
         OBJ_FIELD(eq_cm, CM_NUM_ARGS) = tag_smallint(1);
         OBJ_FIELD(eq_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(eq_cm, CM_LITERAL_COUNT) = tag_smallint(0);
-        OBJ_FIELD(eq_cm, CM_FIRST_LITERAL) = (uint64_t)prim_bc;
+        OBJ_FIELD(eq_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(eq_cm, CM_BYTECODES) = (uint64_t)prim_bc;
 
         // Method dict with all 4 selectors
         uint64_t *si_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 8);
@@ -1429,15 +1441,16 @@ int main()
         WRITE_U32(&abc[15], 1); // 1 arg
         abc[19] = BC_HALT;
 
-        uint64_t *add_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 8);
+        uint64_t *add_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(add_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(add_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(add_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(add_cm, CM_LITERAL_COUNT) = tag_smallint(3);
-        OBJ_FIELD(add_cm, CM_FIRST_LITERAL + 0) = tag_smallint(3);
-        OBJ_FIELD(add_cm, CM_FIRST_LITERAL + 1) = tag_smallint(4);
-        OBJ_FIELD(add_cm, CM_FIRST_LITERAL + 2) = sel_plus;
-        OBJ_FIELD(add_cm, CM_FIRST_LITERAL + 3) = (uint64_t)add_bc;
+        uint64_t *_lits_15 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(_lits_15, 0) = tag_smallint(3);
+        OBJ_FIELD(_lits_15, 1) = tag_smallint(4);
+        OBJ_FIELD(_lits_15, 2) = sel_plus;
+        OBJ_FIELD(add_cm, CM_LITERALS) = (uint64_t)_lits_15;
+        OBJ_FIELD(add_cm, CM_BYTECODES) = (uint64_t)add_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)0xCAFE;
@@ -1459,15 +1472,16 @@ int main()
         WRITE_U32(&sbc2[15], 1);
         sbc2[19] = BC_HALT;
 
-        uint64_t *sub_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 8);
+        uint64_t *sub_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(sub_cm2, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(sub_cm2, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(sub_cm2, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(sub_cm2, CM_LITERAL_COUNT) = tag_smallint(3);
-        OBJ_FIELD(sub_cm2, CM_FIRST_LITERAL + 0) = tag_smallint(10);
-        OBJ_FIELD(sub_cm2, CM_FIRST_LITERAL + 1) = tag_smallint(3);
-        OBJ_FIELD(sub_cm2, CM_FIRST_LITERAL + 2) = sel_minus;
-        OBJ_FIELD(sub_cm2, CM_FIRST_LITERAL + 3) = (uint64_t)sub_bc2;
+        uint64_t *_lits_16 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(_lits_16, 0) = tag_smallint(10);
+        OBJ_FIELD(_lits_16, 1) = tag_smallint(3);
+        OBJ_FIELD(_lits_16, 2) = sel_minus;
+        OBJ_FIELD(sub_cm2, CM_LITERALS) = (uint64_t)_lits_16;
+        OBJ_FIELD(sub_cm2, CM_BYTECODES) = (uint64_t)sub_bc2;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)0xCAFE;
@@ -1489,15 +1503,16 @@ int main()
         WRITE_U32(&lbc2[15], 1);
         lbc2[19] = BC_HALT;
 
-        uint64_t *lt_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 8);
+        uint64_t *lt_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(lt_cm2, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(lt_cm2, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(lt_cm2, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(lt_cm2, CM_LITERAL_COUNT) = tag_smallint(3);
-        OBJ_FIELD(lt_cm2, CM_FIRST_LITERAL + 0) = tag_smallint(3);
-        OBJ_FIELD(lt_cm2, CM_FIRST_LITERAL + 1) = tag_smallint(5);
-        OBJ_FIELD(lt_cm2, CM_FIRST_LITERAL + 2) = sel_lt;
-        OBJ_FIELD(lt_cm2, CM_FIRST_LITERAL + 3) = (uint64_t)lt_bc2;
+        uint64_t *_lits_17 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(_lits_17, 0) = tag_smallint(3);
+        OBJ_FIELD(_lits_17, 1) = tag_smallint(5);
+        OBJ_FIELD(_lits_17, 2) = sel_lt;
+        OBJ_FIELD(lt_cm2, CM_LITERALS) = (uint64_t)_lits_17;
+        OBJ_FIELD(lt_cm2, CM_BYTECODES) = (uint64_t)lt_bc2;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)0xCAFE;
@@ -1519,15 +1534,16 @@ int main()
         WRITE_U32(&ebc2[15], 1);
         ebc2[19] = BC_HALT;
 
-        uint64_t *eq_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 8);
+        uint64_t *eq_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(eq_cm2, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(eq_cm2, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(eq_cm2, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(eq_cm2, CM_LITERAL_COUNT) = tag_smallint(3);
-        OBJ_FIELD(eq_cm2, CM_FIRST_LITERAL + 0) = tag_smallint(42);
-        OBJ_FIELD(eq_cm2, CM_FIRST_LITERAL + 1) = tag_smallint(42);
-        OBJ_FIELD(eq_cm2, CM_FIRST_LITERAL + 2) = sel_eq;
-        OBJ_FIELD(eq_cm2, CM_FIRST_LITERAL + 3) = (uint64_t)eq_bc2;
+        uint64_t *_lits_18 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(_lits_18, 0) = tag_smallint(42);
+        OBJ_FIELD(_lits_18, 1) = tag_smallint(42);
+        OBJ_FIELD(_lits_18, 2) = sel_eq;
+        OBJ_FIELD(eq_cm2, CM_LITERALS) = (uint64_t)_lits_18;
+        OBJ_FIELD(eq_cm2, CM_BYTECODES) = (uint64_t)eq_bc2;
 
         sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
         fp = (uint64_t *)0xCAFE;

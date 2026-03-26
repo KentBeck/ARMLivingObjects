@@ -95,7 +95,8 @@ _interpret:
     READ_U32                    // w5 = literal index
     ldr     x6, [x20]          // FP
     ldr     x7, [x6, #-8]      // method (CompiledMethod obj ptr)
-    add     x7, x7, #56        // CM_FIRST_LITERAL offset (header 24 + field4*8 = 56)
+    ldr     x7, [x7, #48]      // CM_LITERALS → Array pointer
+    add     x7, x7, #24        // skip Array 3-word header
     ldr     x8, [x7, x5, lsl #3]  // literal value
     ldr     x9, [x19]          // SP
     sub     x9, x9, #8
@@ -169,10 +170,11 @@ _interpret:
     READ_U32                    // w5 = arg_count
     mov     x10, x5             // x10 = arg_count
 
-    // Get selector from current method's literals
+    // Get selector from current method's literals Array
     ldr     x11, [x20]          // FP
     ldr     x12, [x11, #-8]    // current method (CompiledMethod)
-    add     x13, x12, #56      // CM_FIRST_LITERAL offset (header 24 + field4*8 = 56)
+    ldr     x13, [x12, #48]    // CM_LITERALS → Array pointer
+    add     x13, x13, #24      // skip Array header
     ldr     x14, [x13, x9, lsl #3]  // selector (tagged SmallInt)
 
     // Get receiver from stack: at SP + arg_count * 8
@@ -217,15 +219,11 @@ _interpret:
     mov     x0, x19            // sp_ptr
     bl      _activate_method
 
-    // Set IP to new method's bytecodes
-    // bytecodes_ptr = method + (3 + 3 + literal_count) * 8
+    // Set IP to new method's bytecodes (CM_BYTECODES = field 4, offset 56)
     ldr     x6, [x20]          // new FP
     ldr     x7, [x6, #-8]      // new method
-    ldr     x9, [x7, #48]      // literal_count (tagged) at method+24+24
-    asr     x9, x9, #2         // untag
-    add     x9, x9, #7         // 3 header + 4 CM fields + literal_count
-    ldr     x10, [x7, x9, lsl #3]   // bytecodes object pointer
-    add     x23, x10, #24      // skip ByteArray header → data
+    ldr     x10, [x7, #56]     // CM_BYTECODES → ByteArray pointer
+    add     x23, x10, #24      // skip ByteArray 3-word header → data
     mov     x21, x23            // IP = start of new method's bytecodes
     b       .Ldispatch
 
@@ -326,13 +324,8 @@ _interpret:
     mov     x21, x12            // restore IP from saved caller IP
 
     // Recompute x23 = bytecodes base from caller's method
-    // bytecodes_ptr is at method_obj + (3 + 4 + literal_count) * 8
-    //   3 header words + 4 CM fields + literal_count
-    ldr     x13, [x11, #-8]    // caller method (CompiledMethod) at new FP - 1*W
-    ldr     x14, [x13, #48]    // literal_count (tagged) at method + header(24) + field3(24)
-    asr     x14, x14, #2       // untag
-    add     x14, x14, #7       // 3 header + 4 CM fields + literal_count
-    ldr     x15, [x13, x14, lsl #3]  // bytecodes object pointer
+    ldr     x13, [x11, #-8]    // caller method at new FP - 1*W
+    ldr     x15, [x13, #56]    // CM_BYTECODES (field 4) → ByteArray pointer
     add     x23, x15, #24      // skip ByteArray 3-word header → data
     b       .Ldispatch
 
