@@ -1,15 +1,18 @@
 CC = clang
 AS = as
 
-test: test.c stack.o
-	$(CC) -o test test.c stack.o
+ASM_SRCS = stack_ops.s frame.s bytecode.s tagged.s object.s lookup.s
+ASM_OBJS = $(ASM_SRCS:.s=.o)
+
+test: test.c $(ASM_OBJS)
+	$(CC) -o test test.c $(ASM_OBJS)
 	./test
 
-stack.o: stack.s
-	$(AS) -o stack.o stack.s
+%.o: %.s
+	$(AS) -o $@ $<
 
 clean:
-	rm -f test stack.o
+	rm -f test $(ASM_OBJS)
 
 .PHONY: clean
 
