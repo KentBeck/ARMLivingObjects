@@ -433,6 +433,11 @@ int main()
     uint64_t tagged = tag_smallint(0);
     ASSERT_EQ(untag_smallint(tagged), 0, "SmallInt 0: encode/decode roundtrip");
 
+    // Test: encode SmallInteger 42 and decode it back
+    tagged = tag_smallint(42);
+    ASSERT_EQ(untag_smallint(tagged), 42, "SmallInt 42: encode/decode roundtrip");
+    ASSERT_EQ(tagged, (42ULL << 2) | 1, "SmallInt 42: raw tagged value is 169");
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }
