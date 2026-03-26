@@ -163,20 +163,20 @@ The allocator returns a pointer to word 0 (the class pointer).
 
 - [x] initialize object memory: fixed buffer, free pointer at start
 - [x] allocate an object with 0 fields: returns aligned pointer, advances free ptr
-- [ ] allocate an object with 2 fields: size is correct
+- [x] allocate an object with 2 fields: size is correct
 - [ ] crash on out-of-memory: allocating beyond buffer traps
-- [ ] read class pointer from object (word 0)
-- [ ] read format from object (word 1)
-- [ ] read size from object (word 2)
-- [ ] read field 0 from an object (at header + 3\*W)
-- [ ] write field 1 of an object
-- [ ] object pointer has tag 00 (aligned)
-- [ ] fields store tagged values (e.g., SmallInteger in a field)
-- [ ] allocate a fields object (format 0): stores tagged pointers
-- [ ] allocate an indexable object (format 1): variable-size array
-- [ ] allocate a bytes object (format 2): raw byte storage
-- [ ] update bc_push_inst_var to work with 3-word header
-- [ ] update bc_store_inst_var to work with 3-word header
+- [x] read class pointer from object (word 0)
+- [x] read format from object (word 1)
+- [x] read size from object (word 2)
+- [x] read field 0 from an object (at header + 3\*W)
+- [x] write field 1 of an object
+- [x] object pointer has tag 00 (aligned)
+- [x] fields store tagged values (e.g., SmallInteger in a field)
+- [x] allocate a fields object (format 0): stores tagged pointers
+- [x] allocate an indexable object (format 1): variable-size array
+- [x] allocate a bytes object (format 2): raw byte storage
+- [x] update bc_push_inst_var to work with 3-word header
+- [x] update bc_store_inst_var to work with 3-word header
 
 ### 9. Class and Method Dictionary
 

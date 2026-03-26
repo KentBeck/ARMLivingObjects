@@ -312,10 +312,11 @@ _bc_push_temp:
 // bc_push_inst_var(sp_ptr, fp_ptr, field_index)
 // Bytecode 1: PUSH_INSTANCE_VARIABLE — push field N of receiver
 // x2 = field index
-// Receiver is treated as a pointer to an array of uint64_t fields.
+// Receiver is an object pointer; fields start after 3-word header (offset 24).
 _bc_push_inst_var:
     ldr     x3, [x1]           // FP
     ldr     x4, [x3, #-32]     // receiver pointer
+    add     x4, x4, #24        // skip 3-word header
     lsl     x5, x2, #3         // field_index * 8
     add     x6, x4, x5
     ldr     x7, [x6]           // load field
@@ -360,6 +361,7 @@ _bc_store_temp:
 // bc_store_inst_var(sp_ptr, fp_ptr, field_index)
 // Bytecode 4: STORE_INSTANCE_VARIABLE — pop and store into receiver field N
 // x2 = field index
+// Receiver is an object pointer; fields start after 3-word header (offset 24).
 _bc_store_inst_var:
     ldr     x3, [x0]           // SP
     ldr     x4, [x3]           // pop value
@@ -367,6 +369,7 @@ _bc_store_inst_var:
     str     x3, [x0]           // write back SP
     ldr     x5, [x1]           // FP
     ldr     x6, [x5, #-32]     // receiver pointer
+    add     x6, x6, #24        // skip 3-word header
     lsl     x7, x2, #3
     add     x8, x6, x7
     str     x4, [x8]           // store into field

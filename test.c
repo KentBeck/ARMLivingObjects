@@ -303,8 +303,9 @@ int main()
     ASSERT_EQ(stack_top(&sp), 0x1234, "PUSH_TEMP: temp 0 on stack");
 
     // Test: PUSH_INSTANCE_VARIABLE (bytecode 1)
-    // Receiver is a pointer to an array of fields
-    uint64_t obj_fields[4] = {0x10, 0x20, 0x30, 0x40};
+    // Receiver is an object with 3-word header + fields
+    uint64_t obj_fields[7] = {0 /*class*/, 0 /*format*/, 4 /*size*/,
+                              0x10, 0x20, 0x30, 0x40};
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, (uint64_t)obj_fields);
@@ -332,14 +333,15 @@ int main()
     ASSERT_EQ(frame_temp(fp, 0), 0x5678, "STORE_TEMP: value in temp 0");
 
     // Test: STORE_INSTANCE_VARIABLE (bytecode 4)
-    uint64_t obj2_fields[3] = {0, 0, 0};
+    uint64_t obj2_fields[6] = {0 /*class*/, 0 /*format*/, 3 /*size*/,
+                               0, 0, 0};
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, (uint64_t)obj2_fields);
     activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
     stack_push(&sp, stack, 0x9999);
     bc_store_inst_var(&sp, &fp, 1);
-    ASSERT_EQ(obj2_fields[1], 0x9999, "STORE_INST_VAR: value in field 1");
+    ASSERT_EQ(obj2_fields[3 + 1], 0x9999, "STORE_INST_VAR: value in field 1");
 
     // Test: RETURN_STACK_TOP (bytecode 7)
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
@@ -419,7 +421,8 @@ int main()
 
     // Scenario 4: push instance variable, return
     // Smalltalk: foo   ^instVar2   (field index 2)
-    uint64_t obj3_fields[4] = {100, 200, 300, 400};
+    uint64_t obj3_fields[7] = {0 /*class*/, 0 /*format*/, 4 /*size*/,
+                               100, 200, 300, 400};
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = (uint64_t *)caller_fp_val;
     ip = caller_ip_val;
@@ -551,6 +554,80 @@ int main()
     ASSERT_EQ((uint64_t)obj0 % 8, 0, "alloc 0 fields: aligned");
     // free ptr advanced by 3 header words = 24 bytes
     ASSERT_EQ(om[0], (uint64_t)om_buffer + 24, "alloc 0 fields: free ptr advanced by 24");
+
+    // Allocate an object with 2 fields: size is correct
+    uint64_t *obj2 = om_alloc(om, fake_class, FORMAT_FIELDS, 2);
+    ASSERT_EQ(OBJ_SIZE(obj2), 2, "alloc 2 fields: size is 2");
+    // 3 header + 2 fields = 5 words = 40 bytes
+    ASSERT_EQ((uint64_t)obj2, (uint64_t)om_buffer + 24, "alloc 2 fields: after obj0");
+    ASSERT_EQ(om[0], (uint64_t)om_buffer + 24 + 40, "alloc 2 fields: free ptr advanced by 40");
+
+    // Read class pointer from object (word 0)
+    ASSERT_EQ(OBJ_CLASS(obj2), fake_class, "read class pointer from object");
+
+    // Read format from object (word 1)
+    ASSERT_EQ(OBJ_FORMAT(obj2), FORMAT_FIELDS, "read format from object");
+
+    // Read size from object (word 2)
+    ASSERT_EQ(OBJ_SIZE(obj2), 2, "read size from object");
+
+    // Read field 0 from an object (at header + 3*W) — initialized to 0
+    ASSERT_EQ(OBJ_FIELD(obj2, 0), 0, "field 0 initialized to 0");
+
+    // Write field 1 of an object
+    OBJ_FIELD(obj2, 1) = 0xBEEF;
+    ASSERT_EQ(OBJ_FIELD(obj2, 1), 0xBEEF, "write and read field 1");
+
+    // Object pointer has tag 00 (aligned)
+    ASSERT_EQ(is_object_ptr((uint64_t)obj2), 1, "object pointer has tag 00");
+
+    // Fields store tagged values
+    OBJ_FIELD(obj2, 0) = tag_smallint(42);
+    ASSERT_EQ(is_smallint(OBJ_FIELD(obj2, 0)), 1, "field stores tagged SmallInt");
+    ASSERT_EQ(untag_smallint(OBJ_FIELD(obj2, 0)), 42, "field SmallInt value is 42");
+
+    // Allocate a fields object (format 0)
+    uint64_t *obj_f = om_alloc(om, fake_class, FORMAT_FIELDS, 3);
+    ASSERT_EQ(OBJ_FORMAT(obj_f), FORMAT_FIELDS, "fields object: format 0");
+    ASSERT_EQ(OBJ_SIZE(obj_f), 3, "fields object: size 3");
+
+    // Allocate an indexable object (format 1)
+    uint64_t *obj_i = om_alloc(om, fake_class, FORMAT_INDEXABLE, 5);
+    ASSERT_EQ(OBJ_FORMAT(obj_i), FORMAT_INDEXABLE, "indexable object: format 1");
+    ASSERT_EQ(OBJ_SIZE(obj_i), 5, "indexable object: size 5");
+    OBJ_FIELD(obj_i, 3) = tag_smallint(99);
+    ASSERT_EQ(untag_smallint(OBJ_FIELD(obj_i, 3)), 99, "indexable: store/read slot 3");
+
+    // Allocate a bytes object (format 2)
+    uint64_t *obj_b = om_alloc(om, fake_class, FORMAT_BYTES, 10);
+    ASSERT_EQ(OBJ_FORMAT(obj_b), FORMAT_BYTES, "bytes object: format 2");
+    ASSERT_EQ(OBJ_SIZE(obj_b), 10, "bytes object: size 10 bytes");
+    // 10 bytes = ceil(10/8) = 2 words for storage, + 3 header = 5 words = 40 bytes
+    uint8_t *bytes = (uint8_t *)&OBJ_FIELD(obj_b, 0);
+    bytes[0] = 0xAB;
+    bytes[9] = 0xCD;
+    ASSERT_EQ(bytes[0], 0xAB, "bytes object: write/read byte 0");
+    ASSERT_EQ(bytes[9], 0xCD, "bytes object: write/read byte 9");
+
+    // Update bc_push_inst_var to work with 3-word header
+    // Create an object with 3 fields, use it as receiver in a frame
+    uint64_t *obj_recv = om_alloc(om, fake_class, FORMAT_FIELDS, 3);
+    OBJ_FIELD(obj_recv, 0) = tag_smallint(10);
+    OBJ_FIELD(obj_recv, 1) = tag_smallint(20);
+    OBJ_FIELD(obj_recv, 2) = tag_smallint(30);
+    sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+    fp = 0;
+    stack_push(&sp, stack, (uint64_t)obj_recv);
+    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    bc_push_inst_var(&sp, &fp, 1);
+    ASSERT_EQ(stack_top(&sp), tag_smallint(20),
+              "bc_push_inst_var with 3-word header: field 1");
+
+    // Update bc_store_inst_var to work with 3-word header
+    stack_push(&sp, stack, tag_smallint(99));
+    bc_store_inst_var(&sp, &fp, 2);
+    ASSERT_EQ(OBJ_FIELD(obj_recv, 2), tag_smallint(99),
+              "bc_store_inst_var with 3-word header: field 2");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
