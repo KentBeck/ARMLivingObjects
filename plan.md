@@ -230,11 +230,11 @@ bytecode array.
 - [x] dispatch PUSH_SELF then RETURN_STACK_TOP
 - [x] dispatch PUSH_TEMP, PUSH_TEMP, sequence
 - [x] dispatch STORE_TEMP then PUSH_TEMP: round-trip through dispatch
-- [ ] dispatch JUMP: IP advances to target
-- [ ] dispatch JUMP_IF_TRUE with tagged true: jumps
-- [ ] dispatch JUMP_IF_TRUE with tagged false: falls through
-- [ ] dispatch JUMP_IF_FALSE with tagged false: jumps
-- [ ] dispatch JUMP_IF_FALSE with tagged true: falls through
+- [x] dispatch JUMP: IP advances to target
+- [x] dispatch JUMP_IF_TRUE with tagged true: jumps
+- [x] dispatch JUMP_IF_TRUE with tagged false: falls through
+- [x] dispatch JUMP_IF_FALSE with tagged false: jumps
+- [x] dispatch JUMP_IF_FALSE with tagged true: falls through
 
 ### 11. Message Send (SEND_MESSAGE bytecode 6)
 

@@ -911,6 +911,161 @@ int main()
                   "dispatch: PUSH_LIT, STORE_TEMP, PUSH_TEMP, RETURN");
     }
 
+    // Test: dispatch JUMP: IP advances to target
+    // Bytecodes: JUMP +7 (skip over next PUSH_LITERAL), PUSH_LITERAL 0 (=111), PUSH_LITERAL 1 (=222), HALT
+    // JUMP at offset 0, operand at 1..4, target = 0+7 = 7
+    // skipped: PUSH_LITERAL at offset 5, operand at 6..9
+    // PUSH_LITERAL at offset 10 is actually at target 7? No...
+    // Let me recalculate: JUMP=1byte + operand=4bytes = 5 bytes.
+    // PUSH_LITERAL=1byte + operand=4bytes = 5 bytes.
+    // So: JUMP(offset=10), skip PUSH_LITERAL(111), land at PUSH_LITERAL(222), HALT
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_JUMP;
+        WRITE_U32(&dbc[1], 10);   // jump to offset 10
+        dbc[5] = BC_PUSH_LITERAL; // offset 5 — skipped
+        WRITE_U32(&dbc[6], 0);
+        dbc[10] = BC_PUSH_LITERAL; // offset 10 — jump target
+        WRITE_U32(&dbc[11], 1);
+        dbc[15] = BC_HALT;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(2);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tag_smallint(111);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(222);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = 0;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(222), "dispatch: JUMP skips to literal 1");
+    }
+
+    // Test: dispatch JUMP_IF_TRUE with tagged true: jumps
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_LITERAL; // push true
+        WRITE_U32(&dbc[1], 0);
+        dbc[5] = BC_JUMP_IF_TRUE;
+        WRITE_U32(&dbc[6], 15);    // jump to offset 15
+        dbc[10] = BC_PUSH_LITERAL; // skipped (push 111)
+        WRITE_U32(&dbc[11], 1);
+        dbc[15] = BC_PUSH_LITERAL; // jump target (push 222)
+        WRITE_U32(&dbc[16], 2);
+        dbc[20] = BC_HALT;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 7);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(3);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tagged_true();
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(111);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = tag_smallint(222);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 3) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = 0;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(222), "dispatch: JUMP_IF_TRUE with true jumps");
+    }
+
+    // Test: dispatch JUMP_IF_TRUE with tagged false: falls through
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_LITERAL; // push false
+        WRITE_U32(&dbc[1], 0);
+        dbc[5] = BC_JUMP_IF_TRUE;
+        WRITE_U32(&dbc[6], 15);
+        dbc[10] = BC_PUSH_LITERAL; // falls through (push 111)
+        WRITE_U32(&dbc[11], 1);
+        dbc[15] = BC_HALT; // stops here after fall-through
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(2);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tagged_false();
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(111);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = 0;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(111),
+                  "dispatch: JUMP_IF_TRUE with false falls through");
+    }
+
+    // Test: dispatch JUMP_IF_FALSE with tagged false: jumps
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&dbc[1], 0); // push false
+        dbc[5] = BC_JUMP_IF_FALSE;
+        WRITE_U32(&dbc[6], 15);
+        dbc[10] = BC_PUSH_LITERAL;
+        WRITE_U32(&dbc[11], 1); // skipped
+        dbc[15] = BC_PUSH_LITERAL;
+        WRITE_U32(&dbc[16], 2); // jump target
+        dbc[20] = BC_HALT;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 7);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(3);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tagged_false();
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(111);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = tag_smallint(333);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 3) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = 0;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(333), "dispatch: JUMP_IF_FALSE with false jumps");
+    }
+
+    // Test: dispatch JUMP_IF_FALSE with tagged true: falls through
+    {
+        uint64_t *d_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *dbc = (uint8_t *)&OBJ_FIELD(d_bc, 0);
+        dbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&dbc[1], 0); // push true
+        dbc[5] = BC_JUMP_IF_FALSE;
+        WRITE_U32(&dbc[6], 15);
+        dbc[10] = BC_PUSH_LITERAL;
+        WRITE_U32(&dbc[11], 1); // falls through
+        dbc[15] = BC_HALT;
+
+        uint64_t *d_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        OBJ_FIELD(d_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(d_cm, CM_LITERAL_COUNT) = tag_smallint(2);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 0) = tagged_true();
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 1) = tag_smallint(444);
+        OBJ_FIELD(d_cm, CM_FIRST_LITERAL + 2) = (uint64_t)d_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = 0;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp, dbc);
+        ASSERT_EQ(result, tag_smallint(444),
+                  "dispatch: JUMP_IF_FALSE with true falls through");
+    }
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }

@@ -39,10 +39,12 @@ _interpret:
     mov     x29, sp
     stp     x19, x20, [sp, #-16]!
     stp     x21, x22, [sp, #-16]!
+    stp     x23, x24, [sp, #-16]!
 
     mov     x19, x0             // x19 = sp_ptr
     mov     x20, x1             // x20 = fp_ptr
     mov     x21, x2             // x21 = IP
+    mov     x23, x2             // x23 = bytecodes base (constant)
 
 .Ldispatch:
     ldrb    w22, [x21], #1      // fetch opcode, advance IP
@@ -73,16 +75,24 @@ _interpret:
 // --- Bytecode handlers ---
 // Each reads operands from [x21] (IP), advances IP, operates on stack via x19/x20.
 
-.Lbc_push_literal:
-    // Read 4-byte literal index, advance IP by 4
-    ldr     w5, [x21]
+// Helper macro: read little-endian uint32 from [x21] into w5, advance x21 by 4
+.macro READ_U32
+    ldrb    w5, [x21]
+    ldrb    w6, [x21, #1]
+    ldrb    w7, [x21, #2]
+    ldrb    w8, [x21, #3]
+    orr     w5, w5, w6, lsl #8
+    orr     w5, w5, w7, lsl #16
+    orr     w5, w5, w8, lsl #24
     add     x21, x21, #4
-    // Method at FP - 1*W; literals at method + 48 + index*8
+.endm
+
+.Lbc_push_literal:
+    READ_U32                    // w5 = literal index
     ldr     x6, [x20]          // FP
     ldr     x7, [x6, #-8]      // method (CompiledMethod obj ptr)
     add     x7, x7, #48        // CM_FIRST_LITERAL offset
     ldr     x8, [x7, x5, lsl #3]  // literal value
-    // Push onto stack
     ldr     x9, [x19]          // SP
     sub     x9, x9, #8
     str     x8, [x9]
@@ -90,8 +100,7 @@ _interpret:
     b       .Ldispatch
 
 .Lbc_push_inst_var:
-    ldr     w5, [x21]
-    add     x21, x21, #4
+    READ_U32
     ldr     x6, [x20]          // FP
     ldr     x7, [x6, #-32]     // receiver
     add     x7, x7, #24        // skip 3-word header
@@ -103,8 +112,7 @@ _interpret:
     b       .Ldispatch
 
 .Lbc_push_temp:
-    ldr     w5, [x21]
-    add     x21, x21, #4
+    READ_U32
     ldr     x6, [x20]          // FP
     add     x7, x5, #5
     lsl     x7, x7, #3
@@ -126,8 +134,7 @@ _interpret:
     b       .Ldispatch
 
 .Lbc_store_inst_var:
-    ldr     w5, [x21]
-    add     x21, x21, #4
+    READ_U32
     ldr     x6, [x19]          // SP
     ldr     x7, [x6]           // pop value
     add     x6, x6, #8
@@ -139,8 +146,7 @@ _interpret:
     b       .Ldispatch
 
 .Lbc_store_temp:
-    ldr     w5, [x21]
-    add     x21, x21, #4
+    READ_U32
     ldr     x6, [x19]          // SP
     ldr     x7, [x6]           // pop value
     add     x6, x6, #8
@@ -175,42 +181,30 @@ _interpret:
     b       .Lexit
 
 .Lbc_jump:
-    ldr     w5, [x21]          // read 4-byte offset
-    // IP = IP_at_start_of_this_bytecode + offset
-    // We already advanced past opcode (+1), now past operand would be +4
-    // But offset is relative to the start of bytecodes, so:
-    // We need a base. For now, treat offset as relative to current IP before operand.
-    sub     x6, x21, #4        // IP before operand
-    sub     x6, x6, #1         // IP before opcode (start of this instruction)
-    add     x21, x6, x5        // new IP = instruction_start + offset
+    READ_U32                    // x5 = absolute offset from bytecodes base
+    add     x21, x23, x5       // new IP = base + offset
     b       .Ldispatch
 
 .Lbc_jump_if_true:
-    ldr     w5, [x21]
-    add     x21, x21, #4       // advance past operand
-    ldr     x6, [x19]          // SP
-    ldr     x7, [x6]           // pop value
-    add     x6, x6, #8
-    str     x6, [x19]
-    cmp     x7, #7              // tagged true
+    READ_U32                    // x5 = offset
+    ldr     x10, [x19]         // SP
+    ldr     x11, [x10]         // pop value
+    add     x10, x10, #8
+    str     x10, [x19]
+    cmp     x11, #7             // tagged true?
     b.ne    .Ldispatch          // not true → fall through
-    sub     x6, x21, #8        // instruction start (opcode was 1 byte before operand)
-    sub     x6, x6, #1
-    add     x21, x6, x5        // jump
+    add     x21, x23, x5       // jump: IP = base + offset
     b       .Ldispatch
 
 .Lbc_jump_if_false:
-    ldr     w5, [x21]
-    add     x21, x21, #4
-    ldr     x6, [x19]
-    ldr     x7, [x6]
-    add     x6, x6, #8
-    str     x6, [x19]
-    cmp     x7, #11             // tagged false
+    READ_U32
+    ldr     x10, [x19]
+    ldr     x11, [x10]
+    add     x10, x10, #8
+    str     x10, [x19]
+    cmp     x11, #11            // tagged false?
     b.ne    .Ldispatch
-    sub     x6, x21, #4
-    sub     x6, x6, #1
-    add     x21, x6, x5
+    add     x21, x23, x5
     b       .Ldispatch
 
 .Lbc_pop:
@@ -234,6 +228,7 @@ _interpret:
     b       .Lexit
 
 .Lexit:
+    ldp     x23, x24, [sp], #16
     ldp     x21, x22, [sp], #16
     ldp     x19, x20, [sp], #16
     ldp     x29, x30, [sp], #16
