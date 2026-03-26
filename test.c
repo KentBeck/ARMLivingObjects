@@ -166,7 +166,7 @@ int main()
     OBJ_FIELD(test_cm, CM_NUM_TEMPS) = tag_smallint(0);
     OBJ_FIELD(test_cm, CM_LITERAL_COUNT) = tag_smallint(0);
     OBJ_FIELD(test_cm, CM_FIRST_LITERAL) = (uint64_t)test_bytecodes; // bytecodes ptr
-    uint64_t fake_method = (uint64_t)test_cm;
+    uint64_t method = (uint64_t)test_cm;
     uint64_t fake_ip = 0x1000;
 
     // --- Method Activation Tests ---
@@ -175,11 +175,11 @@ int main()
     uint64_t *fp = 0;
 
     stack_push(&sp, stack, receiver); // caller pushes receiver
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, fake_ip, method, 0, 0);
 
     ASSERT_EQ(fp[FRAME_SAVED_IP], fake_ip, "activate 0/0: saved IP");
     ASSERT_EQ(fp[FRAME_SAVED_FP], 0, "activate 0/0: saved caller FP (was null)");
-    ASSERT_EQ(fp[FRAME_METHOD], fake_method, "activate 0/0: method");
+    ASSERT_EQ(fp[FRAME_METHOD], method, "activate 0/0: method");
     ASSERT_EQ(fp[FRAME_FLAGS], 0, "activate 0/0: flags (all zero)");
     ASSERT_EQ(fp[FRAME_CONTEXT], 0, "activate 0/0: context slot (nil)");
     ASSERT_EQ(fp[FRAME_RECEIVER], receiver, "activate 0/0: receiver");
@@ -196,7 +196,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 1);
+    activate_method(&sp, &fp, fake_ip, method, 0, 1);
     ASSERT_EQ(fp[FRAME_RECEIVER], receiver, "activate 0/1: receiver");
     ASSERT_EQ(fp[FRAME_TEMP0], 0, "activate 0/1: temp 0 initialized to 0");
     ASSERT_EQ((uint64_t)sp, (uint64_t)&fp[FRAME_TEMP0],
@@ -206,7 +206,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 2);
+    activate_method(&sp, &fp, fake_ip, method, 0, 2);
     ASSERT_EQ(fp[FRAME_TEMP0], 0, "activate 0/2: temp 0 initialized to 0");
     ASSERT_EQ(fp[FRAME_TEMP0 - 1], 0, "activate 0/2: temp 1 initialized to 0");
     ASSERT_EQ((uint64_t)sp, (uint64_t)&fp[FRAME_TEMP0 - 1],
@@ -216,7 +216,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 3);
+    activate_method(&sp, &fp, fake_ip, method, 0, 3);
     ASSERT_EQ(fp[FRAME_TEMP0], 0, "activate 0/3: temp 0 initialized to 0");
     ASSERT_EQ(fp[FRAME_TEMP0 - 1], 0, "activate 0/3: temp 1 initialized to 0");
     ASSERT_EQ(fp[FRAME_TEMP0 - 2], 0, "activate 0/3: temp 2 initialized to 0");
@@ -229,7 +229,7 @@ int main()
     uint64_t arg0 = 0xAAAA;
     stack_push(&sp, stack, receiver); // caller pushes receiver
     stack_push(&sp, stack, arg0);     // caller pushes arg 0
-    activate_method(&sp, &fp, fake_ip, fake_method, 1, 0);
+    activate_method(&sp, &fp, fake_ip, method, 1, 0);
     ASSERT_EQ(fp[FRAME_RECEIVER], receiver, "activate 1/0: receiver");
     // arg 0 is at FP + 2*W (above saved IP)
     ASSERT_EQ(fp[2], arg0, "activate 1/0: arg 0 at FP+2*W");
@@ -243,7 +243,7 @@ int main()
     stack_push(&sp, stack, receiver); // caller pushes receiver
     stack_push(&sp, stack, arg0);     // caller pushes arg 0
     stack_push(&sp, stack, arg1);     // caller pushes arg 1
-    activate_method(&sp, &fp, fake_ip, fake_method, 2, 1);
+    activate_method(&sp, &fp, fake_ip, method, 2, 1);
     ASSERT_EQ(fp[FRAME_RECEIVER], receiver, "activate 2/1: receiver");
     // Args are in stack order: last pushed (arg1) is closest to frame
     ASSERT_EQ(fp[2], arg1, "activate 2/1: arg 1 at FP+2*W (last pushed)");
@@ -252,7 +252,7 @@ int main()
     ASSERT_EQ(fp[FRAME_FLAGS] & 0xFF00, 2 << 8, "activate 2/1: flags encode num_args=2");
 
     // Test: read method from frame at FP - 1*W
-    ASSERT_EQ(frame_method(fp), fake_method, "frame_method reads method at FP-1*W");
+    ASSERT_EQ(frame_method(fp), method, "frame_method reads method at FP-1*W");
 
     // Test: read flags from frame at FP - 2*W
     ASSERT_EQ(frame_flags(fp), 2 << 8, "frame_flags reads flags (num_args=2)");
@@ -294,7 +294,7 @@ int main()
     fp = (uint64_t *)caller_fp_val;   // fake caller FP
     ip = caller_ip_val;               // fake caller IP
     stack_push(&sp, stack, receiver); // push receiver
-    activate_method(&sp, &fp, ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, ip, method, 0, 0);
     // Now return with value 99
     frame_return(&sp, &fp, &ip, 99);
     ASSERT_EQ(stack_top(&sp), 99, "return 0-arg: result on stack");
@@ -308,7 +308,7 @@ int main()
     stack_push(&sp, stack, receiver);
     stack_push(&sp, stack, arg0);
     uint64_t *sp_before_send = sp;
-    activate_method(&sp, &fp, ip, fake_method, 1, 0);
+    activate_method(&sp, &fp, ip, method, 1, 0);
     frame_return(&sp, &fp, &ip, 77);
     ASSERT_EQ(stack_top(&sp), 77, "return 1-arg: result on stack");
     ASSERT_EQ((uint64_t)fp, caller_fp_val, "return 1-arg: FP restored");
@@ -324,7 +324,7 @@ int main()
     stack_push(&sp, stack, arg0);
     stack_push(&sp, stack, arg1);
     sp_before_send = sp;
-    activate_method(&sp, &fp, ip, fake_method, 2, 0);
+    activate_method(&sp, &fp, ip, method, 2, 0);
     frame_return(&sp, &fp, &ip, 55);
     ASSERT_EQ(stack_top(&sp), 55, "return 2-arg: result on stack");
     ASSERT_EQ((uint64_t)fp, caller_fp_val, "return 2-arg: FP restored");
@@ -337,7 +337,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, fake_ip, method, 0, 0);
     bc_push_self(&sp, &fp);
     ASSERT_EQ(stack_top(&sp), receiver, "PUSH_SELF: receiver on stack");
 
@@ -345,7 +345,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 1);
+    activate_method(&sp, &fp, fake_ip, method, 0, 1);
     frame_store_temp(fp, 0, 0x1234);
     bc_push_temp(&sp, &fp, 0);
     ASSERT_EQ(stack_top(&sp), 0x1234, "PUSH_TEMP: temp 0 on stack");
@@ -364,7 +364,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, (uint64_t)iv_obj);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, fake_ip, method, 0, 0);
     bc_push_inst_var(&sp, &fp, 2);
     ASSERT_EQ(stack_top(&sp), tag_smallint(30), "PUSH_INST_VAR: field 2 on stack");
 
@@ -391,7 +391,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 1);
+    activate_method(&sp, &fp, fake_ip, method, 0, 1);
     stack_push(&sp, stack, 0x5678); // push value to store
     bc_store_temp(&sp, &fp, 0);
     ASSERT_EQ(frame_temp(fp, 0), 0x5678, "STORE_TEMP: value in temp 0");
@@ -401,7 +401,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, (uint64_t)si_obj);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, fake_ip, method, 0, 0);
     stack_push(&sp, stack, tag_smallint(0x9999));
     bc_store_inst_var(&sp, &fp, 1);
     ASSERT_EQ(OBJ_FIELD(si_obj, 1), tag_smallint(0x9999), "STORE_INST_VAR: value in field 1");
@@ -411,7 +411,7 @@ int main()
     fp = (uint64_t *)caller_fp_val;
     ip = caller_ip_val;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, ip, method, 0, 0);
     stack_push(&sp, stack, 42); // push return value
     bc_return_stack_top(&sp, &fp, &ip);
     ASSERT_EQ(stack_top(&sp), 42, "RETURN_STACK_TOP: result on caller stack");
@@ -441,7 +441,7 @@ int main()
     fp = (uint64_t *)caller_fp_val;
     ip = caller_ip_val;
     stack_push(&sp, stack, receiver);                 // caller pushes receiver
-    activate_method(&sp, &fp, ip, fake_method, 0, 0); // send #foo
+    activate_method(&sp, &fp, ip, method, 0, 0); // send #foo
     bc_push_self(&sp, &fp);                           // pushSelf
     bc_return_stack_top(&sp, &fp, &ip);               // returnStackTop
     ASSERT_EQ(stack_top(&sp), receiver,
@@ -456,7 +456,7 @@ int main()
     ip = caller_ip_val;
     stack_push(&sp, stack, receiver);
     stack_push(&sp, stack, 0xAAAA); // push arg
-    activate_method(&sp, &fp, ip, fake_method, 1, 0);
+    activate_method(&sp, &fp, ip, method, 1, 0);
     // arg 0 is at FP+2*W, which is frame_arg(fp, 0)
     // To push it, we treat it as a temp access (but it's above the frame)
     // For now we use bc_push_temp won't work for args — we need a different approach
@@ -474,7 +474,7 @@ int main()
     fp = (uint64_t *)caller_fp_val;
     ip = caller_ip_val;
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, ip, fake_method, 0, 1);
+    activate_method(&sp, &fp, ip, method, 0, 1);
     stack_push(&sp, stack, 42);         // pushLiteral 42
     bc_store_temp(&sp, &fp, 0);         // storeTemp 0
     bc_push_temp(&sp, &fp, 0);          // pushTemp 0
@@ -493,7 +493,7 @@ int main()
     fp = (uint64_t *)caller_fp_val;
     ip = caller_ip_val;
     stack_push(&sp, stack, (uint64_t)s4_obj);
-    activate_method(&sp, &fp, ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, ip, method, 0, 0);
     bc_push_inst_var(&sp, &fp, 2); // pushInstVar 2
     bc_return_stack_top(&sp, &fp, &ip);
     ASSERT_EQ(stack_top(&sp), tag_smallint(300),
@@ -506,12 +506,12 @@ int main()
     ip = caller_ip_val;
     // Enter method A (foo)
     stack_push(&sp, stack, receiver);
-    activate_method(&sp, &fp, ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, ip, method, 0, 0);
     uint64_t a_ip = 0x3000; // A's IP at point of send
     // A sends #bar: push self as receiver for bar
     bc_push_self(&sp, &fp);
     // Enter method B (bar)
-    activate_method(&sp, &fp, a_ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, a_ip, method, 0, 0);
     // B executes: ^self
     bc_push_self(&sp, &fp);
     bc_return_stack_top(&sp, &fp, &ip);
@@ -663,7 +663,7 @@ int main()
     sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
     fp = 0;
     stack_push(&sp, stack, (uint64_t)obj_recv);
-    activate_method(&sp, &fp, fake_ip, fake_method, 0, 0);
+    activate_method(&sp, &fp, fake_ip, method, 0, 0);
     bc_push_inst_var(&sp, &fp, 1);
     ASSERT_EQ(stack_top(&sp), tag_smallint(20),
               "bc_push_inst_var with real object: field 1");
