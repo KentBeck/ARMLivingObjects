@@ -261,7 +261,34 @@ result and returns without entering the bytecodes.
 - [ ] at: primitive (array field access by tagged index)
 - [ ] at:put: primitive (array field store)
 - [ ] new primitive: allocate instance of a class
+- [ ] SmallInteger \* primitive
 - [ ] primitive failure: fall through to bytecode execution
+
+### 12b. Blocks and ifTrue:ifFalse:
+
+Simple no-arg blocks. No non-local return (yet).
+
+Block object (format 0, 2 fields):
+field 0 = home receiver (captured self)
+field 1 = CompiledMethod (bytecodes for block body)
+
+New bytecode: PUSH_CLOSURE (14) + 4-byte literal_index
+Reads CM from literals[index], allocates Block object with
+current receiver and that CM, pushes the Block.
+
+Block class has `value` primitive (PRIM_BLOCK_VALUE = 8):
+Activates the block's CM with the captured receiver.
+
+Boolean ifTrue:ifFalse: is a primitive (PRIM_IF_TRUE_FALSE = 9):
+If receiver is true, send `value` to arg0.
+If receiver is false, send `value` to arg1.
+
+- [ ] create a Block object with receiver and CM
+- [ ] PUSH_CLOSURE bytecode: creates block from literal CM + current receiver
+- [ ] Block value primitive: activates block's CM, returns result
+- [ ] Boolean ifTrue:ifFalse: primitive with true receiver
+- [ ] Boolean ifTrue:ifFalse: primitive with false receiver
+- [ ] ifTrue:ifFalse: in dispatch loop: conditional block evaluation
 
 ### 13. End-to-End Scenarios
 
@@ -273,7 +300,6 @@ result and returns without entering the bytecodes.
 - [ ] call a method, push self, push arg, send message (nested), return result up
 - [ ] SmallInteger factorial via recursive message send
 - [ ] create a Point object, send #x to get its x field
-- [ ] send #+ to two SmallIntegers through the dispatch loop
 - [ ] conditional: push value, jump_if_false, two branches return different results
 
 ---
