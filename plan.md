@@ -104,13 +104,160 @@ write return value at new SP top.
 - [x] DUPLICATE (bytecode 12): push a copy of top of stack
 - [x] POP (bytecode 11): discard top of stack — done as stack_pop
 
-### 7. Marriage — Lazy Context Creation
+### 7. Tagged Pointers
 
-A context object is created only when thisContext is referenced.
-The context's sender field stores the frame pointer with the SmallInteger
-tag bit set (bit 0 = 1). The context's IP field stores the caller's saved FP
-(for validation). The frame's context slot is set to point at the context,
-and the has_context flag byte is set to 1.
+2 tag bits in the low bits of every word. All values on the stack,
+in object fields, and in temporaries are tagged.
+
+    Tag bits (bits 1:0):
+      00 = object pointer (8-byte aligned heap pointer)
+      01 = SmallInteger (signed 62-bit value in bits 63:2)
+      10 = immediate float (62-bit truncated double in bits 63:2)
+      11 = special object (nil=0b0011, true=0b0111, false=0b1011)
+
+Encoding/decoding:
+SmallInteger N → (N << 2) | 0b01
+SmallInteger decode → arithmetic right shift 2
+Float F → truncate mantissa, shift, | 0b10
+nil = 0x03
+true = 0x07
+false = 0x0B
+
+- [ ] encode SmallInteger 0 and decode it back
+- [ ] encode SmallInteger 42 and decode it back
+- [ ] encode SmallInteger -1 and decode it back
+- [ ] detect tag: SmallInteger has bits 1:0 == 01
+- [ ] detect tag: object pointer has bits 1:0 == 00
+- [ ] detect tag: immediate float has bits 1:0 == 10
+- [ ] detect tag: special object has bits 1:0 == 11
+- [ ] nil is the tagged value 0x03
+- [ ] true is the tagged value 0x07
+- [ ] false is the tagged value 0x0B
+- [ ] is_nil check: compare to 0x03
+- [ ] is_boolean check: (value & ~0b1000) == 0b0011 matches true and false
+- [ ] SmallInteger addition: decode both, add, re-encode
+- [ ] SmallInteger subtraction
+- [ ] SmallInteger less-than comparison: returns tagged true or false
+- [ ] SmallInteger equality: returns tagged true or false
+
+### 8. Object Model
+
+Minimal object layout: every heap object has a header followed by fields.
+
+    Header (1 word):
+      bits 63:32 = class index (index into a class table)
+      bits 31:16 = format (0=fields, 1=bytes, 2=words, ...)
+      bits 15:0  = size (number of slots, not counting header)
+
+    Fields (size words):
+      slot 0, slot 1, ... slot N-1   (all tagged values)
+
+Object pointers are 8-byte aligned, tag bits 00.
+
+- [ ] allocate an object: bump allocator returns aligned pointer
+- [ ] read class index from object header
+- [ ] read size from object header
+- [ ] read field 0 from an object (at header + 1\*W)
+- [ ] write field 1 of an object
+- [ ] object pointer has tag 00 (aligned)
+- [ ] fields store tagged values (e.g., SmallInteger in a field)
+- [ ] update bc_push_inst_var to work with tagged object pointers
+- [ ] update bc_store_inst_var to work with tagged object pointers
+
+### 9. Class and Method Dictionary
+
+A class is an object with known field layout:
+field 0 = superclass (tagged pointer or nil)
+field 1 = method dictionary (tagged pointer)
+field 2 = instance size
+
+A method dictionary maps selector indices to compiled method pointers.
+For the prototype, a simple linear array of (selector, method) pairs.
+
+A compiled method is an object:
+field 0 = num_args
+field 1 = num_temps
+field 2 = literal count
+field 3..N = literals
+followed by bytecode bytes (in a separate byte array or inline)
+
+- [ ] create a class object with superclass, method dict, instance size
+- [ ] create a method dictionary with one entry
+- [ ] look up a selector in a method dictionary: found
+- [ ] look up a selector in a method dictionary: not found
+- [ ] look up with superclass chain: found in superclass
+- [ ] create a compiled method object with bytecodes and literals
+- [ ] read num_args and num_temps from a compiled method
+
+### 10. Bytecode Dispatch Loop
+
+The interpreter loop: fetch bytecode at IP, dispatch to handler,
+advance IP, repeat. IP is a pointer into the compiled method's
+bytecode array.
+
+    loop:
+      ldrb  opcode, [IP], #1     // fetch and advance
+      adr   x_table, dispatch_table
+      ldr   x_handler, [x_table, opcode, lsl #3]
+      br    x_handler            // tail to handler
+      // each handler jumps back to loop
+
+- [ ] dispatch a single PUSH_LITERAL bytecode and stop
+- [ ] dispatch PUSH_LITERAL then RETURN_STACK_TOP: value returned
+- [ ] dispatch PUSH_SELF then RETURN_STACK_TOP
+- [ ] dispatch PUSH_TEMP, PUSH_TEMP, sequence
+- [ ] dispatch STORE_TEMP then PUSH_TEMP: round-trip through dispatch
+- [ ] dispatch JUMP: IP advances to target
+- [ ] dispatch JUMP_IF_TRUE with tagged true: jumps
+- [ ] dispatch JUMP_IF_TRUE with tagged false: falls through
+- [ ] dispatch JUMP_IF_FALSE with tagged false: jumps
+- [ ] dispatch JUMP_IF_FALSE with tagged true: falls through
+
+### 11. Message Send (SEND_MESSAGE bytecode 6)
+
+The send bytecode: pop args and receiver, look up selector in
+receiver's class, activate the found method, continue dispatch
+in the new method.
+
+- [ ] send a 0-arg message: look up, activate, dispatch callee
+- [ ] send a 1-arg message: arg and receiver popped, method activated
+- [ ] send to superclass: method found in superclass
+- [ ] message not understood: signal error (for now, halt)
+- [ ] full scenario: create object, send message, method pushes self, returns
+
+### 12. Primitives
+
+Primitive methods short-circuit bytecode execution. The method header
+indicates a primitive index. If the primitive succeeds, it pushes the
+result and returns without entering the bytecodes.
+
+- [ ] SmallInteger + primitive: tagged add, push result, return
+- [ ] SmallInteger - primitive
+- [ ] SmallInteger < primitive: returns tagged true/false
+- [ ] SmallInteger = primitive
+- [ ] at: primitive (array field access by tagged index)
+- [ ] at:put: primitive (array field store)
+- [ ] new primitive: allocate instance of a class
+- [ ] primitive failure: fall through to bytecode execution
+
+### 13. End-to-End Scenarios
+
+- [x] call a method, push self, return: receiver is on top of caller's stack
+- [x] call a method with 1 arg, push arg, return: arg value on caller's stack
+- [x] call a method, store into temp, push temp, return: temp value on caller's stack
+- [x] call a method, push instance variable, return: field value on caller's stack
+- [x] nested send: method A calls method B, B returns, A returns, result on original stack
+- [ ] call a method, push self, push arg, send message (nested), return result up
+- [ ] SmallInteger factorial via recursive message send
+- [ ] create a Point object, send #x to get its x field
+- [ ] send #+ to two SmallIntegers through the dispatch loop
+- [ ] conditional: push value, jump_if_false, two branches return different results
+
+---
+
+## Deferred: Stack Infrastructure (implement when needed)
+
+### D1. Marriage — Lazy Context Creation
 
 - [ ] marry a frame: create a context struct, store tagged FP in sender
 - [ ] detect a married context: sender has SmallInteger tag (bit 0 set)
@@ -121,92 +268,29 @@ and the has_context flag byte is set to 1.
 - [ ] frame's has_context flag is set after marriage
 - [ ] ensure only one context per frame (no polygamy)
 
-### 8. Widowhood — Context Outlives Frame
-
-When a married context's frame has exited, the context is "widowed."
-Detection: the frame pointer in sender points into a stack page, but
-the frame at that position no longer matches (different context field
-or page is free). Widowing nils out sender and IP.
+### D2. Widowhood — Context Outlives Frame
 
 - [ ] detect a widowed context: sender is tagged but frame no longer valid
 - [ ] widow a context: nil out sender and IP fields
 - [ ] widowed context retains method, receiver, and arguments
-- [ ] widowed context does NOT retain non-argument temporaries
 
-### 9. Divorce — Flushing Frames to Heap
-
-On snapshot or when a stack page must be reclaimed, all frames on the page
-are converted to single contexts linked through sender fields.
-updateStateOfSpouseContextForFrame copies the current stack state
-(receiver, args, temps, stack depth) into the context.
+### D3. Divorce — Flushing Frames to Heap
 
 - [ ] divorce a single frame: context becomes single, sender = caller context
 - [ ] divorce updates context's IP to the bytecode offset
-- [ ] divorce updates context's stack pointer (temp count)
 - [ ] divorce a chain of frames: contexts linked through sender fields
-- [ ] after divorce, the stack page is marked free (baseFP = 0)
 
-### 10. Block Activation (activateNewClosureMethod)
-
-A block closure has an outerContext. On activation:
-push saved IP, push saved FP, set FP = SP, push method (from outerContext),
-push flags (is_block=true), push nil context, push receiver (from outerContext),
-push copied values from the closure.
+### D4. Block Activation
 
 - [ ] activate a block with 0 args: is_block flag set, method from outerContext
 - [ ] activate a block with 1 copied value: copied value is accessible as temp
-- [ ] block's receiver is the home method's receiver (from outerContext)
-- [ ] non-local return from block: walk closure's outerContext chain to find home
+- [ ] block's receiver is the home method's receiver
+- [ ] non-local return from block
 
-### 11. Stack Pages
+### D5. Stack Pages & Overflow
 
-The stack is divided into fixed-size pages. Each page holds ~20 activations.
-Pages are linked: a base frame's saved caller FP is null, and its saved
-caller IP slot holds the caller context (spouse of the frame on the page below).
-
-- [ ] allocate a stack page of fixed size (e.g., 1024 bytes)
-- [ ] detect base frame: saved caller FP == 0
-- [ ] base frame's caller context is in the saved IP slot
-- [ ] link two stack pages via married context in base frame
-- [ ] track page usage: baseFP, headFP, headSP
-- [ ] mark a page as free: baseFP = 0
-
-### 12. Stack Overflow
-
-On every frame build, check SP < stackLimit. On overflow:
-marry the current top frame, allocate a new page, move frames
-to the new page, link via base frame.
-
+- [ ] allocate a stack page of fixed size
 - [ ] detect stack overflow: SP < stackLimit after frame build
-- [ ] on overflow, marry current frame and move to new page
-- [ ] if no free pages, flush LRU page (divorce all its frames) and reuse
-
-### 13. Stack Page Return (baseReturn)
-
-Returning from a base frame must follow the caller context link
-to find the frame to resume in, possibly on another stack page
-or in a single context that needs a new frame built for it.
-
+- [ ] link two stack pages via married context in base frame
 - [ ] return from base frame to a married context on another page
-- [ ] return from base frame to a single context: build a new frame for it
-
-### 14. Interrupt Check via stackLimit
-
-Peter Deutsch's trick: an interrupt handler sets stackLimit to all-ones
-so the next stack overflow check triggers, allowing the VM to break out
-of execution to process events. Also checked on backward branches.
-
-- [ ] normal stackLimit: overflow check passes for normal execution
-- [ ] interrupt: set stackLimit to max, next frame build triggers event check
-- [ ] backward branch checks stackLimit for breaking out of infinite loops
-
-### 15. Simulated Execution Scenarios
-
-End-to-end tests composing activate, bytecodes, and return.
-
-- [x] call a method, push self, return: receiver is on top of caller's stack
-- [x] call a method with 1 arg, push arg, return: arg value on caller's stack
-- [x] call a method, store into temp, push temp, return: temp value on caller's stack
-- [x] call a method, push instance variable, return: field value on caller's stack
-- [x] nested send: method A calls method B, B returns, A returns, result on original stack
-- [ ] call a method, push self, push arg, send message (nested), return result up
+- [ ] interrupt check via stackLimit (Deutsch's trick)
