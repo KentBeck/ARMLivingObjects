@@ -1188,6 +1188,73 @@ int main()
                   "SEND: obj x returns inst var 0 (42)");
     }
 
+    // Test: send a 1-arg message
+    // Class with method #add: that pushes inst var 0, pushes arg, adds, returns
+    // But we don't have SmallInteger + as a bytecode yet.
+    // Simpler: method #identity: that just returns the arg (push arg 0, return)
+    // Arg 0 is at FP+2*W. We need to access it. In our frame layout,
+    // arg 0 (last pushed) is at FP+2*W = frame_arg(fp, 0).
+    // We can use PUSH_TEMP with a negative trick... but our PUSH_TEMP only
+    // reads below FP. We need args to be accessible.
+    // Solution: treat arg indices as temp indices where temp index for arg N
+    // = -(N+1) mapped above the frame. Actually, the simplest thing:
+    // push the arg from the caller side as a literal in the callee.
+    // No — let's just have the callee return self for now and test that
+    // the 1-arg send correctly pops both arg and receiver.
+    {
+        // Method #withArg: just returns self (ignores arg)
+        uint64_t *wa_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+        uint8_t *wabc = (uint8_t *)&OBJ_FIELD(wa_bc, 0);
+        wabc[0] = BC_PUSH_SELF;
+        wabc[1] = BC_RETURN;
+
+        uint64_t *wa_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(wa_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(wa_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(wa_cm, CM_LITERAL_COUNT) = tag_smallint(0);
+        OBJ_FIELD(wa_cm, CM_FIRST_LITERAL) = (uint64_t)wa_bc;
+
+        uint64_t sel_withArg = tag_smallint(30);
+        uint64_t *wa_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(wa_md, 0) = sel_withArg;
+        OBJ_FIELD(wa_md, 1) = (uint64_t)wa_cm;
+
+        uint64_t *wa_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(wa_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(wa_class, CLASS_METHOD_DICT) = (uint64_t)wa_md;
+        OBJ_FIELD(wa_class, CLASS_INST_SIZE) = tag_smallint(0);
+
+        uint64_t *wa_obj = om_alloc(om, (uint64_t)wa_class, FORMAT_FIELDS, 0);
+
+        // Caller: push self, push literal(arg value), send #withArg: 1 arg, return
+        uint64_t *c3_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *c3b = (uint8_t *)&OBJ_FIELD(c3_bc, 0);
+        c3b[0] = BC_PUSH_SELF;    // receiver for send
+        c3b[1] = BC_PUSH_LITERAL; // arg value
+        WRITE_U32(&c3b[2], 0);    // literal 0 = tag_smallint(777)
+        c3b[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&c3b[7], 1);  // selector index 1 = sel_withArg
+        WRITE_U32(&c3b[11], 1); // 1 arg
+        c3b[15] = BC_RETURN;
+
+        uint64_t *c3_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+        OBJ_FIELD(c3_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(c3_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(c3_cm, CM_LITERAL_COUNT) = tag_smallint(2);
+        OBJ_FIELD(c3_cm, CM_FIRST_LITERAL + 0) = tag_smallint(777);
+        OBJ_FIELD(c3_cm, CM_FIRST_LITERAL + 1) = sel_withArg;
+        OBJ_FIELD(c3_cm, CM_FIRST_LITERAL + 2) = (uint64_t)c3_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)wa_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)c3_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(c3_bc, 0));
+        ASSERT_EQ(result, (uint64_t)wa_obj,
+                  "SEND 1-arg: self withArg: 777 returns self");
+    }
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }
