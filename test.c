@@ -544,6 +544,14 @@ int main()
     ASSERT_EQ(om[0], (uint64_t)om_buffer, "om_init: free ptr at buffer start");
     ASSERT_EQ(om[1], (uint64_t)(om_buffer + OM_SIZE), "om_init: end ptr correct");
 
+    // Allocate an object with 0 fields
+    uint64_t fake_class = 0x100; // placeholder class pointer
+    uint64_t *obj0 = om_alloc(om, fake_class, FORMAT_FIELDS, 0);
+    ASSERT_EQ((uint64_t)obj0, (uint64_t)om_buffer, "alloc 0 fields: ptr at buffer start");
+    ASSERT_EQ((uint64_t)obj0 % 8, 0, "alloc 0 fields: aligned");
+    // free ptr advanced by 3 header words = 24 bytes
+    ASSERT_EQ(om[0], (uint64_t)om_buffer + 24, "alloc 0 fields: free ptr advanced by 24");
+
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
 }

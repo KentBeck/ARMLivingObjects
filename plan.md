@@ -162,7 +162,7 @@ Object pointers are 8-byte aligned, tag bits 00.
 The allocator returns a pointer to word 0 (the class pointer).
 
 - [x] initialize object memory: fixed buffer, free pointer at start
-- [ ] allocate an object with 0 fields: returns aligned pointer, advances free ptr
+- [x] allocate an object with 0 fields: returns aligned pointer, advances free ptr
 - [ ] allocate an object with 2 fields: size is correct
 - [ ] crash on out-of-memory: allocating beyond buffer traps
 - [ ] read class pointer from object (word 0)
