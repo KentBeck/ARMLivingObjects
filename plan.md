@@ -161,7 +161,7 @@ Every heap object has a 3-word header followed by slots:
 Object pointers are 8-byte aligned, tag bits 00.
 The allocator returns a pointer to word 0 (the class pointer).
 
-- [ ] initialize object memory: fixed buffer, free pointer at start
+- [x] initialize object memory: fixed buffer, free pointer at start
 - [ ] allocate an object with 0 fields: returns aligned pointer, advances free ptr
 - [ ] allocate an object with 2 fields: size is correct
 - [ ] crash on out-of-memory: allocating beyond buffer traps

@@ -58,6 +58,19 @@ extern uint64_t smallint_sub(uint64_t a, uint64_t b);
 extern uint64_t smallint_less_than(uint64_t a, uint64_t b);
 extern uint64_t smallint_equal(uint64_t a, uint64_t b);
 
+// Object memory
+extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var);
+extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr,
+                          uint64_t format, uint64_t size);
+
+#define OBJ_CLASS(obj) ((obj)[0])
+#define OBJ_FORMAT(obj) ((obj)[1])
+#define OBJ_SIZE(obj) ((obj)[2])
+#define OBJ_FIELD(obj, n) ((obj)[3 + (n)])
+#define FORMAT_FIELDS 0
+#define FORMAT_INDEXABLE 1
+#define FORMAT_BYTES 2
+
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
@@ -520,6 +533,16 @@ int main()
               tagged_true(), "42 = 42 is true");
     ASSERT_EQ(smallint_equal(tag_smallint(42), tag_smallint(43)),
               tagged_false(), "42 = 43 is false");
+
+// --- Section 8: Object Memory ---
+
+// Initialize object memory
+#define OM_SIZE 4096
+    uint8_t om_buffer[OM_SIZE] __attribute__((aligned(8)));
+    uint64_t om[2]; // om[0] = free_ptr, om[1] = end_ptr
+    om_init(om_buffer, OM_SIZE, om);
+    ASSERT_EQ(om[0], (uint64_t)om_buffer, "om_init: free ptr at buffer start");
+    ASSERT_EQ(om[1], (uint64_t)(om_buffer + OM_SIZE), "om_init: end ptr correct");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
