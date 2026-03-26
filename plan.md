@@ -279,15 +279,20 @@ current receiver and that CM, pushes the Block.
 Block class has `value` primitive (PRIM_BLOCK_VALUE = 8):
 Activates the block's CM with the captured receiver.
 
-Boolean ifTrue:ifFalse: is a primitive (PRIM_IF_TRUE_FALSE = 9):
-If receiver is true, send `value` to arg0.
-If receiver is false, send `value` to arg1.
+True and False are separate classes with regular bytecoded methods:
+True >> ifTrue: aBlock ifFalse: anotherBlock ^ aBlock value
+False >> ifTrue: aBlock ifFalse: anotherBlock ^ anotherBlock value
+
+No primitive needed for ifTrue:ifFalse: — it's just a normal send.
+SEND_MESSAGE must detect tagged true (0x07) and false (0x0B) and
+look up their classes from the class table, like SmallInteger.
 
 - [ ] create a Block object with receiver and CM
 - [ ] PUSH_CLOSURE bytecode: creates block from literal CM + current receiver
 - [ ] Block value primitive: activates block's CM, returns result
-- [ ] Boolean ifTrue:ifFalse: primitive with true receiver
-- [ ] Boolean ifTrue:ifFalse: primitive with false receiver
+- [ ] True class with ifTrue:ifFalse: method (pushes arg 0, sends value, returns)
+- [ ] False class with ifTrue:ifFalse: method (pushes arg 1, sends value, returns)
+- [ ] SEND_MESSAGE detects tagged true/false and uses class table
 - [ ] ifTrue:ifFalse: in dispatch loop: conditional block evaluation
 
 ### 13. End-to-End Scenarios
