@@ -261,7 +261,7 @@ result and returns without entering the bytecodes.
 - [ ] at: primitive (array field access by tagged index)
 - [ ] at:put: primitive (array field store)
 - [ ] new primitive: allocate instance of a class
-- [ ] SmallInteger \* primitive
+- [x] SmallInteger \* primitive
 - [ ] primitive failure: fall through to bytecode execution
 
 ### 12b. Blocks and ifTrue:ifFalse:

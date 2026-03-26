@@ -248,6 +248,8 @@ _interpret:
     b.eq    .Lprim_lt
     cmp     x3, #4              // PRIM_SMALLINT_EQ
     b.eq    .Lprim_eq
+    cmp     x3, #5              // PRIM_SMALLINT_MUL
+    b.eq    .Lprim_mul
     brk     #4                  // unknown primitive
 
 .Lprim_add:
@@ -296,6 +298,23 @@ _interpret:
     mov     x9, #11
     csel    x8, x8, x9, eq
     add     x5, x5, #8
+    str     x8, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_mul:
+    // receiver * arg0 (both tagged SmallInts)
+    // tagged: (a<<2|1) * (b<<2|1) doesn't work directly.
+    // Untag both, multiply, retag.
+    ldr     x5, [x19]
+    ldr     x6, [x5]           // arg0 (tagged)
+    ldr     x7, [x5, #8]       // receiver (tagged)
+    asr     x6, x6, #2         // untag arg0
+    asr     x7, x7, #2         // untag receiver
+    mul     x8, x7, x6         // result = receiver * arg0
+    lsl     x8, x8, #2         // retag
+    orr     x8, x8, #1
+    add     x5, x5, #8         // pop arg, result replaces receiver
     str     x8, [x5]
     str     x5, [x19]
     b       .Ldispatch

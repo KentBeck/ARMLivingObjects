@@ -90,9 +90,11 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr,
 #define PRIM_SMALLINT_SUB 2
 #define PRIM_SMALLINT_LT 3
 #define PRIM_SMALLINT_EQ 4
-#define PRIM_AT 5
-#define PRIM_AT_PUT 6
-#define PRIM_NEW 7
+#define PRIM_SMALLINT_MUL 5
+#define PRIM_AT 6
+#define PRIM_AT_PUT 7
+#define PRIM_NEW 8
+#define PRIM_BLOCK_VALUE 9
 
 // Method dictionary lookup (ARM64)
 extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector);
@@ -1379,6 +1381,7 @@ int main()
         uint64_t sel_minus = tag_smallint(51);
         uint64_t sel_lt = tag_smallint(52);
         uint64_t sel_eq = tag_smallint(53);
+        uint64_t sel_mul = tag_smallint(54);
 
         // Dummy bytecodes (primitives short-circuit, these are never reached)
         uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
@@ -1415,8 +1418,16 @@ int main()
         OBJ_FIELD(eq_cm, CM_LITERALS) = tagged_nil();
         OBJ_FIELD(eq_cm, CM_BYTECODES) = (uint64_t)prim_bc;
 
-        // Method dict with all 4 selectors
-        uint64_t *si_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 8);
+        // *
+        uint64_t *mul_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(mul_cm, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_MUL);
+        OBJ_FIELD(mul_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(mul_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(mul_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(mul_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+        // Method dict with all 5 selectors
+        uint64_t *si_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 10);
         OBJ_FIELD(si_md, 0) = sel_plus;
         OBJ_FIELD(si_md, 1) = (uint64_t)plus_cm;
         OBJ_FIELD(si_md, 2) = sel_minus;
@@ -1425,6 +1436,8 @@ int main()
         OBJ_FIELD(si_md, 5) = (uint64_t)lt_cm;
         OBJ_FIELD(si_md, 6) = sel_eq;
         OBJ_FIELD(si_md, 7) = (uint64_t)eq_cm;
+        OBJ_FIELD(si_md, 8) = sel_mul;
+        OBJ_FIELD(si_md, 9) = (uint64_t)mul_cm;
 
         OBJ_FIELD(smallint_class, CLASS_METHOD_DICT) = (uint64_t)si_md;
 
@@ -1552,6 +1565,37 @@ int main()
         result = interpret(&sp, &fp,
                            (uint8_t *)&OBJ_FIELD(eq_bc2, 0), class_table);
         ASSERT_EQ(result, tagged_true(), "primitive: 42 = 42 = true via dispatch");
+
+        // Test: 6 * 7 = 42 via dispatch
+        uint64_t *mul_bc2 = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *mbc2 = (uint8_t *)&OBJ_FIELD(mul_bc2, 0);
+        mbc2[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&mbc2[1], 0);
+        mbc2[5] = BC_PUSH_LITERAL;
+        WRITE_U32(&mbc2[6], 1);
+        mbc2[10] = BC_SEND_MESSAGE;
+        WRITE_U32(&mbc2[11], 2); // selector index 2 = sel_mul
+        WRITE_U32(&mbc2[15], 1);
+        mbc2[19] = BC_HALT;
+
+        uint64_t *_lits_mul = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(_lits_mul, 0) = tag_smallint(6);
+        OBJ_FIELD(_lits_mul, 1) = tag_smallint(7);
+        OBJ_FIELD(_lits_mul, 2) = sel_mul;
+        uint64_t *mul_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(mul_cm2, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(mul_cm2, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(mul_cm2, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(mul_cm2, CM_LITERALS) = (uint64_t)_lits_mul;
+        OBJ_FIELD(mul_cm2, CM_BYTECODES) = (uint64_t)mul_bc2;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)mul_cm2, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(mul_bc2, 0), class_table);
+        ASSERT_EQ(result, tag_smallint(42), "primitive: 6 * 7 = 42 via dispatch");
     }
 
     printf("\n%d passed, %d failed\n", passes, failures);
