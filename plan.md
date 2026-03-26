@@ -308,3 +308,10 @@ result and returns without entering the bytecodes.
 - [ ] link two stack pages via married context in base frame
 - [ ] return from base frame to a married context on another page
 - [ ] interrupt check via stackLimit (Deutsch's trick)
+
+### D6. Object Header Compaction
+
+- [ ] combine format and size into a single header word (format in high bits, size in low bits)
+- [ ] update om_alloc to write combined header word
+- [ ] update all header readers to extract format/size with shifts and masks
+- [ ] reduce object header from 3 words to 2 words
