@@ -71,6 +71,23 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr,
 #define FORMAT_INDEXABLE 1
 #define FORMAT_BYTES 2
 
+// Class field indices
+#define CLASS_SUPERCLASS 0
+#define CLASS_METHOD_DICT 1
+#define CLASS_INST_SIZE 2
+
+// CompiledMethod field indices
+#define CM_NUM_ARGS 0
+#define CM_NUM_TEMPS 1
+#define CM_LITERAL_COUNT 2
+#define CM_FIRST_LITERAL 3
+// bytecodes field is at CM_FIRST_LITERAL + literal_count
+
+// Method dictionary lookup (ARM64)
+extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector);
+// Class-based lookup: walks superclass chain
+extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
+
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
@@ -628,6 +645,106 @@ int main()
     bc_store_inst_var(&sp, &fp, 2);
     ASSERT_EQ(OBJ_FIELD(obj_recv, 2), tag_smallint(99),
               "bc_store_inst_var with 3-word header: field 2");
+
+    // --- Section 9: Class and Method Dictionary ---
+
+    // Bootstrap: create Class class (self-referential class pointer)
+    // Class has 3 fields: superclass, method_dict, instance_size
+    uint64_t *class_class = om_alloc(om, 0, FORMAT_FIELDS, 3);
+    // Patch class pointer to point to itself
+    OBJ_CLASS(class_class) = (uint64_t)class_class;
+    OBJ_FIELD(class_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(class_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(class_class, CLASS_INST_SIZE) = tag_smallint(3);
+    ASSERT_EQ(OBJ_CLASS(class_class), (uint64_t)class_class,
+              "bootstrap: Class class is self-referential");
+
+    // Create a class with superclass nil, empty method dict, instance size 0
+    uint64_t *empty_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+    OBJ_FIELD(empty_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(empty_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(empty_class, CLASS_INST_SIZE) = tag_smallint(0);
+    ASSERT_EQ(OBJ_CLASS(empty_class), (uint64_t)class_class,
+              "empty class: class pointer is Class");
+    ASSERT_EQ(OBJ_FIELD(empty_class, CLASS_SUPERCLASS), tagged_nil(),
+              "empty class: superclass is nil");
+
+    // Create a method dictionary (Array) with one (selector, method) pair
+    // Selector = tagged SmallInt 1 (symbol index for e.g. #foo)
+    uint64_t sel_foo = tag_smallint(1);
+    uint64_t *fake_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+    // method dict: 2 slots (1 pair)
+    uint64_t *md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(md, 0) = sel_foo;
+    OBJ_FIELD(md, 1) = (uint64_t)fake_cm;
+    ASSERT_EQ(OBJ_FIELD(md, 0), sel_foo, "method dict: selector stored");
+    ASSERT_EQ(OBJ_FIELD(md, 1), (uint64_t)fake_cm, "method dict: method stored");
+
+    // Look up a selector in a method dictionary: found
+    uint64_t found = md_lookup(md, sel_foo);
+    ASSERT_EQ(found, (uint64_t)fake_cm, "md_lookup: found method for selector");
+
+    // Look up a selector in a method dictionary: not found
+    uint64_t sel_bar = tag_smallint(2);
+    uint64_t not_found = md_lookup(md, sel_bar);
+    ASSERT_EQ(not_found, 0, "md_lookup: not found returns 0");
+
+    // Look up with superclass chain: found in superclass
+    // Create a parent class with the method dict
+    uint64_t *parent_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+    OBJ_FIELD(parent_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(parent_class, CLASS_METHOD_DICT) = (uint64_t)md;
+    OBJ_FIELD(parent_class, CLASS_INST_SIZE) = tag_smallint(0);
+    // Create a child class with empty method dict, parent as superclass
+    uint64_t *child_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+    OBJ_FIELD(child_class, CLASS_SUPERCLASS) = (uint64_t)parent_class;
+    OBJ_FIELD(child_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(child_class, CLASS_INST_SIZE) = tag_smallint(0);
+    found = class_lookup(child_class, sel_foo);
+    ASSERT_EQ(found, (uint64_t)fake_cm,
+              "class_lookup: found in superclass");
+    not_found = class_lookup(child_class, sel_bar);
+    ASSERT_EQ(not_found, 0,
+              "class_lookup: not found in chain returns 0");
+
+    // Create a CompiledMethod with bytecodes and literals
+    // CM: 4 fields (num_args, num_temps, literal_count, bytecodes_ptr)
+    // + literal_count literal fields
+    // For a method with 1 arg, 2 temps, 1 literal:
+    // fields: num_args=1, num_temps=2, literal_count=1, literal0, bytecodes
+    uint64_t *bytecodes = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 4);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = 3; // PUSH_SELF
+    bc[1] = 7; // RETURN_STACK_TOP
+    bc[2] = 0; // padding
+    bc[3] = 0;
+
+    uint64_t *cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(cm, CM_NUM_ARGS) = tag_smallint(1);
+    OBJ_FIELD(cm, CM_NUM_TEMPS) = tag_smallint(2);
+    OBJ_FIELD(cm, CM_LITERAL_COUNT) = tag_smallint(1);
+    OBJ_FIELD(cm, CM_FIRST_LITERAL) = tag_smallint(42);        // literal 0
+    OBJ_FIELD(cm, CM_FIRST_LITERAL + 1) = (uint64_t)bytecodes; // bytecodes ptr
+
+    // Read num_args and num_temps from a CompiledMethod
+    ASSERT_EQ(untag_smallint(OBJ_FIELD(cm, CM_NUM_ARGS)), 1,
+              "CompiledMethod: num_args = 1");
+    ASSERT_EQ(untag_smallint(OBJ_FIELD(cm, CM_NUM_TEMPS)), 2,
+              "CompiledMethod: num_temps = 2");
+    ASSERT_EQ(untag_smallint(OBJ_FIELD(cm, CM_LITERAL_COUNT)), 1,
+              "CompiledMethod: literal_count = 1");
+    ASSERT_EQ(OBJ_FIELD(cm, CM_FIRST_LITERAL), tag_smallint(42),
+              "CompiledMethod: literal 0 = 42");
+    ASSERT_EQ(OBJ_FIELD(cm, CM_FIRST_LITERAL + 1), (uint64_t)bytecodes,
+              "CompiledMethod: bytecodes pointer");
+
+    // Look up class from receiver's header, then find method
+    // Create an instance of parent_class, look up sel_foo
+    uint64_t *instance = om_alloc(om, (uint64_t)parent_class, FORMAT_FIELDS, 0);
+    uint64_t *recv_class = (uint64_t *)OBJ_CLASS(instance);
+    found = class_lookup(recv_class, sel_foo);
+    ASSERT_EQ(found, (uint64_t)fake_cm,
+              "lookup from receiver: class -> method dict -> method");
 
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

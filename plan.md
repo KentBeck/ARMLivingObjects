@@ -180,28 +180,37 @@ The allocator returns a pointer to word 0 (the class pointer).
 
 ### 9. Class and Method Dictionary
 
-A class is an object with known field layout:
-field 0 = superclass (tagged pointer or nil)
-field 1 = method dictionary (tagged pointer)
-field 2 = instance size
+Bootstrap order: Class → ByteArray → Array → CompiledMethod.
+Class's own class pointer is self-referential (no metaclasses for now).
 
-A method dictionary maps selector indices to compiled method pointers.
-For the prototype, a simple linear array of (selector, method) pairs.
+Class object (format 0, 3 fields):
+field 0 = superclass (tagged pointer or tagged nil = 0x03)
+field 1 = method dictionary (tagged pointer to Array)
+field 2 = instance size (tagged SmallInteger)
 
-A compiled method is an object:
-field 0 = num_args
-field 1 = num_temps
-field 2 = literal count
-field 3..N = literals
-followed by bytecode bytes (in a separate byte array or inline)
+Method dictionary is an Array (format 1) of (selector, method) pairs:
+slot 0 = selector 0, slot 1 = method 0, slot 2 = selector 1, ...
+Selectors are tagged SmallIntegers (symbol indices) for now.
 
-- [ ] create a class object with superclass, method dict, instance size
-- [ ] create a method dictionary with one entry
-- [ ] look up a selector in a method dictionary: found
-- [ ] look up a selector in a method dictionary: not found
-- [ ] look up with superclass chain: found in superclass
-- [ ] create a compiled method object with bytecodes and literals
-- [ ] read num_args and num_temps from a compiled method
+CompiledMethod object (format 0, 4+ fields):
+field 0 = num_args (tagged SmallInteger)
+field 1 = num_temps (tagged SmallInteger)
+field 2 = literal count (tagged SmallInteger)
+field 3..N = literals (tagged values)
+field N+1 = bytecodes (tagged pointer to ByteArray)
+
+Lookup: receiver → header class ptr → method dict → linear scan for selector.
+If not found, follow superclass chain. Nil superclass → message not understood.
+
+- [x] bootstrap: create Class class (self-referential class pointer)
+- [x] create a class with superclass nil, empty method dict, instance size 0
+- [x] create a method dictionary (Array) with one (selector, method) pair
+- [x] look up a selector in a method dictionary: found (ARM64 linear scan)
+- [x] look up a selector in a method dictionary: not found (returns 0)
+- [x] look up with superclass chain: found in superclass
+- [x] create a CompiledMethod with bytecodes and literals
+- [x] read num_args and num_temps from a CompiledMethod
+- [x] look up class from receiver's header, then find method
 
 ### 10. Bytecode Dispatch Loop
 

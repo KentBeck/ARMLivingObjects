@@ -42,6 +42,8 @@
 .global _smallint_equal
 .global _om_init
 .global _om_alloc
+.global _md_lookup
+.global _class_lookup
 
 .align 2
 
@@ -607,3 +609,66 @@ _om_alloc:
 
 .Loom:
     brk     #1                  // crash on OOM
+
+// === Method Dictionary Lookup ===
+// Method dict is an Array object (3-word header + slots).
+// Slots are (selector, method) pairs: slot 0=sel0, slot 1=meth0, slot 2=sel1, ...
+// Selectors are tagged SmallIntegers compared by equality.
+
+// md_lookup(method_dict, selector) -> method pointer or 0
+// x0 = pointer to method dictionary Array object
+// x1 = selector (tagged SmallInteger)
+// Returns: method pointer (tagged obj ptr) or 0 if not found
+_md_lookup:
+    ldr     x2, [x0, #16]      // x2 = size (number of slots)
+    add     x3, x0, #24        // x3 = pointer to slot 0 (skip 3-word header)
+    mov     x4, #0              // x4 = index
+.Lmd_loop:
+    cmp     x4, x2
+    b.ge    .Lmd_not_found
+    ldr     x5, [x3, x4, lsl #3]   // load selector at index
+    cmp     x5, x1
+    b.eq    .Lmd_found
+    add     x4, x4, #2         // skip to next pair
+    b       .Lmd_loop
+.Lmd_found:
+    add     x4, x4, #1         // method is next slot
+    ldr     x0, [x3, x4, lsl #3]
+    ret
+.Lmd_not_found:
+    mov     x0, #0
+    ret
+
+// class_lookup(class, selector) -> method pointer or 0
+// x0 = pointer to Class object
+// x1 = selector (tagged SmallInteger)
+// Walks superclass chain. Returns method pointer or 0.
+_class_lookup:
+    stp     x29, x30, [sp, #-16]!   // save frame pointer and link register
+    mov     x29, sp
+    stp     x19, x20, [sp, #-16]!   // save callee-saved regs
+    mov     x19, x1                  // x19 = selector (preserved across calls)
+    mov     x20, x0                  // x20 = current class
+.Lcl_loop:
+    cbz     x20, .Lcl_not_found     // nil class (0 or tagged nil check)
+    cmp     x20, #3                  // tagged nil = 0x03
+    b.eq    .Lcl_not_found
+    // Load method dict from class field 1 (at header + 3*W + 1*W = offset 32)
+    ldr     x0, [x20, #32]          // method dict pointer
+    // Check if method dict is nil
+    cmp     x0, #3
+    b.eq    .Lcl_super
+    // Call md_lookup(method_dict, selector)
+    mov     x1, x19
+    bl      _md_lookup
+    cbnz    x0, .Lcl_done           // found!
+.Lcl_super:
+    // Follow superclass: class field 0 (at header + 3*W = offset 24)
+    ldr     x20, [x20, #24]
+    b       .Lcl_loop
+.Lcl_not_found:
+    mov     x0, #0
+.Lcl_done:
+    ldp     x19, x20, [sp], #16
+    ldp     x29, x30, [sp], #16
+    ret
