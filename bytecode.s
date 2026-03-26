@@ -60,7 +60,7 @@ _bc_push_inst_var:
 _bc_push_literal:
     ldr     x3, [x1]           // FP
     ldr     x4, [x3, #-8]      // method (CompiledMethod object pointer)
-    add     x4, x4, #48        // skip to CM_FIRST_LITERAL
+    add     x4, x4, #56        // skip to CM_FIRST_LITERAL (header 24 + field4 * 8)
     lsl     x5, x2, #3
     add     x6, x4, x5
     ldr     x7, [x6]

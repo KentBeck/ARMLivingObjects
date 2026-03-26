@@ -1,9 +1,10 @@
 // interpret.s — Bytecode dispatch loop
 //
-// interpret(sp_ptr, fp_ptr, ip) -> result (tagged value)
+// interpret(sp_ptr, fp_ptr, ip, class_table) -> result (tagged value)
 // x0 = pointer to SP variable
 // x1 = pointer to FP variable
 // x2 = IP: pointer to first bytecode (in a ByteArray's data area)
+// x3 = pointer to class table: [0]=SmallInteger class, [1]=... (tagged obj ptrs)
 //
 // Runs bytecodes until RETURN_STACK_TOP (7) or HALT (13).
 // Returns the result value (top of stack at exit).
@@ -40,12 +41,14 @@ _interpret:
     stp     x19, x20, [sp, #-16]!
     stp     x21, x22, [sp, #-16]!
     stp     x23, x24, [sp, #-16]!
+    stp     x25, x26, [sp, #-16]!
 
     mov     x19, x0             // x19 = sp_ptr
     mov     x20, x1             // x20 = fp_ptr
     mov     x21, x2             // x21 = IP
     mov     x23, x2             // x23 = bytecodes base
     ldr     x24, [x20]          // x24 = entry frame FP (for detecting top-level return)
+    mov     x25, x3             // x25 = class table pointer
 
 .Ldispatch:
     ldrb    w22, [x21], #1      // fetch opcode, advance IP
@@ -92,7 +95,7 @@ _interpret:
     READ_U32                    // w5 = literal index
     ldr     x6, [x20]          // FP
     ldr     x7, [x6, #-8]      // method (CompiledMethod obj ptr)
-    add     x7, x7, #48        // CM_FIRST_LITERAL offset
+    add     x7, x7, #56        // CM_FIRST_LITERAL offset (header 24 + field4*8 = 56)
     ldr     x8, [x7, x5, lsl #3]  // literal value
     ldr     x9, [x19]          // SP
     sub     x9, x9, #8
@@ -169,15 +172,21 @@ _interpret:
     // Get selector from current method's literals
     ldr     x11, [x20]          // FP
     ldr     x12, [x11, #-8]    // current method (CompiledMethod)
-    add     x13, x12, #48      // CM_FIRST_LITERAL offset (header 24 + field3*8 = 24+24=48)
+    add     x13, x12, #56      // CM_FIRST_LITERAL offset (header 24 + field4*8 = 56)
     ldr     x14, [x13, x9, lsl #3]  // selector (tagged SmallInt)
 
     // Get receiver from stack: at SP + arg_count * 8
     ldr     x15, [x19]         // SP
     ldr     x0, [x15, x10, lsl #3]  // receiver
 
-    // Look up receiver's class and find method
-    ldr     x0, [x0]           // receiver's class pointer (OBJ_CLASS = word 0)
+    // Look up receiver's class: check tag bits first
+    tst     x0, #1              // bit 0 set = SmallInteger (tag 01)
+    b.ne    .Lsend_smallint_class
+    ldr     x0, [x0]           // heap object: class pointer from header word 0
+    b       .Lsend_have_class
+.Lsend_smallint_class:
+    ldr     x0, [x25]          // SmallInteger class from class_table[0]
+.Lsend_have_class:
     mov     x1, x14            // selector
     // Save volatile state before function call
     stp     x9, x10, [sp, #-16]!
@@ -189,9 +198,14 @@ _interpret:
     // Check if method was found
     cbz     x0, .Lsend_not_found
 
+    // Check for primitive: CM_PRIMITIVE at method + header(24) + field0(0) = offset 24
+    ldr     x3, [x0, #24]      // primitive index (tagged)
+    cmp     x3, #1              // tag_smallint(0) = 1 means no primitive
+    b.ne    .Lsend_primitive
+
     // x0 = found CompiledMethod, x10 = arg_count, x21 = IP (past SEND operands)
     // Read num_temps from found method
-    ldr     x3, [x0, #32]      // num_temps (tagged) at method + header(24) + field1(8)
+    ldr     x3, [x0, #40]      // num_temps (tagged) at method + header(24) + field2(16)
     asr     x3, x3, #2         // untag num_temps
 
     // Activate: call _activate_method(sp_ptr, fp_ptr, saved_ip, method, num_args, num_temps)
@@ -207,9 +221,9 @@ _interpret:
     // bytecodes_ptr = method + (3 + 3 + literal_count) * 8
     ldr     x6, [x20]          // new FP
     ldr     x7, [x6, #-8]      // new method
-    ldr     x9, [x7, #40]      // literal_count (tagged) at method+24+16
+    ldr     x9, [x7, #48]      // literal_count (tagged) at method+24+24
     asr     x9, x9, #2         // untag
-    add     x9, x9, #6         // 3 header + 3 + literal_count
+    add     x9, x9, #7         // 3 header + 4 CM fields + literal_count
     ldr     x10, [x7, x9, lsl #3]   // bytecodes object pointer
     add     x23, x10, #24      // skip ByteArray header → data
     mov     x21, x23            // IP = start of new method's bytecodes
@@ -217,6 +231,76 @@ _interpret:
 
 .Lsend_not_found:
     brk     #3                  // message not understood (trap for now)
+
+.Lsend_primitive:
+    // x0 = CompiledMethod, x3 = primitive index (tagged), x10 = arg_count
+    // Decode primitive index
+    asr     x3, x3, #2         // untag
+
+    // Dispatch to primitive handler
+    // Primitives operate on tagged values already on the stack.
+    // Stack has: ... receiver arg0 arg1 ... (top = last arg, receiver below args)
+    // After primitive: pop args and receiver, push result.
+
+    cmp     x3, #1              // PRIM_SMALLINT_ADD
+    b.eq    .Lprim_add
+    cmp     x3, #2              // PRIM_SMALLINT_SUB
+    b.eq    .Lprim_sub
+    cmp     x3, #3              // PRIM_SMALLINT_LT
+    b.eq    .Lprim_lt
+    cmp     x3, #4              // PRIM_SMALLINT_EQ
+    b.eq    .Lprim_eq
+    brk     #4                  // unknown primitive
+
+.Lprim_add:
+    // receiver + arg0  (both tagged SmallInts)
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // arg0
+    ldr     x7, [x5, #8]       // receiver
+    add     x8, x7, x6
+    sub     x8, x8, #1          // tag correction
+    add     x5, x5, #16         // pop both
+    sub     x5, x5, #8          // push result
+    str     x8, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_sub:
+    ldr     x5, [x19]
+    ldr     x6, [x5]           // arg0
+    ldr     x7, [x5, #8]       // receiver
+    sub     x8, x7, x6
+    add     x8, x8, #1
+    add     x5, x5, #8         // pop arg, result replaces receiver
+    str     x8, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_lt:
+    ldr     x5, [x19]
+    ldr     x6, [x5]           // arg0
+    ldr     x7, [x5, #8]       // receiver
+    cmp     x7, x6              // signed compare (works on tagged)
+    mov     x8, #7              // tagged true
+    mov     x9, #11             // tagged false
+    csel    x8, x8, x9, lt
+    add     x5, x5, #8
+    str     x8, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_eq:
+    ldr     x5, [x19]
+    ldr     x6, [x5]           // arg0
+    ldr     x7, [x5, #8]       // receiver
+    cmp     x7, x6
+    mov     x8, #7
+    mov     x9, #11
+    csel    x8, x8, x9, eq
+    add     x5, x5, #8
+    str     x8, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
 
 .Lbc_return_stack_top:
     // Pop return value, dismantle frame
@@ -242,12 +326,12 @@ _interpret:
     mov     x21, x12            // restore IP from saved caller IP
 
     // Recompute x23 = bytecodes base from caller's method
-    // bytecodes_ptr is at method_obj + (3 + 3 + literal_count) * 8
-    //   3 header words + CM_FIRST_LITERAL(3) + literal_count
+    // bytecodes_ptr is at method_obj + (3 + 4 + literal_count) * 8
+    //   3 header words + 4 CM fields + literal_count
     ldr     x13, [x11, #-8]    // caller method (CompiledMethod) at new FP - 1*W
-    ldr     x14, [x13, #40]    // literal_count (tagged) at method + header(24) + field2(16)
+    ldr     x14, [x13, #48]    // literal_count (tagged) at method + header(24) + field3(24)
     asr     x14, x14, #2       // untag
-    add     x14, x14, #6       // 3 header + 3 fields before literals + literal_count
+    add     x14, x14, #7       // 3 header + 4 CM fields + literal_count
     ldr     x15, [x13, x14, lsl #3]  // bytecodes object pointer
     add     x23, x15, #24      // skip ByteArray 3-word header → data
     b       .Ldispatch
@@ -300,6 +384,7 @@ _interpret:
     b       .Lexit
 
 .Lexit:
+    ldp     x25, x26, [sp], #16
     ldp     x23, x24, [sp], #16
     ldp     x21, x22, [sp], #16
     ldp     x19, x20, [sp], #16

@@ -245,7 +245,7 @@ in the new method.
 - [x] send a 0-arg message: look up, activate, dispatch callee
 - [x] send a 1-arg message: arg and receiver popped, method activated
 - [x] send to superclass: method found in superclass
-- [ ] message not understood: signal error (for now, halt)
+- [-] message not understood: signal error (for now, halt/brk #3 — needs subprocess test)
 - [x] full scenario: create object, send message, method pushes inst var, returns
 
 ### 12. Primitives
@@ -254,10 +254,10 @@ Primitive methods short-circuit bytecode execution. The method header
 indicates a primitive index. If the primitive succeeds, it pushes the
 result and returns without entering the bytecodes.
 
-- [ ] SmallInteger + primitive: tagged add, push result, return
-- [ ] SmallInteger - primitive
-- [ ] SmallInteger < primitive: returns tagged true/false
-- [ ] SmallInteger = primitive
+- [x] SmallInteger + primitive: tagged add, push result, return
+- [x] SmallInteger - primitive
+- [x] SmallInteger < primitive: returns tagged true/false
+- [x] SmallInteger = primitive
 - [ ] at: primitive (array field access by tagged index)
 - [ ] at:put: primitive (array field store)
 - [ ] new primitive: allocate instance of a class
