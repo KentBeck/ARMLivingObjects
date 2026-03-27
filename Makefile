@@ -4,8 +4,10 @@ AS = as
 ASM_SRCS = stack_ops.s frame.s bytecode.s tagged.s object.s lookup.s interpret.s
 ASM_OBJS = $(ASM_SRCS:.s=.o)
 
-test: test.c $(ASM_OBJS)
-	$(CC) -o test test.c $(ASM_OBJS)
+TEST_SRCS = test_main.c test_stack.c test_tagged.c test_object.c test_dispatch.c test_blocks.c test_factorial.c
+
+test: $(TEST_SRCS) test_defs.h $(ASM_OBJS)
+	$(CC) -o test $(TEST_SRCS) $(ASM_OBJS)
 	./test
 
 %.o: %.s
