@@ -78,6 +78,7 @@ _interpret:
     .long   .Lbc_duplicate       - .Ldispatch_table  // 12
     .long   .Lbc_halt            - .Ldispatch_table  // 13
     .long   .Lbc_push_closure    - .Ldispatch_table  // 14
+    .long   .Lbc_push_arg        - .Ldispatch_table  // 15
 
 // --- Bytecode handlers ---
 // Each reads operands from [x21] (IP), advances IP, operates on stack via x19/x20.
@@ -184,14 +185,13 @@ _interpret:
     ldr     x15, [x19]         // SP
     ldr     x0, [x15, x10, lsl #3]  // receiver
 
-    // Look up receiver's class: check tag bits first
-    tst     x0, #1              // bit 0 set = SmallInteger (tag 01)
-    b.ne    .Lsend_smallint_class
-    ldr     x0, [x0]           // heap object: class pointer from header word 0
-    b       .Lsend_have_class
-.Lsend_smallint_class:
-    ldr     x0, [x25]          // SmallInteger class from class_table[0]
-.Lsend_have_class:
+    // Look up receiver's class via oop_class(oop, class_table)
+    mov     x1, x25            // class_table
+    stp     x9, x10, [sp, #-16]!
+    str     x14, [sp, #-16]!
+    bl      _oop_class
+    ldr     x14, [sp], #16
+    ldp     x9, x10, [sp], #16
     mov     x1, x14            // selector
     // Save volatile state before function call
     stp     x9, x10, [sp, #-16]!
@@ -432,6 +432,19 @@ _interpret:
     sub     x6, x6, #8
     str     x7, [x6]
     str     x6, [x19]
+    b       .Ldispatch
+
+.Lbc_push_arg:
+    // PUSH_ARG: read 4-byte arg index, push arg from above frame
+    // arg at FP + (2 + index) * 8
+    READ_U32                    // w5 = arg index
+    ldr     x6, [x20]          // FP
+    add     x7, x5, #2
+    ldr     x8, [x6, x7, lsl #3]
+    ldr     x9, [x19]          // SP
+    sub     x9, x9, #8
+    str     x8, [x9]
+    str     x9, [x19]
     b       .Ldispatch
 
 .Lbc_push_closure:

@@ -96,6 +96,9 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr,
 #define PRIM_NEW 8
 #define PRIM_BLOCK_VALUE 9
 
+// Class resolution: given any OOP + class table, returns the class pointer
+extern uint64_t *oop_class(uint64_t oop, uint64_t *class_table);
+
 // Method dictionary lookup (ARM64)
 extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector);
 // Class-based lookup: walks superclass chain
@@ -126,6 +129,7 @@ extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
 #define BC_DUPLICATE 12
 #define BC_HALT 13
 #define BC_PUSH_CLOSURE 14
+#define BC_PUSH_ARG 15
 
 // Frame layout offsets from FP (in words, multiply by 8 for bytes)
 #define FRAME_SAVED_IP 1  // FP + 1*W
@@ -1717,6 +1721,185 @@ int main()
                            class_table, om);
         ASSERT_EQ(result, receiver,
                   "Block: captures self — [self] value returns receiver");
+    }
+
+    // --- True and False classes with ifTrue:ifFalse: ---
+    {
+        uint64_t sel_value = tag_smallint(60);
+        uint64_t sel_ifTF = tag_smallint(70); // #ifTrue:ifFalse:
+
+        // True >> ifTrue: aBlock ifFalse: anotherBlock  ^ aBlock value
+        // Bytecodes: PUSH_ARG? No — we don't have PUSH_ARG yet.
+        // Args are above the frame at FP + (2+i)*8.
+        // For a 2-arg method, arg0 (aBlock) is at FP+3*W, arg1 (anotherBlock) at FP+2*W.
+        // We need frame_arg(fp, 0) = FP+2*W (most recently pushed), but we want aBlock
+        // which was pushed first = FP+3*W = frame_arg(fp, 1).
+        //
+        // Actually in our calling convention:
+        //   stack_push(receiver), stack_push(arg0=aBlock), stack_push(arg1=anotherBlock)
+        //   arg0 at FP + 3*W = frame_arg(fp, 1)
+        //   arg1 at FP + 2*W = frame_arg(fp, 0)
+        //
+        // We don't have a PUSH_ARG bytecode. Let's add one: BC_PUSH_ARG (15).
+        // For now, use PUSH_TEMP with a negative offset hack? No.
+        // Let me just add BC_PUSH_ARG.
+
+        // True>>ifTrue:ifFalse: bytecodes:
+        //   PUSH_ARG 1    (aBlock = first arg pushed = frame_arg(1))
+        //   SEND #value 0
+        //   RETURN
+        uint64_t *true_itf_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *titf = (uint8_t *)&OBJ_FIELD(true_itf_bc, 0);
+        titf[0] = 15;           // BC_PUSH_ARG
+        WRITE_U32(&titf[1], 1); // arg index 1 = aBlock
+        titf[5] = BC_SEND_MESSAGE;
+        WRITE_U32(&titf[6], 0);  // selector index 0 = sel_value
+        WRITE_U32(&titf[10], 0); // 0 args to value
+        titf[14] = BC_RETURN;
+
+        uint64_t *true_itf_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(true_itf_lits, 0) = sel_value;
+        uint64_t *true_itf_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(true_itf_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(true_itf_cm, CM_NUM_ARGS) = tag_smallint(2);
+        OBJ_FIELD(true_itf_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(true_itf_cm, CM_LITERALS) = (uint64_t)true_itf_lits;
+        OBJ_FIELD(true_itf_cm, CM_BYTECODES) = (uint64_t)true_itf_bc;
+
+        // False>>ifTrue:ifFalse: bytecodes:
+        //   PUSH_ARG 0    (anotherBlock = second arg pushed = frame_arg(0))
+        //   SEND #value 0
+        //   RETURN
+        uint64_t *false_itf_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *fitf = (uint8_t *)&OBJ_FIELD(false_itf_bc, 0);
+        fitf[0] = 15;           // BC_PUSH_ARG
+        WRITE_U32(&fitf[1], 0); // arg index 0 = anotherBlock
+        fitf[5] = BC_SEND_MESSAGE;
+        WRITE_U32(&fitf[6], 0);
+        WRITE_U32(&fitf[10], 0);
+        fitf[14] = BC_RETURN;
+
+        uint64_t *false_itf_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(false_itf_lits, 0) = sel_value;
+        uint64_t *false_itf_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(false_itf_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(false_itf_cm, CM_NUM_ARGS) = tag_smallint(2);
+        OBJ_FIELD(false_itf_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(false_itf_cm, CM_LITERALS) = (uint64_t)false_itf_lits;
+        OBJ_FIELD(false_itf_cm, CM_BYTECODES) = (uint64_t)false_itf_bc;
+
+        // True class
+        uint64_t *true_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(true_md, 0) = sel_ifTF;
+        OBJ_FIELD(true_md, 1) = (uint64_t)true_itf_cm;
+        uint64_t *true_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(true_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(true_class, CLASS_METHOD_DICT) = (uint64_t)true_md;
+        OBJ_FIELD(true_class, CLASS_INST_SIZE) = tag_smallint(0);
+
+        // False class
+        uint64_t *false_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(false_md, 0) = sel_ifTF;
+        OBJ_FIELD(false_md, 1) = (uint64_t)false_itf_cm;
+        uint64_t *false_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(false_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(false_class, CLASS_METHOD_DICT) = (uint64_t)false_md;
+        OBJ_FIELD(false_class, CLASS_INST_SIZE) = tag_smallint(0);
+
+        // Register in class table
+        class_table[2] = (uint64_t)true_class;
+        class_table[3] = (uint64_t)false_class;
+
+        // Test: true ifTrue: [77] ifFalse: [99] → 77
+        // Block bodies
+        uint64_t *blk77_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *b77 = (uint8_t *)&OBJ_FIELD(blk77_bc, 0);
+        b77[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&b77[1], 0);
+        b77[5] = BC_RETURN;
+        uint64_t *blk77_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(blk77_lits, 0) = tag_smallint(77);
+        uint64_t *blk77_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(blk77_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(blk77_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(blk77_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(blk77_cm, CM_LITERALS) = (uint64_t)blk77_lits;
+        OBJ_FIELD(blk77_cm, CM_BYTECODES) = (uint64_t)blk77_bc;
+
+        uint64_t *blk99_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *b99 = (uint8_t *)&OBJ_FIELD(blk99_bc, 0);
+        b99[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&b99[1], 0);
+        b99[5] = BC_RETURN;
+        uint64_t *blk99_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(blk99_lits, 0) = tag_smallint(99);
+        uint64_t *blk99_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(blk99_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(blk99_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(blk99_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(blk99_cm, CM_LITERALS) = (uint64_t)blk99_lits;
+        OBJ_FIELD(blk99_cm, CM_BYTECODES) = (uint64_t)blk99_bc;
+
+        // Caller: PUSH_LITERAL 0 (=true), PUSH_CLOSURE 1 (blk77), PUSH_CLOSURE 2 (blk99),
+        //         SEND #ifTrue:ifFalse: 2 args, HALT
+        uint64_t *itf_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 32);
+        uint8_t *itfb = (uint8_t *)&OBJ_FIELD(itf_bc, 0);
+        itfb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&itfb[1], 0); // literal 0 = tagged true
+        itfb[5] = BC_PUSH_CLOSURE;
+        WRITE_U32(&itfb[6], 1); // literal 1 = blk77_cm
+        itfb[10] = BC_PUSH_CLOSURE;
+        WRITE_U32(&itfb[11], 2); // literal 2 = blk99_cm
+        itfb[15] = BC_SEND_MESSAGE;
+        WRITE_U32(&itfb[16], 3); // selector index 3 = sel_ifTF
+        WRITE_U32(&itfb[20], 2); // 2 args
+        itfb[24] = BC_HALT;
+
+        uint64_t *itf_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(itf_lits, 0) = tagged_true();
+        OBJ_FIELD(itf_lits, 1) = (uint64_t)blk77_cm;
+        OBJ_FIELD(itf_lits, 2) = (uint64_t)blk99_cm;
+        OBJ_FIELD(itf_lits, 3) = sel_ifTF;
+        uint64_t *itf_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(itf_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(itf_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(itf_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(itf_cm, CM_LITERALS) = (uint64_t)itf_lits;
+        OBJ_FIELD(itf_cm, CM_BYTECODES) = (uint64_t)itf_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)itf_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(itf_bc, 0),
+                                    class_table, om);
+        ASSERT_EQ(result, tag_smallint(77),
+                  "True ifTrue: [77] ifFalse: [99] → 77");
+
+        // Test: false ifTrue: [77] ifFalse: [99] → 99
+        // Same bytecodes but literal 0 = tagged false
+        uint64_t *itf_lits2 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(itf_lits2, 0) = tagged_false();
+        OBJ_FIELD(itf_lits2, 1) = (uint64_t)blk77_cm;
+        OBJ_FIELD(itf_lits2, 2) = (uint64_t)blk99_cm;
+        OBJ_FIELD(itf_lits2, 3) = sel_ifTF;
+        uint64_t *itf_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(itf_cm2, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(itf_cm2, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(itf_cm2, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(itf_cm2, CM_LITERALS) = (uint64_t)itf_lits2;
+        OBJ_FIELD(itf_cm2, CM_BYTECODES) = (uint64_t)itf_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + sizeof(stack));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)itf_cm2, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(itf_bc, 0),
+                           class_table, om);
+        ASSERT_EQ(result, tag_smallint(99),
+                  "False ifTrue: [77] ifFalse: [99] → 99");
     }
 
     printf("\n%d passed, %d failed\n", passes, failures);

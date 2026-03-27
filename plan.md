@@ -290,10 +290,10 @@ look up their classes from the class table, like SmallInteger.
 - [x] create a Block object with receiver and CM
 - [x] PUSH_CLOSURE bytecode: creates block from literal CM + current receiver
 - [x] Block value primitive: activates block's CM, returns result
-- [ ] True class with ifTrue:ifFalse: method (pushes arg 0, sends value, returns)
-- [ ] False class with ifTrue:ifFalse: method (pushes arg 1, sends value, returns)
-- [ ] SEND_MESSAGE detects tagged true/false and uses class table
-- [ ] ifTrue:ifFalse: in dispatch loop: conditional block evaluation
+- [x] True class with ifTrue:ifFalse: method (pushes arg 0, sends value, returns)
+- [x] False class with ifTrue:ifFalse: method (pushes arg 1, sends value, returns)
+- [x] SEND_MESSAGE uses oop_class() for all tag dispatch (SmallInt, true, false, heap)
+- [x] ifTrue:ifFalse: in dispatch loop: conditional block evaluation
 
 ### 13. End-to-End Scenarios
 

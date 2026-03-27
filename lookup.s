@@ -1,9 +1,41 @@
-// lookup.s — Method dictionary lookup and class-based method resolution
+// lookup.s — Class resolution, method dictionary lookup, class-based method resolution
 
+.global _oop_class
 .global _md_lookup
 .global _class_lookup
 
 .align 2
+
+// oop_class(oop, class_table) -> class pointer
+// x0 = OOP (tagged value)
+// x1 = class table: [0]=SmallInteger, [1]=Block, [2]=True, [3]=False
+// Returns class pointer in x0.
+_oop_class:
+    // Check tag bits
+    tst     x0, #1              // bit 0 set → SmallInteger (tag 01) or special (tag 11)
+    b.eq    .Loop_heap
+    tst     x0, #2              // bit 1 set → special (tag 11)
+    b.ne    .Loop_special
+    // SmallInteger (tag 01)
+    ldr     x0, [x1]           // class_table[0]
+    ret
+.Loop_special:
+    cmp     x0, #7              // tagged true
+    b.eq    .Loop_true
+    cmp     x0, #11             // tagged false
+    b.eq    .Loop_false
+    // nil or other special — no class yet, return 0
+    mov     x0, #0
+    ret
+.Loop_true:
+    ldr     x0, [x1, #16]      // class_table[2]
+    ret
+.Loop_false:
+    ldr     x0, [x1, #24]      // class_table[3]
+    ret
+.Loop_heap:
+    ldr     x0, [x0]           // header word 0 = class pointer
+    ret
 
 // md_lookup(method_dict, selector) -> method pointer or 0
 // x0 = pointer to method dictionary Array object (3-word header + slots)
