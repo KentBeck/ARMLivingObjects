@@ -70,5 +70,8 @@ _om_alloc:
     ret
 
 .Loom:
+    stp     x29, x30, [sp, #-16]!
+    bl      _debug_oom
+    ldp     x29, x30, [sp], #16
     brk     #1                  // crash on OOM
 

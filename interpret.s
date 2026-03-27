@@ -231,6 +231,11 @@ _interpret:
     b       .Ldispatch
 
 .Lsend_not_found:
+    // Debug: print "MNU" before trapping
+    stp     x0, x14, [sp, #-16]!
+    mov     x0, x14             // selector
+    bl      _debug_mnu
+    ldp     x0, x14, [sp], #16
     brk     #3                  // message not understood (trap for now)
 
 .Lsend_primitive:
@@ -255,6 +260,11 @@ _interpret:
     b.eq    .Lprim_mul
     cmp     x3, #9              // PRIM_BLOCK_VALUE
     b.eq    .Lprim_block_value
+    // Debug: print unknown primitive
+    stp     x0, x3, [sp, #-16]!
+    mov     x0, x3
+    bl      _debug_unknown_prim
+    ldp     x0, x3, [sp], #16
     brk     #4                  // unknown primitive
 
 .Lprim_add:

@@ -303,7 +303,7 @@ look up their classes from the class table, like SmallInteger.
 - [x] call a method, push instance variable, return: field value on caller's stack
 - [x] nested send: method A calls method B, B returns, A returns, result on original stack
 - [ ] call a method, push self, push arg, send message (nested), return result up
-- [ ] SmallInteger factorial via recursive message send
+- [x] SmallInteger factorial via recursive message send
 - [ ] create a Point object, send #x to get its x field
 - [ ] conditional: push value, jump_if_false, two branches return different results
 

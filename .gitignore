@@ -1,3 +1,5 @@
 *.o
 /test
 /target
+test_dbg
+test_dbg.dSYM/
