@@ -135,18 +135,18 @@ Source files compiled by the C bootstrap compiler into heap objects.
 - [ ] WriteStream (`on:`, `nextPut:`, `nextPutAll:`, `contents`)
 - [ ] Compiler-related: see section 27
 
-### 25b. SUnit (in Smalltalk, compiled by bootstrap compiler)
+### 25b. SUnit (minimal, no exceptions)
 
-Minimal xUnit framework for testing Smalltalk code in Smalltalk.
-Compiled by the C bootstrap compiler alongside the class library.
+Minimal xUnit framework. Tests that pass print `.`, tests that
+fail crash the VM (no exception handling yet). Good enough to
+bootstrap — you see how far you get.
 
-- [ ] TestCase class (`setUp`, `tearDown`, `assert:`, `assert:equals:`, `deny:`)
-- [ ] TestResult class (`passed`, `failed`, `errors`, `runCount`)
-- [ ] TestCase>>runCase: run setUp, test method, tearDown, catch errors
-- [ ] TestSuite: collect test selectors (all methods starting with `test`), run each
-- [ ] TestRunner: run a suite, print results via `printChar`
-- [ ] First Smalltalk test: SmallIntegerTest>>testAddition `self assert: 1 + 1 equals: 2`
+- [ ] TestCase class with `assert:` and `assert:equals:` (crash on failure via primitive)
+- [ ] TestCase>>runTest: send the test selector to self
+- [ ] TestRunner: iterate test selectors, send each, print `.` on success
+- [ ] First Smalltalk test: SmallIntegerTest>>testAddition
 - [ ] Test String, Array, OrderedCollection, Dictionary using SUnit
+- [ ] Later: add `on:do:` exceptions, TestResult, proper failure reporting
 
 ### 26. Smalltalk Compiler (in Smalltalk)
 
