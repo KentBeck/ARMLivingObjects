@@ -366,13 +366,17 @@ Object header changes: add forwarding pointer support for copying.
 - [x] gc_is_forwarded / gc_forwarding_ptr: detect and follow forwards
 - [x] gc_collect: Cheney's semi-space collector with explicit roots
 - [x] root scanning: walk stack frames for tagged object pointers
+- [x] FORMAT_BYTES: skip field scanning, correct copy sizing
+- [x] edge cases: cycles, self-ref, deep chains, shared refs, mixed formats, tagged roots
+- [x] class hierarchy: full class+method+bytecodes chain survives GC and dispatch works
+- [x] stress test: 100 objects, 34 survivors verified correct
+- [ ] wire GC into om_alloc: trigger collection when nursery fills
 - [ ] write barrier: STORE_INST_VAR records old-to-young references
 - [ ] promotion: objects surviving N collections move to tenured space
 - [ ] tenured space: mark-sweep collector
 - [ ] remembered set: old-to-young pointer tracking
 - [ ] GC-safe points: trigger collection at allocation or backward branch
 - [ ] transaction log as GC root: log entries keep objects alive
-- [ ] end-to-end: allocate enough objects to trigger nursery collection, verify integrity
 
 ### 16. Persistence
 

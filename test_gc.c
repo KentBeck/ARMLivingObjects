@@ -440,4 +440,164 @@ void test_gc(TestContext *ctx)
         ASSERT_EQ(ctx, roots10[1], tagged_nil(),
                   "gc tagged roots: nil unchanged");
     }
+
+    // --- Full class hierarchy survives GC, message send works after ---
+    {
+        static uint8_t fb_cls[65536] __attribute__((aligned(8)));
+        static uint8_t tb_cls[65536] __attribute__((aligned(8)));
+        uint64_t from_cls[2], to_cls[2];
+        om_init(fb_cls, 65536, from_cls);
+        om_init(tb_cls, 65536, to_cls);
+
+        // Build a class with a method that returns instvar 0
+        uint64_t *cc = ctx->class_class; // class_class is NOT in from-space
+
+        uint64_t *my_class = om_alloc(from_cls, (uint64_t)cc, FORMAT_FIELDS, 3);
+        OBJ_FIELD(my_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(my_class, CLASS_INST_SIZE) = tag_smallint(1);
+
+        // Method: PUSH_INST_VAR 0, RETURN_STACK_TOP
+        uint64_t *my_bc = om_alloc(from_cls, (uint64_t)cc, FORMAT_BYTES, 10);
+        uint8_t *bc = (uint8_t *)&OBJ_FIELD(my_bc, 0);
+        bc[0] = BC_PUSH_INST_VAR;
+        WRITE_U32(bc + 1, 0);
+        bc[5] = BC_RETURN;
+
+        uint64_t *my_cm = om_alloc(from_cls, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(my_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(my_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(my_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(my_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(my_cm, CM_BYTECODES) = (uint64_t)my_bc;
+
+        uint64_t sel = tag_smallint(50);
+        uint64_t *my_md = om_alloc(from_cls, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(my_md, 0) = sel;
+        OBJ_FIELD(my_md, 1) = (uint64_t)my_cm;
+        OBJ_FIELD(my_class, CLASS_METHOD_DICT) = (uint64_t)my_md;
+
+        // Instance with field 0 = 42
+        uint64_t *inst = om_alloc(from_cls, (uint64_t)my_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(inst, 0) = tag_smallint(42);
+
+        // Also allocate garbage to ensure from-space is messy
+        for (int i = 0; i < 20; i++)
+            om_alloc(from_cls, (uint64_t)cc, FORMAT_FIELDS, 3);
+
+        // GC with inst as root
+        uint64_t roots_cls[1];
+        roots_cls[0] = (uint64_t)inst;
+        gc_collect(roots_cls, 1, from_cls, to_cls,
+                   (uint64_t)fb_cls, (uint64_t)(fb_cls + 65536));
+
+        uint64_t *ninst = (uint64_t *)roots_cls[0];
+
+        // Verify basic structure survived
+        ASSERT_EQ(ctx, OBJ_FIELD(ninst, 0), tag_smallint(42),
+                  "gc class: instance field preserved");
+
+        // The class pointer should be in to-space
+        uint64_t *nclass = (uint64_t *)OBJ_CLASS(ninst);
+        ASSERT_EQ(ctx, (uint64_t)nclass >= (uint64_t)tb_cls, 1,
+                  "gc class: class in to-space");
+
+        // Method dict should be in to-space
+        uint64_t *nmd = (uint64_t *)OBJ_FIELD(nclass, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, (uint64_t)nmd >= (uint64_t)tb_cls, 1,
+                  "gc class: method dict in to-space");
+
+        // Compiled method and bytecodes should be in to-space
+        uint64_t *ncm = (uint64_t *)OBJ_FIELD(nmd, 1);
+        ASSERT_EQ(ctx, (uint64_t)ncm >= (uint64_t)tb_cls, 1,
+                  "gc class: compiled method in to-space");
+        uint64_t *nbc = (uint64_t *)OBJ_FIELD(ncm, CM_BYTECODES);
+        ASSERT_EQ(ctx, (uint64_t)nbc >= (uint64_t)tb_cls, 1,
+                  "gc class: bytecodes in to-space");
+
+        // Now actually use it: send the message via interpret
+        uint64_t *stack = ctx->stack;
+        uint64_t *class_table = ctx->class_table;
+        uint64_t *sp, *fp;
+
+        // Build a caller method that does: PUSH_SELF, SEND sel 0, HALT
+        uint64_t *caller_bc = om_alloc(om, (uint64_t)cc, FORMAT_BYTES, 20);
+        uint8_t *cbc = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        cbc[0] = BC_PUSH_SELF;
+        cbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(cbc + 2, 0); // selector lit index 0
+        WRITE_U32(cbc + 6, 0); // 0 args
+        cbc[10] = BC_HALT;
+
+        uint64_t *caller_lits = om_alloc(om, (uint64_t)cc, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(caller_lits, 0) = sel;
+
+        uint64_t *caller_cm = om_alloc(om, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)ninst);
+
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                                    class_table, om, NULL);
+
+        ASSERT_EQ(ctx, result, tag_smallint(42),
+                  "gc class: message send after GC returns 42");
+    }
+
+    // --- Stress: allocate 100 objects, keep every 3rd, GC, verify survivors ---
+    {
+        static uint8_t fb_st[131072] __attribute__((aligned(8)));
+        static uint8_t tb_st[131072] __attribute__((aligned(8)));
+        uint64_t from_st[2], to_st[2];
+        om_init(fb_st, 131072, from_st);
+        om_init(tb_st, 131072, to_st);
+
+        uint64_t *cc = ctx->class_class;
+#define STRESS_N 100
+#define KEEP_EVERY 3
+        uint64_t *all[STRESS_N];
+        uint64_t roots_st[STRESS_N / KEEP_EVERY + 1];
+        int nroots = 0;
+
+        for (int i = 0; i < STRESS_N; i++)
+        {
+            all[i] = om_alloc(from_st, (uint64_t)cc, FORMAT_FIELDS, 2);
+            OBJ_FIELD(all[i], 0) = tag_smallint(i);
+            OBJ_FIELD(all[i], 1) = tag_smallint(i * 10);
+            if (i % KEEP_EVERY == 0)
+                roots_st[nroots++] = (uint64_t)all[i];
+        }
+
+        gc_collect(roots_st, nroots, from_st, to_st,
+                   (uint64_t)fb_st, (uint64_t)(fb_st + 131072));
+
+        int stress_ok = 1;
+        for (int i = 0; i < nroots; i++)
+        {
+            uint64_t *obj = (uint64_t *)roots_st[i];
+            int orig_idx = i * KEEP_EVERY;
+            if (OBJ_FIELD(obj, 0) != tag_smallint(orig_idx))
+                stress_ok = 0;
+            if (OBJ_FIELD(obj, 1) != tag_smallint(orig_idx * 10))
+                stress_ok = 0;
+            if ((uint64_t)obj < (uint64_t)tb_st)
+                stress_ok = 0;
+        }
+        ASSERT_EQ(ctx, stress_ok, 1,
+                  "gc stress: all 34 survivors have correct data in to-space");
+
+        // Verify to-space used less memory than from-space
+        // (only ~34 objects survived out of 100)
+        uint64_t from_used = from_st[0] - (uint64_t)fb_st;
+        uint64_t to_used = to_st[0] - (uint64_t)tb_st;
+        ASSERT_EQ(ctx, to_used < from_used, 1,
+                  "gc stress: to-space smaller than from-space");
+    }
 }
