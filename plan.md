@@ -26,10 +26,13 @@ dispatched by the interpreter's primitive handler.
 - [ ] `size` — return object size (inst var count or indexable size)
 - [ ] `==` — identity comparison (same pointer), returns tagged true/false
 - [ ] `class` — return the class of the receiver
-- [ ] `basicAt:` / `basicAt:put:` — bounds-checked field access (not overridden by convention)
+- [ ] fix `at:` / `at:put:` — dispatch on format:
+  - FORMAT_FIELDS: error (use inst var access instead)
+  - FORMAT_INDEXABLE: 1-based word access, bounds-checked
+  - FORMAT_BYTES: 1-based byte access, returns/stores SmallInt byte value, bounds-checked
+- [ ] `basicAt:` / `basicAt:put:` — same as at:/at:put: (not overridden by convention)
 - [ ] `hash` — identity hash (address-based, or SmallInt value)
 - [ ] `printChar` — write a single character (SmallInt) to stdout (for debugging/bootstrap)
-- [ ] `at:` / `at:put:` handle FORMAT_BYTES (return/store SmallInt byte values)
 - [ ] `value:` — Block>>value: (1-arg block evaluation)
 - [ ] `perform:` — send a message (symbol) to receiver dynamically
 - [ ] `halt` — crash the VM (for assert: failure)
