@@ -307,6 +307,93 @@ look up their classes from the class table, like SmallInteger.
 - [ ] create a Point object, send #x to get its x field
 - [ ] conditional: push value, jump_if_false, two branches return different results
 
+### 14. In-Memory Transactions
+
+Changes are recorded in a redo log. Objects are unmodified until commit.
+Reads check the log first. Abort discards the log. Commit writes
+the log entries to the objects.
+
+Transaction log is an array of (object, field_index, new_value) triples.
+
+Interpreter changes:
+
+- STORE_INST_VAR writes to the log instead of the object (when active)
+- PUSH_INST_VAR checks the log before reading the object (when active)
+- at:put: primitive writes to the log (when active)
+- at: primitive checks the log (when active)
+
+New primitives:
+
+- Transaction begin: push a new log frame (nested transactions)
+- Transaction commit: apply log entries to objects
+- Transaction abort: discard log entries, restore IP/SP/FP
+
+- [ ] create a transaction log (fixed-size array of triples)
+- [ ] txn_log_write: record (object, field_index, new_value) in the log
+- [ ] txn_log_read: look up (object, field_index) in the log, return value or miss
+- [ ] STORE_INST_VAR through transaction log when active
+- [ ] PUSH_INST_VAR reads from transaction log when active
+- [ ] Transaction commit: write all log entries to objects
+- [ ] Transaction abort: discard log, restore interpreter state
+- [ ] Nested transactions: commit inner merges into outer log
+- [ ] Object allocation during transaction: track for rollback
+- [ ] End-to-end: begin, modify field, read field (sees new value), commit, read field (still new)
+- [ ] End-to-end: begin, modify field, abort, read field (sees old value)
+
+### 15. Generational Garbage Collection
+
+Nursery (young generation): bump allocate, copy collect into survivor space.
+Tenured (old generation): mark-compact or mark-sweep.
+Write barrier: record old-to-young pointers in a remembered set.
+
+Object header changes: add forwarding pointer support for copying.
+
+- [ ] nursery space: bump allocator (replace current om_alloc)
+- [ ] root scanning: walk stack frames for tagged object pointers
+- [ ] copy collector: scan nursery, copy live objects to survivor space
+- [ ] forwarding pointers: update references after copy
+- [ ] write barrier: STORE_INST_VAR records old-to-young references
+- [ ] promotion: objects surviving N collections move to tenured space
+- [ ] tenured space: mark-sweep collector
+- [ ] remembered set: old-to-young pointer tracking
+- [ ] GC-safe points: trigger collection at allocation or backward branch
+- [ ] transaction log as GC root: log entries keep objects alive
+- [ ] end-to-end: allocate enough objects to trigger nursery collection, verify integrity
+
+### 16. Persistence
+
+Serialize the object graph to disk. Use transaction boundaries for
+consistent snapshots. Image-based persistence (like a Smalltalk image).
+
+- [ ] snapshot: walk all live objects, serialize to a file
+- [ ] image load: deserialize objects, reconstruct heap
+- [ ] pointer relocation: fix up object pointers on load
+- [ ] incremental persistence: write only changed objects (using transaction log)
+- [ ] crash recovery: replay committed transaction log from last snapshot
+
+### 17. LSP Server
+
+Language Server Protocol for IDE integration. Runs as a Smalltalk
+process inside the VM communicating over stdin/stdout.
+
+- [ ] basic I/O primitives: read/write to file descriptors
+- [ ] JSON parsing in Smalltalk (or as primitives)
+- [ ] LSP initialize/shutdown handshake
+- [ ] textDocument/completion: method name completion from class hierarchy
+- [ ] textDocument/hover: show method source and class
+
+### 18. MCP Server
+
+Model Context Protocol server. Exposes the live object environment
+to AI assistants for tool use.
+
+- [ ] MCP transport: JSON-RPC over stdin/stdout
+- [ ] tool: evaluate Smalltalk expression, return result
+- [ ] tool: browse class hierarchy
+- [ ] tool: inspect object fields
+- [ ] tool: modify object fields (within a transaction)
+- [ ] resource: expose live object graph as browsable context
+
 ---
 
 ## Deferred: Stack Infrastructure (implement when needed)
