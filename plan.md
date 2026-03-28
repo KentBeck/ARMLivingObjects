@@ -23,7 +23,7 @@ dispatched by the interpreter's primitive handler.
 - [x] `basicNew` — primitive on Class: allocate fixed-size instance (reads instSize from receiver)
 - [x] `basicNew:` — primitive on Class: allocate indexable/byte instance (reads instFormat from receiver)
 - [ ] `new` / `new:` — Smalltalk methods on Class: `^ self basicNew initialize`
-- [ ] `size` — return object size (inst var count or indexable size)
+- [x] `size` — return object size (inst var count or indexable size)
 - [ ] `==` — identity comparison (same pointer), returns tagged true/false
 - [ ] `class` — return the class of the receiver
 - [ ] fix `at:` / `at:put:` — dispatch on format:

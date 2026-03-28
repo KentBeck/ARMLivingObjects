@@ -1041,4 +1041,61 @@ void test_dispatch(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_SIZE(ba), 10,
                   "basicNew: bytes size = 10");
     }
+
+    // --- size primitive ---
+    {
+        uint64_t sel_size = tag_smallint(72);
+
+        uint64_t *size_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *size_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(size_cm, CM_PRIMITIVE) = tag_smallint(PRIM_SIZE);
+        OBJ_FIELD(size_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(size_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(size_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(size_cm, CM_BYTECODES) = (uint64_t)size_bc;
+
+        // Create a class with size method
+        uint64_t *sz_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(sz_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(sz_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(sz_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        uint64_t *sz_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(sz_md, 0) = sel_size;
+        OBJ_FIELD(sz_md, 1) = (uint64_t)size_cm;
+        OBJ_FIELD(sz_class, CLASS_METHOD_DICT) = (uint64_t)sz_md;
+
+        // Create an indexable object with 4 elements
+        uint64_t *arr = om_alloc(om, (uint64_t)sz_class, FORMAT_INDEXABLE, 4);
+
+        // Caller: PUSH_SELF, SEND #size 0, HALT
+        uint64_t *sz_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *szbc = (uint8_t *)&OBJ_FIELD(sz_caller_bc, 0);
+        szbc[0] = BC_PUSH_SELF;
+        szbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&szbc[2], 0);
+        WRITE_U32(&szbc[6], 0);
+        szbc[10] = BC_HALT;
+
+        uint64_t *sz_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(sz_lits, 0) = sel_size;
+
+        uint64_t *sz_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(sz_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(sz_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(sz_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(sz_caller_cm, CM_LITERALS) = (uint64_t)sz_lits;
+        OBJ_FIELD(sz_caller_cm, CM_BYTECODES) = (uint64_t)sz_caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)arr);
+
+        activate_method(&sp, &fp, 0, (uint64_t)sz_caller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(sz_caller_bc, 0),
+                           class_table, om, NULL);
+
+        ASSERT_EQ(ctx, result, tag_smallint(4),
+                  "size: indexable object size = 4");
+    }
 }

@@ -325,6 +325,8 @@ _interpret:
     b.eq    .Lprim_block_value
     cmp     x3, #10             // PRIM_BASIC_NEW_SIZE
     b.eq    .Lprim_basic_new_size
+    cmp     x3, #11             // PRIM_SIZE
+    b.eq    .Lprim_size
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -557,6 +559,17 @@ _interpret:
 
 .Lbasicnewsize_err:
     brk     #5                  // basicNew: on non-indexable class
+
+.Lprim_size:
+    // size: return the object's size field as a tagged SmallInt
+    ldr     x5, [x19]          // SP
+    ldr     x5, [x5]           // receiver
+    ldr     x6, [x5, #16]      // obj[2] = size
+    lsl     x6, x6, #2
+    orr     x6, x6, #1         // tag as SmallInt
+    ldr     x5, [x19]          // SP
+    str     x6, [x5]           // replace receiver with result
+    b       .Ldispatch
 
 .Lprim_block_value:
     // Block>>value: receiver is a Block object on stack.
