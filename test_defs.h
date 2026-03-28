@@ -68,6 +68,13 @@ extern uint64_t *gc_copy_object(uint64_t *obj, uint64_t *to_space);
 extern uint64_t gc_is_forwarded(uint64_t *obj);
 // gc_forwarding_ptr(obj) -> the forwarding address (clears tag)
 extern uint64_t *gc_forwarding_ptr(uint64_t *obj);
+// gc_collect(roots, num_roots, from_space, to_space, from_start, from_end)
+//   Cheney's algorithm: copy roots, then scan to-space updating pointers.
+//   roots = array of tagged values (only object ptrs with tag 00 are followed)
+//   from_start/from_end = address range of from-space (to identify pointers into it)
+extern void gc_collect(uint64_t *roots, uint64_t num_roots,
+                       uint64_t *from_space, uint64_t *to_space,
+                       uint64_t from_start, uint64_t from_end);
 
 #define GC_FORWARD_TAG 1 // bit 0 set on a forwarding pointer (real class ptrs are aligned)
 

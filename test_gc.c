@@ -56,5 +56,48 @@ void test_gc(TestContext *ctx)
         ASSERT_EQ(ctx, (uint64_t)copy1, (uint64_t)copy2,
                   "gc_copy: forwarded obj returns existing copy");
     }
-}
 
+    // --- gc_collect: copy reachable objects, update pointers ---
+    {
+        // Set up a small from-space and to-space
+        static uint8_t from_buf[8192] __attribute__((aligned(8)));
+        static uint8_t to_buf3[8192] __attribute__((aligned(8)));
+        uint64_t from[2], to[2];
+        om_init(from_buf, 8192, from);
+        om_init(to_buf3, 8192, to);
+
+        // Allocate in from-space: A -> B, and unreferenced C
+        uint64_t *objB = om_alloc(from, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objB, 0) = tag_smallint(77);
+
+        uint64_t *objA = om_alloc(from, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objA, 0) = (uint64_t)objB; // A points to B
+
+        uint64_t *objC = om_alloc(from, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objC, 0) = tag_smallint(55);
+        (void)objC;
+
+        // Roots: just objA
+        uint64_t roots[1];
+        roots[0] = (uint64_t)objA;
+
+        gc_collect(roots, 1, from, to,
+                   (uint64_t)from_buf, (uint64_t)(from_buf + 8192));
+
+        // roots[0] should now point to the copy of A in to-space
+        uint64_t *newA = (uint64_t *)roots[0];
+        ASSERT_EQ(ctx, OBJ_FORMAT(newA), FORMAT_FIELDS,
+                  "gc_collect: A format preserved");
+
+        // newA's field 0 should point to the copy of B (not old B)
+        uint64_t *newB = (uint64_t *)OBJ_FIELD(newA, 0);
+        ASSERT_EQ(ctx, OBJ_FIELD(newB, 0), tag_smallint(77),
+                  "gc_collect: B field preserved");
+
+        // Both should be in to-space
+        ASSERT_EQ(ctx, (uint64_t)newA >= (uint64_t)to_buf3, 1,
+                  "gc_collect: A is in to-space");
+        ASSERT_EQ(ctx, (uint64_t)newB >= (uint64_t)to_buf3, 1,
+                  "gc_collect: B is in to-space");
+    }
+}

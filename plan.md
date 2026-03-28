@@ -362,10 +362,10 @@ Write barrier: record old-to-young pointers in a remembered set.
 
 Object header changes: add forwarding pointer support for copying.
 
-- [ ] nursery space: bump allocator (replace current om_alloc)
+- [x] gc_copy_object: copy single object, leave forwarding pointer
+- [x] gc_is_forwarded / gc_forwarding_ptr: detect and follow forwards
+- [x] gc_collect: Cheney's semi-space collector with explicit roots
 - [ ] root scanning: walk stack frames for tagged object pointers
-- [ ] copy collector: scan nursery, copy live objects to survivor space
-- [ ] forwarding pointers: update references after copy
 - [ ] write barrier: STORE_INST_VAR records old-to-young references
 - [ ] promotion: objects surviving N collections move to tenured space
 - [ ] tenured space: mark-sweep collector
