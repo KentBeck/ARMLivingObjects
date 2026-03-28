@@ -29,7 +29,7 @@ dispatched by the interpreter's primitive handler.
 - [ ] `basicAt:` / `basicAt:put:` — bounds-checked field access (not overridden by convention)
 - [ ] `hash` — identity hash (address-based, or SmallInt value)
 - [ ] `printChar` — write a single character (SmallInt) to stdout (for debugging/bootstrap)
-- [ ] `byteAt:` / `byteAt:put:` — byte-level access for ByteArray/String
+- [ ] `at:` / `at:put:` handle FORMAT_BYTES (return/store SmallInt byte values)
 - [ ] `value:` — Block>>value: (1-arg block evaluation)
 - [ ] `perform:` — send a message (symbol) to receiver dynamically
 - [ ] `halt` — crash the VM (for assert: failure)
