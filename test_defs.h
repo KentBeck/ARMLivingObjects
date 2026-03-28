@@ -51,6 +51,13 @@ extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector);
 extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
 extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip, uint64_t *class_table, uint64_t *om);
 
+// Transaction log functions
+// Log layout: [0] = count, then triples at [1+i*3], [2+i*3], [3+i*3]
+//   triple = (object_ptr, field_index, new_value)
+extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
+extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
+extern void txn_commit(uint64_t *log);
+
 #define OBJ_CLASS(obj) ((obj)[0])
 #define OBJ_FORMAT(obj) ((obj)[1])
 #define OBJ_SIZE(obj) ((obj)[2])
@@ -105,11 +112,16 @@ extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip, uin
 
 #define OM_SIZE (1024 * 1024)
 
-static inline void WRITE_U32(uint8_t *p, uint32_t v) {
-    p[0]=v&0xFF; p[1]=(v>>8)&0xFF; p[2]=(v>>16)&0xFF; p[3]=(v>>24)&0xFF;
+static inline void WRITE_U32(uint8_t *p, uint32_t v)
+{
+    p[0] = v & 0xFF;
+    p[1] = (v >> 8) & 0xFF;
+    p[2] = (v >> 16) & 0xFF;
+    p[3] = (v >> 24) & 0xFF;
 }
 
-typedef struct {
+typedef struct
+{
     uint64_t *om;
     uint64_t *class_class;
     uint64_t *smallint_class;
@@ -123,11 +135,21 @@ typedef struct {
     int failures;
 } TestContext;
 
-#define ASSERT_EQ(ctx, a, b, msg) do { \
-    uint64_t _a = (a), _b = (b); \
-    if (_a!=_b) { printf("FAIL: %s (expected %llu, got %llu)\n",msg,_b,_a); (ctx)->failures++; } \
-    else { printf("PASS: %s\n",msg); (ctx)->passes++; } \
-} while (0)
+#define ASSERT_EQ(ctx, a, b, msg)                                        \
+    do                                                                   \
+    {                                                                    \
+        uint64_t _a = (a), _b = (b);                                     \
+        if (_a != _b)                                                    \
+        {                                                                \
+            printf("FAIL: %s (expected %llu, got %llu)\n", msg, _b, _a); \
+            (ctx)->failures++;                                           \
+        }                                                                \
+        else                                                             \
+        {                                                                \
+            printf("PASS: %s\n", msg);                                   \
+            (ctx)->passes++;                                             \
+        }                                                                \
+    } while (0)
 
 void debug_mnu(uint64_t selector);
 void debug_oom(void);
@@ -139,5 +161,6 @@ void test_object(TestContext *ctx);
 void test_dispatch(TestContext *ctx);
 void test_blocks(TestContext *ctx);
 void test_factorial(TestContext *ctx);
+void test_transaction(TestContext *ctx);
 
 #endif

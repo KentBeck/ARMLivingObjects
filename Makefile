@@ -1,10 +1,10 @@
 CC = clang
 AS = as
 
-ASM_SRCS = stack_ops.s frame.s bytecode.s tagged.s object.s lookup.s interpret.s
+ASM_SRCS = stack_ops.s frame.s bytecode.s tagged.s object.s lookup.s interpret.s txn.s
 ASM_OBJS = $(ASM_SRCS:.s=.o)
 
-TEST_SRCS = test_main.c test_stack.c test_tagged.c test_object.c test_dispatch.c test_blocks.c test_factorial.c
+TEST_SRCS = test_main.c test_stack.c test_tagged.c test_object.c test_dispatch.c test_blocks.c test_factorial.c test_transaction.c
 
 test: $(TEST_SRCS) test_defs.h $(ASM_OBJS)
 	$(CC) -o test $(TEST_SRCS) $(ASM_OBJS)

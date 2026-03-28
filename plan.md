@@ -328,12 +328,12 @@ New primitives:
 - Transaction commit: apply log entries to objects
 - Transaction abort: discard log entries, restore IP/SP/FP
 
-- [ ] create a transaction log (fixed-size array of triples)
-- [ ] txn_log_write: record (object, field_index, new_value) in the log
-- [ ] txn_log_read: look up (object, field_index) in the log, return value or miss
+- [x] create a transaction log (fixed-size array of triples)
+- [x] txn_log_write: record (object, field_index, new_value) in the log
+- [x] txn_log_read: look up (object, field_index) in the log, return value or miss
 - [ ] STORE_INST_VAR through transaction log when active
 - [ ] PUSH_INST_VAR reads from transaction log when active
-- [ ] Transaction commit: write all log entries to objects
+- [x] Transaction commit: write all log entries to objects
 - [ ] Transaction abort: discard log, restore interpreter state
 - [ ] Nested transactions: commit inner merges into outer log
 - [ ] Object allocation during transaction: track for rollback
