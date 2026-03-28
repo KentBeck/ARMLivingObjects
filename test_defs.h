@@ -59,6 +59,18 @@ extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, 
 extern void txn_commit(uint64_t *log);
 extern void txn_abort(uint64_t *log);
 
+// GC functions
+// gc_copy_object(obj, to_space) -> new_obj
+//   Copy obj to to_space[0] (bump pointer), leave forwarding ptr in old obj.
+//   Returns pointer to the new copy. Advances to_space[0].
+extern uint64_t *gc_copy_object(uint64_t *obj, uint64_t *to_space);
+// gc_is_forwarded(obj) -> 1 if obj[0] has forwarding tag, 0 otherwise
+extern uint64_t gc_is_forwarded(uint64_t *obj);
+// gc_forwarding_ptr(obj) -> the forwarding address (clears tag)
+extern uint64_t *gc_forwarding_ptr(uint64_t *obj);
+
+#define GC_FORWARD_TAG 1 // bit 0 set on a forwarding pointer (real class ptrs are aligned)
+
 #define OBJ_CLASS(obj) ((obj)[0])
 #define OBJ_FORMAT(obj) ((obj)[1])
 #define OBJ_SIZE(obj) ((obj)[2])
@@ -163,5 +175,6 @@ void test_dispatch(TestContext *ctx);
 void test_blocks(TestContext *ctx);
 void test_factorial(TestContext *ctx);
 void test_transaction(TestContext *ctx);
+void test_gc(TestContext *ctx);
 
 #endif
