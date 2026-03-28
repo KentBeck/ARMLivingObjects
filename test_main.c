@@ -21,26 +21,30 @@ int main()
     uint64_t om[2];
     om_init(om_buffer, OM_SIZE, om);
 
-    uint64_t *class_class = om_alloc(om, 0, FORMAT_FIELDS, 3);
+    uint64_t *class_class = om_alloc(om, 0, FORMAT_FIELDS, 4);
     OBJ_CLASS(class_class) = (uint64_t)class_class;
     OBJ_FIELD(class_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(class_class, CLASS_METHOD_DICT) = tagged_nil();
-    OBJ_FIELD(class_class, CLASS_INST_SIZE) = tag_smallint(3);
+    OBJ_FIELD(class_class, CLASS_INST_SIZE) = tag_smallint(4);
+    OBJ_FIELD(class_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-    uint64_t *smallint_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+    uint64_t *smallint_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(smallint_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(smallint_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(smallint_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(smallint_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-    uint64_t *block_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+    uint64_t *block_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(block_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(block_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(2);
+    OBJ_FIELD(block_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-    uint64_t *test_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+    uint64_t *test_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(test_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(test_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(test_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(test_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
     uint64_t *recv_obj = om_alloc(om, (uint64_t)test_class, FORMAT_FIELDS, 0);
 

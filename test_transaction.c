@@ -210,9 +210,10 @@ void test_transaction(TestContext *ctx)
         uint64_t *sp, *fp;
 
         // Create an Array class with at: method (PRIM_AT)
-        uint64_t *array_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *array_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
 
         uint64_t sel_at = tag_smallint(90);
         uint64_t *at_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);

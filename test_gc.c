@@ -452,9 +452,10 @@ void test_gc(TestContext *ctx)
         // Build a class with a method that returns instvar 0
         uint64_t *cc = ctx->class_class; // class_class is NOT in from-space
 
-        uint64_t *my_class = om_alloc(from_cls, (uint64_t)cc, FORMAT_FIELDS, 3);
+        uint64_t *my_class = om_alloc(from_cls, (uint64_t)cc, FORMAT_FIELDS, 4);
         OBJ_FIELD(my_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(my_class, CLASS_INST_SIZE) = tag_smallint(1);
+        OBJ_FIELD(my_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // Method: PUSH_INST_VAR 0, RETURN_STACK_TOP
         uint64_t *my_bc = om_alloc(from_cls, (uint64_t)cc, FORMAT_BYTES, 10);
@@ -687,9 +688,10 @@ void test_gc(TestContext *ctx)
         uint64_t *cc = ctx->class_class;
 
         // Build a class with a method: PUSH_INST_VAR 0, HALT
-        uint64_t *my_class = om_alloc(sa2, (uint64_t)cc, FORMAT_FIELDS, 3);
+        uint64_t *my_class = om_alloc(sa2, (uint64_t)cc, FORMAT_FIELDS, 4);
         OBJ_FIELD(my_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(my_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(my_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         uint64_t *my_bc = om_alloc(sa2, (uint64_t)cc, FORMAT_BYTES, 10);
         uint8_t *bc = (uint8_t *)&OBJ_FIELD(my_bc, 0);
@@ -837,15 +839,17 @@ void test_gc(TestContext *ctx)
         uint64_t *cc = ctx->class_class;
 
         // SmallInt and Block classes in this space
-        uint64_t *si_class = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 3);
+        uint64_t *si_class = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 4);
         OBJ_FIELD(si_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(si_class, CLASS_INST_SIZE) = tag_smallint(0);
         OBJ_FIELD(si_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(si_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-        uint64_t *blk_class = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 3);
+        uint64_t *blk_class = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 4);
         OBJ_FIELD(blk_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(blk_class, CLASS_INST_SIZE) = tag_smallint(0);
         OBJ_FIELD(blk_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(blk_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         uint64_t *ct = om_alloc(gs, (uint64_t)cc, FORMAT_INDEXABLE, 4);
         OBJ_FIELD(ct, 0) = (uint64_t)si_class;
@@ -923,15 +927,17 @@ void test_gc(TestContext *ctx)
         uint64_t *cc = ctx->class_class;
 
         // Classes in gc space
-        uint64_t *si2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 3);
+        uint64_t *si2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 4);
         OBJ_FIELD(si2, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(si2, CLASS_INST_SIZE) = tag_smallint(0);
         OBJ_FIELD(si2, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(si2, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-        uint64_t *blk2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 3);
+        uint64_t *blk2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 4);
         OBJ_FIELD(blk2, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(blk2, CLASS_INST_SIZE) = tag_smallint(0);
         OBJ_FIELD(blk2, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(blk2, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         uint64_t *ct2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_INDEXABLE, 4);
         OBJ_FIELD(ct2, 0) = (uint64_t)si2;

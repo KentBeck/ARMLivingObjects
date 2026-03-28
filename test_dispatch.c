@@ -362,10 +362,11 @@ void test_dispatch(TestContext *ctx)
         OBJ_FIELD(send_md, 1) = (uint64_t)self_cm;
 
         // class with this method dict
-        uint64_t *send_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *send_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(send_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(send_class, CLASS_METHOD_DICT) = (uint64_t)send_md;
         OBJ_FIELD(send_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(send_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // instance of this class
         uint64_t *send_obj = om_alloc(om, (uint64_t)send_class, FORMAT_FIELDS, 0);
@@ -407,9 +408,10 @@ void test_dispatch(TestContext *ctx)
     // Test: full scenario: create object, send message, method pushes inst var, returns
     {
         // Class with 1 inst var
-        uint64_t *pt_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *pt_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(pt_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(pt_class, CLASS_INST_SIZE) = tag_smallint(1);
+        OBJ_FIELD(pt_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // Method #x: push inst var 0, return
         uint64_t *x_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
@@ -494,10 +496,11 @@ void test_dispatch(TestContext *ctx)
         OBJ_FIELD(wa_md, 0) = sel_withArg;
         OBJ_FIELD(wa_md, 1) = (uint64_t)wa_cm;
 
-        uint64_t *wa_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *wa_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(wa_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(wa_class, CLASS_METHOD_DICT) = (uint64_t)wa_md;
         OBJ_FIELD(wa_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(wa_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         uint64_t *wa_obj = om_alloc(om, (uint64_t)wa_class, FORMAT_FIELDS, 0);
 
@@ -555,16 +558,18 @@ void test_dispatch(TestContext *ctx)
         OBJ_FIELD(par_md, 0) = sel_greet;
         OBJ_FIELD(par_md, 1) = (uint64_t)greet_cm;
 
-        uint64_t *par_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *par_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(par_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(par_class, CLASS_METHOD_DICT) = (uint64_t)par_md;
         OBJ_FIELD(par_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(par_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // Child class: empty method dict, superclass = par_class
-        uint64_t *child_cls = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *child_cls = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(child_cls, CLASS_SUPERCLASS) = (uint64_t)par_class;
         OBJ_FIELD(child_cls, CLASS_METHOD_DICT) = tagged_nil();
         OBJ_FIELD(child_cls, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(child_cls, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // Instance of child class
         uint64_t *child_obj = om_alloc(om, (uint64_t)child_cls, FORMAT_FIELDS, 0);
@@ -829,10 +834,11 @@ void test_dispatch(TestContext *ctx)
         uint64_t sel_basicNew = tag_smallint(70);
 
         // Create a class with instSize=2
-        uint64_t *my_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *my_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(my_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(my_class, CLASS_INST_SIZE) = tag_smallint(2);
         OBJ_FIELD(my_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(my_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // Add basicNew to class_class's method dict (since oop_class(my_class) = class_class)
         uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);

@@ -68,10 +68,11 @@ void test_persist(TestContext *ctx)
         om_init(src2, 16384, s2);
 
         // Create a class in this heap
-        uint64_t *my_class = om_alloc(s2, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *my_class = om_alloc(s2, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(my_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(my_class, CLASS_INST_SIZE) = tag_smallint(1);
         OBJ_FIELD(my_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(my_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // Instance of that class
         uint64_t *inst = om_alloc(s2, (uint64_t)my_class, FORMAT_FIELDS, 1);

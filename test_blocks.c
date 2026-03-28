@@ -202,19 +202,21 @@ void test_blocks(TestContext *ctx)
         uint64_t *true_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
         OBJ_FIELD(true_md, 0) = sel_ifTF;
         OBJ_FIELD(true_md, 1) = (uint64_t)true_itf_cm;
-        uint64_t *true_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *true_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(true_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(true_class, CLASS_METHOD_DICT) = (uint64_t)true_md;
         OBJ_FIELD(true_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(true_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // False class
         uint64_t *false_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
         OBJ_FIELD(false_md, 0) = sel_ifTF;
         OBJ_FIELD(false_md, 1) = (uint64_t)false_itf_cm;
-        uint64_t *false_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *false_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(false_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(false_class, CLASS_METHOD_DICT) = (uint64_t)false_md;
         OBJ_FIELD(false_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(false_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         // Register in class table
         OBJ_FIELD(class_table, 2) = (uint64_t)true_class;
