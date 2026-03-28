@@ -153,4 +153,291 @@ void test_gc(TestContext *ctx)
         ASSERT_EQ(ctx, found_x, 1, "gc_scan_stack: found objX");
         ASSERT_EQ(ctx, found_y, 1, "gc_scan_stack: found objY");
     }
+
+    // --- Circular reference: A -> B -> A ---
+    {
+        static uint8_t fb4[8192] __attribute__((aligned(8)));
+        static uint8_t tb4[8192] __attribute__((aligned(8)));
+        uint64_t from4[2], to4[2];
+        om_init(fb4, 8192, from4);
+        om_init(tb4, 8192, to4);
+
+        uint64_t *cA = om_alloc(from4, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        uint64_t *cB = om_alloc(from4, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(cA, 0) = (uint64_t)cB;
+        OBJ_FIELD(cB, 0) = (uint64_t)cA; // cycle
+
+        uint64_t roots4[1];
+        roots4[0] = (uint64_t)cA;
+        gc_collect(roots4, 1, from4, to4,
+                   (uint64_t)fb4, (uint64_t)(fb4 + 8192));
+
+        uint64_t *nA = (uint64_t *)roots4[0];
+        uint64_t *nB = (uint64_t *)OBJ_FIELD(nA, 0);
+        ASSERT_EQ(ctx, (uint64_t)OBJ_FIELD(nB, 0), (uint64_t)nA,
+                  "gc cycle: B->A updated to new A");
+        ASSERT_EQ(ctx, (uint64_t)nA >= (uint64_t)tb4, 1,
+                  "gc cycle: A in to-space");
+        ASSERT_EQ(ctx, (uint64_t)nB >= (uint64_t)tb4, 1,
+                  "gc cycle: B in to-space");
+    }
+
+    // --- Self-referencing object ---
+    {
+        static uint8_t fb5[8192] __attribute__((aligned(8)));
+        static uint8_t tb5[8192] __attribute__((aligned(8)));
+        uint64_t from5[2], to5[2];
+        om_init(fb5, 8192, from5);
+        om_init(tb5, 8192, to5);
+
+        uint64_t *self_ref = om_alloc(from5, (uint64_t)class_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(self_ref, 0) = (uint64_t)self_ref; // points to self
+        OBJ_FIELD(self_ref, 1) = tag_smallint(88);
+
+        uint64_t roots5[1];
+        roots5[0] = (uint64_t)self_ref;
+        gc_collect(roots5, 1, from5, to5,
+                   (uint64_t)fb5, (uint64_t)(fb5 + 8192));
+
+        uint64_t *ns = (uint64_t *)roots5[0];
+        ASSERT_EQ(ctx, (uint64_t)OBJ_FIELD(ns, 0), (uint64_t)ns,
+                  "gc self-ref: field 0 points to self");
+        ASSERT_EQ(ctx, OBJ_FIELD(ns, 1), tag_smallint(88),
+                  "gc self-ref: field 1 preserved");
+    }
+
+    // --- Deep chain: A -> B -> C -> D -> E ---
+    {
+        static uint8_t fb6[16384] __attribute__((aligned(8)));
+        static uint8_t tb6[16384] __attribute__((aligned(8)));
+        uint64_t from6[2], to6[2];
+        om_init(fb6, 16384, from6);
+        om_init(tb6, 16384, to6);
+
+        uint64_t *chain[5];
+        for (int i = 0; i < 5; i++)
+            chain[i] = om_alloc(from6, (uint64_t)class_class, FORMAT_FIELDS, 2);
+        for (int i = 0; i < 4; i++)
+            OBJ_FIELD(chain[i], 0) = (uint64_t)chain[i + 1];
+        OBJ_FIELD(chain[4], 0) = tag_smallint(0); // end
+        for (int i = 0; i < 5; i++)
+            OBJ_FIELD(chain[i], 1) = tag_smallint(i * 10);
+
+        uint64_t roots6[1];
+        roots6[0] = (uint64_t)chain[0];
+        gc_collect(roots6, 1, from6, to6,
+                   (uint64_t)fb6, (uint64_t)(fb6 + 16384));
+
+        // Walk the chain in to-space
+        uint64_t *cur = (uint64_t *)roots6[0];
+        for (int i = 0; i < 5; i++)
+        {
+            ASSERT_EQ(ctx, (uint64_t)cur >= (uint64_t)tb6, 1,
+                      "gc chain: obj in to-space");
+            ASSERT_EQ(ctx, OBJ_FIELD(cur, 1), tag_smallint(i * 10),
+                      "gc chain: data preserved");
+            if (i < 4)
+                cur = (uint64_t *)OBJ_FIELD(cur, 0);
+        }
+    }
+
+    // --- Mixed formats: fields + indexable + bytes all survive ---
+    {
+        static uint8_t fb7[16384] __attribute__((aligned(8)));
+        static uint8_t tb7[16384] __attribute__((aligned(8)));
+        uint64_t from7[2], to7[2];
+        om_init(fb7, 16384, from7);
+        om_init(tb7, 16384, to7);
+
+        uint64_t *fobj = om_alloc(from7, (uint64_t)class_class, FORMAT_FIELDS, 2);
+        uint64_t *iobj = om_alloc(from7, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        uint64_t *bobj = om_alloc(from7, (uint64_t)class_class, FORMAT_BYTES, 8);
+
+        OBJ_FIELD(fobj, 0) = (uint64_t)iobj;
+        OBJ_FIELD(fobj, 1) = (uint64_t)bobj;
+        OBJ_FIELD(iobj, 0) = tag_smallint(11);
+        OBJ_FIELD(iobj, 1) = tag_smallint(22);
+        OBJ_FIELD(iobj, 2) = tag_smallint(33);
+        uint8_t *bdata = (uint8_t *)&OBJ_FIELD(bobj, 0);
+        bdata[0] = 0xAA;
+        bdata[7] = 0xBB;
+
+        uint64_t roots7[1];
+        roots7[0] = (uint64_t)fobj;
+        gc_collect(roots7, 1, from7, to7,
+                   (uint64_t)fb7, (uint64_t)(fb7 + 16384));
+
+        uint64_t *nf = (uint64_t *)roots7[0];
+        uint64_t *ni = (uint64_t *)OBJ_FIELD(nf, 0);
+        uint64_t *nb = (uint64_t *)OBJ_FIELD(nf, 1);
+
+        ASSERT_EQ(ctx, OBJ_FORMAT(nf), FORMAT_FIELDS, "gc mixed: fields format");
+        ASSERT_EQ(ctx, OBJ_FORMAT(ni), FORMAT_INDEXABLE, "gc mixed: indexable format");
+        ASSERT_EQ(ctx, OBJ_FORMAT(nb), FORMAT_BYTES, "gc mixed: bytes format");
+        ASSERT_EQ(ctx, OBJ_FIELD(ni, 1), tag_smallint(22), "gc mixed: indexable[1]");
+        uint8_t *nbd = (uint8_t *)&OBJ_FIELD(nb, 0);
+        ASSERT_EQ(ctx, nbd[0], 0xAA, "gc mixed: byte 0");
+        ASSERT_EQ(ctx, nbd[7], 0xBB, "gc mixed: byte 7");
+    }
+
+    // --- Multiple roots ---
+    {
+        static uint8_t fb8[8192] __attribute__((aligned(8)));
+        static uint8_t tb8[8192] __attribute__((aligned(8)));
+        uint64_t from8[2], to8[2];
+        om_init(fb8, 8192, from8);
+        om_init(tb8, 8192, to8);
+
+        uint64_t *r1 = om_alloc(from8, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        uint64_t *r2 = om_alloc(from8, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(r1, 0) = tag_smallint(111);
+        OBJ_FIELD(r2, 0) = tag_smallint(222);
+
+        uint64_t roots8[2];
+        roots8[0] = (uint64_t)r1;
+        roots8[1] = (uint64_t)r2;
+        gc_collect(roots8, 2, from8, to8,
+                   (uint64_t)fb8, (uint64_t)(fb8 + 8192));
+
+        uint64_t *nr1 = (uint64_t *)roots8[0];
+        uint64_t *nr2 = (uint64_t *)roots8[1];
+        ASSERT_EQ(ctx, OBJ_FIELD(nr1, 0), tag_smallint(111),
+                  "gc multi-root: r1 preserved");
+        ASSERT_EQ(ctx, OBJ_FIELD(nr2, 0), tag_smallint(222),
+                  "gc multi-root: r2 preserved");
+        ASSERT_EQ(ctx, (uint64_t)nr1 != (uint64_t)nr2, 1,
+                  "gc multi-root: distinct copies");
+    }
+
+    // --- Shared reference: A -> C, B -> C (C copied once) ---
+    {
+        static uint8_t fb9[8192] __attribute__((aligned(8)));
+        static uint8_t tb9[8192] __attribute__((aligned(8)));
+        uint64_t from9[2], to9[2];
+        om_init(fb9, 8192, from9);
+        om_init(tb9, 8192, to9);
+
+        uint64_t *shared = om_alloc(from9, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(shared, 0) = tag_smallint(999);
+        uint64_t *sa = om_alloc(from9, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        uint64_t *sb = om_alloc(from9, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(sa, 0) = (uint64_t)shared;
+        OBJ_FIELD(sb, 0) = (uint64_t)shared;
+
+        uint64_t roots9[2];
+        roots9[0] = (uint64_t)sa;
+        roots9[1] = (uint64_t)sb;
+        gc_collect(roots9, 2, from9, to9,
+                   (uint64_t)fb9, (uint64_t)(fb9 + 8192));
+
+        uint64_t *nsa = (uint64_t *)roots9[0];
+        uint64_t *nsb = (uint64_t *)roots9[1];
+        uint64_t *nshared_a = (uint64_t *)OBJ_FIELD(nsa, 0);
+        uint64_t *nshared_b = (uint64_t *)OBJ_FIELD(nsb, 0);
+        ASSERT_EQ(ctx, (uint64_t)nshared_a, (uint64_t)nshared_b,
+                  "gc shared: both point to same copy");
+        ASSERT_EQ(ctx, OBJ_FIELD(nshared_a, 0), tag_smallint(999),
+                  "gc shared: data preserved");
+    }
+
+    // --- FORMAT_BYTES fields must NOT be scanned as pointers ---
+    {
+        static uint8_t fb_bytes[16384] __attribute__((aligned(8)));
+        static uint8_t tb_bytes[16384] __attribute__((aligned(8)));
+        uint64_t from_b[2], to_b[2];
+        om_init(fb_bytes, 16384, from_b);
+        om_init(tb_bytes, 16384, to_b);
+
+        // Create a bytes object whose raw data looks like a from-space pointer
+        uint64_t *bobj2 = om_alloc(from_b, (uint64_t)class_class, FORMAT_BYTES, 16);
+        // Write a value that looks like a valid from-space pointer (aligned, in range)
+        uint64_t fake_ptr = (uint64_t)fb_bytes + 64; // in from-space range, tag 00
+        uint8_t *bd2 = (uint8_t *)&OBJ_FIELD(bobj2, 0);
+        memcpy(bd2, &fake_ptr, 8);
+        bd2[8] = 0x42;
+        bd2[9] = 0x43;
+
+        uint64_t roots_b[1];
+        roots_b[0] = (uint64_t)bobj2;
+
+        // Should NOT crash or corrupt — bytes data must be copied verbatim
+        gc_collect(roots_b, 1, from_b, to_b,
+                   (uint64_t)fb_bytes, (uint64_t)(fb_bytes + 16384));
+
+        uint64_t *nb2 = (uint64_t *)roots_b[0];
+        ASSERT_EQ(ctx, OBJ_FORMAT(nb2), FORMAT_BYTES,
+                  "gc bytes-no-scan: format preserved");
+        uint8_t *nbd2 = (uint8_t *)&OBJ_FIELD(nb2, 0);
+        uint64_t read_back;
+        memcpy(&read_back, nbd2, 8);
+        ASSERT_EQ(ctx, read_back, fake_ptr,
+                  "gc bytes-no-scan: raw bytes preserved verbatim");
+        ASSERT_EQ(ctx, nbd2[8], 0x42,
+                  "gc bytes-no-scan: byte 8 preserved");
+    }
+
+    // --- Bytes object sizing: small bytes obj next to fields obj ---
+    {
+        static uint8_t fb_sz[8192] __attribute__((aligned(8)));
+        static uint8_t tb_sz[8192] __attribute__((aligned(8)));
+        uint64_t from_sz[2], to_sz[2];
+        om_init(fb_sz, 8192, from_sz);
+        om_init(tb_sz, 8192, to_sz);
+
+        // 3-byte object (rounds to 1 word = 8 bytes data)
+        uint64_t *small_bytes = om_alloc(from_sz, (uint64_t)class_class, FORMAT_BYTES, 3);
+        uint8_t *sbd = (uint8_t *)&OBJ_FIELD(small_bytes, 0);
+        sbd[0] = 0xDE;
+        sbd[1] = 0xAD;
+        sbd[2] = 0xBE;
+
+        // Fields object right after
+        uint64_t *after = om_alloc(from_sz, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(after, 0) = tag_smallint(777);
+
+        // Point fields obj to bytes obj
+        uint64_t *holder = om_alloc(from_sz, (uint64_t)class_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(holder, 0) = (uint64_t)small_bytes;
+        OBJ_FIELD(holder, 1) = (uint64_t)after;
+
+        uint64_t roots_sz[1];
+        roots_sz[0] = (uint64_t)holder;
+        gc_collect(roots_sz, 1, from_sz, to_sz,
+                   (uint64_t)fb_sz, (uint64_t)(fb_sz + 8192));
+
+        uint64_t *nh = (uint64_t *)roots_sz[0];
+        uint64_t *nsb = (uint64_t *)OBJ_FIELD(nh, 0);
+        uint64_t *na = (uint64_t *)OBJ_FIELD(nh, 1);
+        uint8_t *nsbd = (uint8_t *)&OBJ_FIELD(nsb, 0);
+
+        ASSERT_EQ(ctx, nsbd[0], 0xDE, "gc bytes-size: byte 0");
+        ASSERT_EQ(ctx, nsbd[1], 0xAD, "gc bytes-size: byte 1");
+        ASSERT_EQ(ctx, nsbd[2], 0xBE, "gc bytes-size: byte 2");
+        ASSERT_EQ(ctx, OBJ_SIZE(nsb), 3, "gc bytes-size: size is 3");
+        ASSERT_EQ(ctx, OBJ_FIELD(na, 0), tag_smallint(777),
+                  "gc bytes-size: adjacent obj intact");
+    }
+
+    // --- Tagged values in roots are ignored (not dereferenced) ---
+    {
+        static uint8_t fb10[4096] __attribute__((aligned(8)));
+        static uint8_t tb10[4096] __attribute__((aligned(8)));
+        uint64_t from10[2], to10[2];
+        om_init(fb10, 4096, from10);
+        om_init(tb10, 4096, to10);
+
+        uint64_t roots10[3];
+        roots10[0] = tag_smallint(42); // SmallInt — skip
+        roots10[1] = tagged_nil();     // nil — skip
+        roots10[2] = tag_smallint(99); // SmallInt — skip
+
+        // Should not crash
+        gc_collect(roots10, 3, from10, to10,
+                   (uint64_t)fb10, (uint64_t)(fb10 + 4096));
+
+        ASSERT_EQ(ctx, roots10[0], tag_smallint(42),
+                  "gc tagged roots: SmallInt unchanged");
+        ASSERT_EQ(ctx, roots10[1], tagged_nil(),
+                  "gc tagged roots: nil unchanged");
+    }
 }

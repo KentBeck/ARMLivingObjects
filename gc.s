@@ -26,9 +26,19 @@ _gc_copy_object:
     b.ne    .Lgc_already_forwarded
 
     // Not forwarded — copy the object
-    // Object total size = (3 + obj[2]) words = (3 + size) * 8 bytes
-    ldr     x3, [x0, #16]      // x3 = obj[2] = field count (size)
-    add     x4, x3, #3          // x4 = 3 + size (total words)
+    // For fields/indexable: total words = 3 + size
+    // For bytes: total words = 3 + ceil(size / 8)
+    ldr     x3, [x0, #16]      // x3 = obj[2] = size
+    ldr     x4, [x0, #8]       // x4 = obj[1] = format
+    cmp     x4, #2              // FORMAT_BYTES?
+    b.ne    .Lgc_copy_not_bytes
+    add     x4, x3, #7          // (byte_count + 7)
+    lsr     x4, x4, #3          // / 8 = word count for data
+    add     x4, x4, #3          // + 3 header words
+    b       .Lgc_copy_size_done
+.Lgc_copy_not_bytes:
+    add     x4, x3, #3          // 3 + slot_count (total words)
+.Lgc_copy_size_done:
 
     ldr     x5, [x1]            // x5 = to_space free_ptr (destination)
     mov     x6, x5              // x6 = new_obj (return value)
@@ -144,6 +154,11 @@ _gc_collect:
     str     x0, [x24]           // update class ptr
 .Lgc_scan_class_done:
 
+    // Skip field scanning for FORMAT_BYTES objects (raw data, not pointers)
+    ldr     x9, [x24, #8]       // obj[1] = format
+    cmp     x9, #2              // FORMAT_BYTES = 2
+    b.eq    .Lgc_scan_next_obj
+
     // Scan fields: obj[3] through obj[3 + size - 1]
     mov     x25, #0             // field index
 .Lgc_scan_fields:
@@ -168,7 +183,14 @@ _gc_collect:
 
 .Lgc_scan_next_obj:
     // Advance scan pointer past this object
-    add     x26, x26, #3        // total words = 3 + size
+    // x26 = size from obj[2]. For bytes, compute word count.
+    ldr     x9, [x24, #8]       // format
+    cmp     x9, #2              // FORMAT_BYTES?
+    b.ne    .Lgc_adv_not_bytes
+    add     x26, x26, #7
+    lsr     x26, x26, #3        // ceil(byte_count / 8)
+.Lgc_adv_not_bytes:
+    add     x26, x26, #3        // + 3 header words
     add     x24, x24, x26, lsl #3  // scan += total_words * 8
     b       .Lgc_scan_loop
 
