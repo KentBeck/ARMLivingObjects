@@ -26,7 +26,7 @@ dispatched by the interpreter's primitive handler.
 - [ ] `size` — return object size (inst var count or indexable size)
 - [ ] `==` — identity comparison (same pointer), returns tagged true/false
 - [ ] `class` — return the class of the receiver
-- [ ] `basicAt:` / `basicAt:put:` — unchecked field access (like at:/at:put: but no bounds check)
+- [ ] `basicAt:` / `basicAt:put:` — bounds-checked field access (not overridden by convention)
 - [ ] `hash` — identity hash (address-based, or SmallInt value)
 - [ ] `printChar` — write a single character (SmallInt) to stdout (for debugging/bootstrap)
 - [ ] `byteAt:` / `byteAt:put:` — byte-level access for ByteArray/String
