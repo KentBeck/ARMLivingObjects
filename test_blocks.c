@@ -79,7 +79,7 @@ void test_blocks(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)caller_cm2, 0, 0);
         result = interpret(&sp, &fp,
                                     (uint8_t *)&OBJ_FIELD(caller_bc2, 0),
-                                    class_table, om);
+                                    class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(77),
                   "Block: PUSH_CLOSURE + send value returns 77");
 
@@ -122,7 +122,7 @@ void test_blocks(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)caller_cm3, 0, 0);
         result = interpret(&sp, &fp,
                            (uint8_t *)&OBJ_FIELD(caller_bc3, 0),
-                           class_table, om);
+                           class_table, om, NULL);
         ASSERT_EQ(ctx, result, receiver,
                   "Block: captures self — [self] value returns receiver");
     }
@@ -277,7 +277,7 @@ void test_blocks(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)itf_cm, 0, 0);
         result = interpret(&sp, &fp,
                                     (uint8_t *)&OBJ_FIELD(itf_bc, 0),
-                                    class_table, om);
+                                    class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(77),
                   "True ifTrue: [77] ifFalse: [99] → 77");
 
@@ -301,7 +301,7 @@ void test_blocks(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)itf_cm2, 0, 0);
         result = interpret(&sp, &fp,
                            (uint8_t *)&OBJ_FIELD(itf_bc, 0),
-                           class_table, om);
+                           class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(99),
                   "False ifTrue: [77] ifFalse: [99] → 99");
     }

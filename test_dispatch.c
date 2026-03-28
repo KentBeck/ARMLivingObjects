@@ -53,7 +53,7 @@ void test_dispatch(TestContext *ctx)
         fp = 0;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(42), "dispatch: PUSH_LITERAL 0 + HALT");
     }
 
@@ -78,7 +78,7 @@ void test_dispatch(TestContext *ctx)
         fp = (uint64_t *)caller_fp_val;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, caller_ip_val, (uint64_t)d_cm, 0, 0);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(99),
                   "dispatch: PUSH_LITERAL + RETURN returns value");
     }
@@ -101,7 +101,7 @@ void test_dispatch(TestContext *ctx)
         fp = (uint64_t *)caller_fp_val;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, caller_ip_val, (uint64_t)d_cm, 0, 0);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, receiver, "dispatch: PUSH_SELF + RETURN");
     }
 
@@ -129,7 +129,7 @@ void test_dispatch(TestContext *ctx)
         // Store values into temps manually
         frame_store_temp(fp, 0, tag_smallint(10));
         frame_store_temp(fp, 1, tag_smallint(20));
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(20), "dispatch: PUSH_TEMP 0, PUSH_TEMP 1 + HALT");
     }
 
@@ -158,7 +158,7 @@ void test_dispatch(TestContext *ctx)
         fp = (uint64_t *)caller_fp_val;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, caller_ip_val, (uint64_t)d_cm, 0, 1);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(77),
                   "dispatch: PUSH_LIT, STORE_TEMP, PUSH_TEMP, RETURN");
     }
@@ -196,7 +196,7 @@ void test_dispatch(TestContext *ctx)
         fp = 0;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(222), "dispatch: JUMP skips to literal 1");
     }
 
@@ -229,7 +229,7 @@ void test_dispatch(TestContext *ctx)
         fp = 0;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(222), "dispatch: JUMP_IF_TRUE with true jumps");
     }
 
@@ -259,7 +259,7 @@ void test_dispatch(TestContext *ctx)
         fp = 0;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(111),
                   "dispatch: JUMP_IF_TRUE with false falls through");
     }
@@ -293,7 +293,7 @@ void test_dispatch(TestContext *ctx)
         fp = 0;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(333), "dispatch: JUMP_IF_FALSE with false jumps");
     }
 
@@ -323,7 +323,7 @@ void test_dispatch(TestContext *ctx)
         fp = 0;
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)d_cm, 0, 0);
-        result = interpret(&sp, &fp, dbc, class_table, om);
+        result = interpret(&sp, &fp, dbc, class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(444),
                   "dispatch: JUMP_IF_FALSE with true falls through");
     }
@@ -387,7 +387,7 @@ void test_dispatch(TestContext *ctx)
         fp = (uint64_t *)0xCAFE; // caller FP sentinel
         stack_push(&sp, stack, (uint64_t)send_obj);
         activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
-        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om);
+        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, (uint64_t)send_obj,
                   "SEND 0-arg: self yourself returns self");
     }
@@ -451,7 +451,7 @@ void test_dispatch(TestContext *ctx)
         fp = (uint64_t *)0xCAFE;
         stack_push(&sp, stack, (uint64_t)pt_obj);
         activate_method(&sp, &fp, 0, (uint64_t)c2_cm, 0, 0);
-        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(c2_bc, 0), class_table, om);
+        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(c2_bc, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(42),
                   "SEND: obj x returns inst var 0 (42)");
     }
@@ -521,7 +521,7 @@ void test_dispatch(TestContext *ctx)
         stack_push(&sp, stack, (uint64_t)wa_obj);
         activate_method(&sp, &fp, 0, (uint64_t)c3_cm, 0, 0);
         result = interpret(&sp, &fp,
-                                    (uint8_t *)&OBJ_FIELD(c3_bc, 0), class_table, om);
+                                    (uint8_t *)&OBJ_FIELD(c3_bc, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, (uint64_t)wa_obj,
                   "SEND 1-arg: self withArg: 777 returns self");
     }
@@ -585,7 +585,7 @@ void test_dispatch(TestContext *ctx)
         fp = (uint64_t *)0xCAFE;
         stack_push(&sp, stack, (uint64_t)child_obj);
         activate_method(&sp, &fp, 0, (uint64_t)sc_cm, 0, 0);
-        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(sc_bc, 0), class_table, om);
+        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(sc_bc, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(999),
                   "SEND superclass: child sends #greet, found in parent");
     }
@@ -687,7 +687,7 @@ void test_dispatch(TestContext *ctx)
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)add_cm, 0, 0);
         result = interpret(&sp, &fp,
-                                    (uint8_t *)&OBJ_FIELD(add_bc, 0), class_table, om);
+                                    (uint8_t *)&OBJ_FIELD(add_bc, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(7), "primitive: 3 + 4 = 7 via dispatch");
 
         // Test: 10 - 3 = 7 via dispatch
@@ -718,7 +718,7 @@ void test_dispatch(TestContext *ctx)
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)sub_cm2, 0, 0);
         result = interpret(&sp, &fp,
-                           (uint8_t *)&OBJ_FIELD(sub_bc2, 0), class_table, om);
+                           (uint8_t *)&OBJ_FIELD(sub_bc2, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(7), "primitive: 10 - 3 = 7 via dispatch");
 
         // Test: 3 < 5 = true via dispatch
@@ -749,7 +749,7 @@ void test_dispatch(TestContext *ctx)
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)lt_cm2, 0, 0);
         result = interpret(&sp, &fp,
-                           (uint8_t *)&OBJ_FIELD(lt_bc2, 0), class_table, om);
+                           (uint8_t *)&OBJ_FIELD(lt_bc2, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tagged_true(), "primitive: 3 < 5 = true via dispatch");
 
         // Test: 42 = 42 → true via dispatch
@@ -780,7 +780,7 @@ void test_dispatch(TestContext *ctx)
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)eq_cm2, 0, 0);
         result = interpret(&sp, &fp,
-                           (uint8_t *)&OBJ_FIELD(eq_bc2, 0), class_table, om);
+                           (uint8_t *)&OBJ_FIELD(eq_bc2, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tagged_true(), "primitive: 42 = 42 = true via dispatch");
 
         // Test: 6 * 7 = 42 via dispatch
@@ -811,7 +811,7 @@ void test_dispatch(TestContext *ctx)
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)mul_cm2, 0, 0);
         result = interpret(&sp, &fp,
-                           (uint8_t *)&OBJ_FIELD(mul_bc2, 0), class_table, om);
+                           (uint8_t *)&OBJ_FIELD(mul_bc2, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(42), "primitive: 6 * 7 = 42 via dispatch");
     }
 

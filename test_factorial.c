@@ -147,7 +147,7 @@ void test_factorial(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)run_cm, 0, 0);
         result = interpret(&sp, &fp,
                                     (uint8_t *)&OBJ_FIELD(run_bc, 0),
-                                    class_table, om);
+                                    class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(1), "1 factorial = 1");
 
         // 2 factorial = 2
@@ -167,7 +167,7 @@ void test_factorial(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)run_cm2, 0, 0);
         result = interpret(&sp, &fp,
                            (uint8_t *)&OBJ_FIELD(run_bc, 0),
-                           class_table, om);
+                           class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(2), "2 factorial = 2");
 
         // 5 factorial = 120
@@ -187,7 +187,7 @@ void test_factorial(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)run_cm5, 0, 0);
         result = interpret(&sp, &fp,
                            (uint8_t *)&OBJ_FIELD(run_bc, 0),
-                           class_table, om);
+                           class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(120), "5 factorial = 120");
 
         // 10 factorial = 3628800
@@ -207,7 +207,7 @@ void test_factorial(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)run_cm10, 0, 0);
         result = interpret(&sp, &fp,
                            (uint8_t *)&OBJ_FIELD(run_bc, 0),
-                           class_table, om);
+                           class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(3628800), "10 factorial = 3628800");
     }
 

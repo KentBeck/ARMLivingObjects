@@ -49,7 +49,7 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t f
 extern uint64_t *oop_class(uint64_t oop, uint64_t *class_table);
 extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector);
 extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
-extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip, uint64_t *class_table, uint64_t *om);
+extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip, uint64_t *class_table, uint64_t *om, uint64_t *txn_log);
 
 // Transaction log functions
 // Log layout: [0] = count, then triples at [1+i*3], [2+i*3], [3+i*3]

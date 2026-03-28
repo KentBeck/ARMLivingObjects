@@ -1,11 +1,12 @@
 // interpret.s — Bytecode dispatch loop
 //
-// interpret(sp_ptr, fp_ptr, ip, class_table, om) -> result (tagged value)
+// interpret(sp_ptr, fp_ptr, ip, class_table, om, txn_log) -> result (tagged value)
 // x0 = pointer to SP variable
 // x1 = pointer to FP variable
 // x2 = IP: pointer to first bytecode (in a ByteArray's data area)
 // x3 = pointer to class table: [0]=SmallInteger, [1]=Block, [2]=True, [3]=False
 // x4 = pointer to om {free_ptr, end_ptr} pair (for allocation)
+// x5 = pointer to transaction log (NULL if no active transaction)
 //
 // Runs bytecodes until RETURN_STACK_TOP (7) or HALT (13).
 // Returns the result value (top of stack at exit).
@@ -43,6 +44,7 @@ _interpret:
     stp     x21, x22, [sp, #-16]!
     stp     x23, x24, [sp, #-16]!
     stp     x25, x26, [sp, #-16]!
+    stp     x27, x28, [sp, #-16]!
 
     mov     x19, x0             // x19 = sp_ptr
     mov     x20, x1             // x20 = fp_ptr
@@ -51,6 +53,7 @@ _interpret:
     ldr     x24, [x20]          // x24 = entry frame FP (for detecting top-level return)
     mov     x25, x3             // x25 = class table pointer
     mov     x26, x4             // x26 = om pointer
+    mov     x27, x5             // x27 = txn_log (NULL if no transaction)
 
 .Ldispatch:
     ldrb    w22, [x21], #1      // fetch opcode, advance IP
@@ -109,14 +112,32 @@ _interpret:
     b       .Ldispatch
 
 .Lbc_push_inst_var:
-    READ_U32
+    READ_U32                    // x5 = field_index
     ldr     x6, [x20]          // FP
-    ldr     x7, [x6, #-32]     // receiver
+    ldr     x7, [x6, #-32]     // receiver (object pointer)
+    // If transaction active, check log first
+    cbz     x27, .Lpiv_no_txn
+    // txn_log_read(log, obj, field_index, &found)
+    stp     x5, x7, [sp, #-16]!    // save field_index, receiver
+    sub     sp, sp, #16             // space for found flag
+    mov     x0, x27             // log
+    mov     x1, x7              // obj
+    mov     x2, x5              // field_index
+    mov     x3, sp              // &found (on stack)
+    bl      _txn_log_read
+    ldr     x8, [sp]            // found flag
+    add     sp, sp, #16         // pop found space
+    ldp     x5, x7, [sp], #16  // restore field_index, receiver
+    cbnz    x8, .Lpiv_found     // found in log -> x0 = value
+    // Not in log, fall through to read from object
+.Lpiv_no_txn:
     add     x7, x7, #24        // skip 3-word header
-    ldr     x8, [x7, x5, lsl #3]
+    ldr     x0, [x7, x5, lsl #3]   // read from object
+.Lpiv_found:
+    // x0 = value (from log or object)
     ldr     x9, [x19]
     sub     x9, x9, #8
-    str     x8, [x9]
+    str     x0, [x9]
     str     x9, [x19]
     b       .Ldispatch
 
@@ -143,13 +164,25 @@ _interpret:
     b       .Ldispatch
 
 .Lbc_store_inst_var:
-    READ_U32
+    READ_U32                    // x5 = field_index
     ldr     x6, [x19]          // SP
     ldr     x7, [x6]           // pop value
     add     x6, x6, #8
     str     x6, [x19]
     ldr     x8, [x20]          // FP
     ldr     x9, [x8, #-32]     // receiver
+    // If transaction active, write to log instead of object
+    cbz     x27, .Lsiv_no_txn
+    // txn_log_write(log, obj, field_index, value)
+    stp     x5, x7, [sp, #-16]!
+    mov     x0, x27             // log
+    mov     x1, x9              // obj
+    mov     x2, x5              // field_index
+    mov     x3, x7              // value
+    bl      _txn_log_write
+    ldp     x5, x7, [sp], #16
+    b       .Ldispatch
+.Lsiv_no_txn:
     add     x9, x9, #24        // skip header
     str     x7, [x9, x5, lsl #3]
     b       .Ldispatch
@@ -493,6 +526,7 @@ _interpret:
     b       .Lexit
 
 .Lexit:
+    ldp     x27, x28, [sp], #16
     ldp     x25, x26, [sp], #16
     ldp     x23, x24, [sp], #16
     ldp     x21, x22, [sp], #16
