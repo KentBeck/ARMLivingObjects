@@ -202,4 +202,164 @@ void test_persist(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD(loaded_p, 0), tag_smallint(42),
                   "persist file: loaded + replayed = 42");
     }
+
+    // --- Append-only log: multiple commits ---
+    {
+        static uint8_t src5[8192] __attribute__((aligned(8)));
+        uint64_t s5[2];
+        om_init(src5, 8192, s5);
+
+        uint64_t *obj5 = om_alloc(s5, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(obj5, 0) = tag_smallint(1);
+        OBJ_FIELD(obj5, 1) = tag_smallint(2);
+        OBJ_FIELD(obj5, 2) = tag_smallint(3);
+
+        uint64_t used5 = s5[0] - (uint64_t)src5;
+        uint64_t off5 = (uint64_t)obj5 - (uint64_t)src5;
+
+        // Save image
+        static uint8_t img5[8192];
+        memcpy(img5, src5, used5);
+        image_pointers_to_offsets(img5, used5, (uint64_t)src5);
+
+        FILE *f5 = fopen("/tmp/arlo_multi.image", "wb");
+        fwrite(&used5, sizeof(used5), 1, f5);
+        fwrite(img5, 1, used5, f5);
+        fclose(f5);
+
+        // Append 3 separate commits to the log file
+        FILE *lf5 = fopen("/tmp/arlo_multi.log", "wb");
+        // Commit 1: field 0 = 10
+        uint64_t e1[3] = {off5, 0, tag_smallint(10)};
+        fwrite(e1, sizeof(uint64_t), 3, lf5);
+        // Commit 2: field 1 = 20
+        uint64_t e2[3] = {off5, 1, tag_smallint(20)};
+        fwrite(e2, sizeof(uint64_t), 3, lf5);
+        // Commit 3: field 2 = 30
+        uint64_t e3[3] = {off5, 2, tag_smallint(30)};
+        fwrite(e3, sizeof(uint64_t), 3, lf5);
+        fclose(lf5);
+
+        // Load image
+        f5 = fopen("/tmp/arlo_multi.image", "rb");
+        uint64_t fu5;
+        fread(&fu5, sizeof(fu5), 1, f5);
+        static uint8_t ld5[8192] __attribute__((aligned(8)));
+        fread(ld5, 1, fu5, f5);
+        fclose(f5);
+        image_offsets_to_pointers(ld5, fu5, (uint64_t)ld5);
+
+        // Replay log: read all triples
+        lf5 = fopen("/tmp/arlo_multi.log", "rb");
+        uint64_t triple[3];
+        while (fread(triple, sizeof(uint64_t), 3, lf5) == 3)
+        {
+            uint64_t *t = (uint64_t *)((uint64_t)ld5 + triple[0]);
+            OBJ_FIELD(t, triple[1]) = triple[2];
+        }
+        fclose(lf5);
+
+        uint64_t *r5 = (uint64_t *)((uint64_t)ld5 + off5);
+        ASSERT_EQ(ctx, OBJ_FIELD(r5, 0), tag_smallint(10),
+                  "persist multi-log: field 0 = 10");
+        ASSERT_EQ(ctx, OBJ_FIELD(r5, 1), tag_smallint(20),
+                  "persist multi-log: field 1 = 20");
+        ASSERT_EQ(ctx, OBJ_FIELD(r5, 2), tag_smallint(30),
+                  "persist multi-log: field 2 = 30");
+    }
+
+    // --- Log with pointer values: offset conversion ---
+    {
+        static uint8_t src6[8192] __attribute__((aligned(8)));
+        uint64_t s6[2];
+        om_init(src6, 8192, s6);
+
+        uint64_t *target6 = om_alloc(s6, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(target6, 0) = tag_smallint(555);
+
+        uint64_t *holder6 = om_alloc(s6, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(holder6, 0) = tagged_nil();
+
+        uint64_t used6 = s6[0] - (uint64_t)src6;
+        uint64_t off_target = (uint64_t)target6 - (uint64_t)src6;
+        uint64_t off_holder = (uint64_t)holder6 - (uint64_t)src6;
+
+        // Save image
+        static uint8_t img6[8192];
+        memcpy(img6, src6, used6);
+        image_pointers_to_offsets(img6, used6, (uint64_t)src6);
+
+        // Log: holder.field0 = target (pointer value as offset)
+        // In the log file, pointer values are stored as offsets
+        uint64_t log_entry6[3] = {off_holder, 0, off_target};
+        // Mark offset values: set bit 2 to distinguish from SmallInt
+        // Actually, offsets are 8-byte aligned (low 3 bits = 0).
+        // SmallInt has bit 0 set. So offset IS distinguishable.
+        // The log replay needs to convert offset values to pointers.
+
+        // Load image
+        static uint8_t ld6[8192] __attribute__((aligned(8)));
+        memcpy(ld6, img6, used6);
+        image_offsets_to_pointers(ld6, used6, (uint64_t)ld6);
+
+        // Replay log: convert value if it looks like an offset
+        uint64_t *t6 = (uint64_t *)((uint64_t)ld6 + log_entry6[0]);
+        uint64_t val6 = log_entry6[2];
+        // If val has tag 00 and < used6, it's an offset → convert to pointer
+        if ((val6 & 3) == 0 && val6 < used6)
+            val6 = (uint64_t)ld6 + val6;
+        OBJ_FIELD(t6, log_entry6[1]) = val6;
+
+        uint64_t *loaded_holder = (uint64_t *)((uint64_t)ld6 + off_holder);
+        uint64_t *loaded_target = (uint64_t *)((uint64_t)ld6 + off_target);
+
+        ASSERT_EQ(ctx, OBJ_FIELD(loaded_holder, 0), (uint64_t)loaded_target,
+                  "persist ptr-log: holder points to loaded target");
+        ASSERT_EQ(ctx, OBJ_FIELD(loaded_target, 0), tag_smallint(555),
+                  "persist ptr-log: target data preserved");
+    }
+
+    // --- Checkpoint: bake log into new image ---
+    {
+        static uint8_t src7[8192] __attribute__((aligned(8)));
+        uint64_t s7[2];
+        om_init(src7, 8192, s7);
+
+        uint64_t *obj7 = om_alloc(s7, (uint64_t)class_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(obj7, 0) = tag_smallint(1);
+        OBJ_FIELD(obj7, 1) = tag_smallint(2);
+
+        uint64_t used7 = s7[0] - (uint64_t)src7;
+        uint64_t off7 = (uint64_t)obj7 - (uint64_t)src7;
+
+        // Save initial image
+        static uint8_t img7[8192];
+        memcpy(img7, src7, used7);
+        image_pointers_to_offsets(img7, used7, (uint64_t)src7);
+
+        // Apply changes in memory (simulating log replay)
+        static uint8_t live7[8192] __attribute__((aligned(8)));
+        memcpy(live7, img7, used7);
+        image_offsets_to_pointers(live7, used7, (uint64_t)live7);
+
+        uint64_t *live_obj = (uint64_t *)((uint64_t)live7 + off7);
+        OBJ_FIELD(live_obj, 0) = tag_smallint(100);
+        OBJ_FIELD(live_obj, 1) = tag_smallint(200);
+
+        // Checkpoint: save the modified heap as a new image
+        static uint8_t chk[8192];
+        memcpy(chk, live7, used7);
+        image_pointers_to_offsets(chk, used7, (uint64_t)live7);
+
+        // Load from checkpoint (no log needed)
+        static uint8_t ld7[8192] __attribute__((aligned(8)));
+        memcpy(ld7, chk, used7);
+        image_offsets_to_pointers(ld7, used7, (uint64_t)ld7);
+
+        uint64_t *r7 = (uint64_t *)((uint64_t)ld7 + off7);
+        ASSERT_EQ(ctx, OBJ_FIELD(r7, 0), tag_smallint(100),
+                  "persist checkpoint: field 0 = 100");
+        ASSERT_EQ(ctx, OBJ_FIELD(r7, 1), tag_smallint(200),
+                  "persist checkpoint: field 1 = 200");
+    }
 }

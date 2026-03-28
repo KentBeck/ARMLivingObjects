@@ -391,9 +391,9 @@ On startup: load image, replay log. Checkpoint: new image, truncate log.
 - [x] in-heap class pointers survive round-trip
 - [x] transaction log replay on loaded image
 - [x] full file I/O cycle: save image + log, load, replay, verify
-- [ ] checkpoint: write new image incorporating log changes
-- [ ] append-only log: multiple commits append to log file
-- [ ] log entries with object pointer values (need offset conversion)
+- [x] checkpoint: write new image incorporating log changes
+- [x] append-only log: multiple commits append to log file
+- [x] log entries with object pointer values (offset conversion)
 
 ### 16b. Persistence (previous placeholder)
 
