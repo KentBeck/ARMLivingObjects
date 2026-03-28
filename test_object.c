@@ -179,5 +179,4 @@ void test_object(TestContext *ctx)
 
 
     ctx->smallint_class=smallint_class;
-    memcpy(ctx->class_table,class_table,sizeof(ctx->class_table));
 }

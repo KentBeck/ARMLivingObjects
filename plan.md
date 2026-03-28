@@ -336,11 +336,23 @@ New primitives:
 - [x] Transaction commit: write all log entries to objects
 - [x] Transaction abort: discard log, restore interpreter state
 - [ ] Nested transactions: commit inner merges into outer log
-- [ ] Object allocation during transaction: track for rollback
+- [x] Object allocation during transaction: not needed — redo log means aborted objects are simply GC'd
 - [x] End-to-end: begin, modify field, read field (sees new value), commit, read field (still new)
 - [x] End-to-end: begin, modify field, abort, read field (sees old value)
 - [x] at: primitive (with transaction-aware reads)
 - [x] at:put: primitive (with transaction-aware writes)
+
+### 14b. Heap-allocated class table (globals)
+
+Move class_table from a C stack array to a heap-allocated Smalltalk
+object. This becomes the future Smalltalk globals dictionary.
+GC treats it as a root object rather than a special-cased C array.
+
+- [x] allocate class_table as a heap object (FORMAT_INDEXABLE)
+- [x] update test_main.c to use heap-allocated class_table
+- [x] update TestContext to point to the heap object
+- [x] update all test files to work with pointer-to-heap-object
+- [x] verify 178 tests still pass
 
 ### 15. Generational Garbage Collection
 

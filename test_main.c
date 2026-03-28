@@ -63,10 +63,13 @@ int main()
     ctx.test_class = test_class;
     ctx.receiver = (uint64_t)recv_obj;
     ctx.method = (uint64_t)test_cm;
-    ctx.class_table[0] = (uint64_t)smallint_class;
-    ctx.class_table[1] = (uint64_t)block_class;
-    ctx.class_table[2] = 0;
-    ctx.class_table[3] = 0;
+    uint64_t *class_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+    OBJ_FIELD(class_table_obj, 0) = (uint64_t)smallint_class;
+    OBJ_FIELD(class_table_obj, 1) = (uint64_t)block_class;
+    OBJ_FIELD(class_table_obj, 2) = 0;
+    OBJ_FIELD(class_table_obj, 3) = 0;
+    ctx.class_table_obj = class_table_obj;
+    ctx.class_table = &OBJ_FIELD(class_table_obj, 0);
     ctx.passes = 0;
     ctx.failures = 0;
 
