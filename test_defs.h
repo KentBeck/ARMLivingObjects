@@ -137,6 +137,14 @@ extern void gc_update_stack(uint64_t *fp, uint64_t from_start, uint64_t from_end
 //   into root_buf. Stops at sentinel FP (0xCAFE or 0).
 extern uint64_t gc_scan_stack(uint64_t *fp, uint64_t *root_buf, uint64_t max_roots);
 
+// Persistence: pointer <-> offset conversion
+// image_pointers_to_offsets(buf, size, heap_base)
+//   Walk all objects in buf, convert any pointer in [heap_base, heap_base+size) to offset.
+extern void image_pointers_to_offsets(uint8_t *buf, uint64_t size, uint64_t heap_base);
+// image_offsets_to_pointers(buf, size, new_base)
+//   Walk all objects in buf, convert offsets back to pointers by adding new_base.
+extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_base);
+
 #define GC_FORWARD_TAG 1 // bit 0 set on a forwarding pointer (real class ptrs are aligned)
 
 #define OBJ_CLASS(obj) ((obj)[0])
@@ -244,5 +252,6 @@ void test_blocks(TestContext *ctx);
 void test_factorial(TestContext *ctx);
 void test_transaction(TestContext *ctx);
 void test_gc(TestContext *ctx);
+void test_persist(TestContext *ctx);
 
 #endif

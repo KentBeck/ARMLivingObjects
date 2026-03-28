@@ -382,6 +382,21 @@ Object header changes: add forwarding pointer support for copying.
 
 ### 16. Persistence
 
+Image format: raw heap dump with pointer ↔ offset conversion.
+Transaction log: (offset, field_index, value) triples.
+On startup: load image, replay log. Checkpoint: new image, truncate log.
+
+- [x] image_pointers_to_offsets: serialize heap, convert ptrs to offsets
+- [x] image_offsets_to_pointers: deserialize, convert offsets to ptrs
+- [x] in-heap class pointers survive round-trip
+- [x] transaction log replay on loaded image
+- [x] full file I/O cycle: save image + log, load, replay, verify
+- [ ] checkpoint: write new image incorporating log changes
+- [ ] append-only log: multiple commits append to log file
+- [ ] log entries with object pointer values (need offset conversion)
+
+### 16b. Persistence (previous placeholder)
+
 Serialize the object graph to disk. Use transaction boundaries for
 consistent snapshots. Image-based persistence (like a Smalltalk image).
 

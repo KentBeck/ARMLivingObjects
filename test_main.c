@@ -80,6 +80,7 @@ int main()
     test_factorial(&ctx);
     test_transaction(&ctx);
     test_gc(&ctx);
+    test_persist(&ctx);
 
     printf("\n%d passed, %d failed\n", ctx.passes, ctx.failures);
     return ctx.failures > 0 ? 1 : 0;
