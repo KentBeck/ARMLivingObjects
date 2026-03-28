@@ -46,6 +46,49 @@ extern uint64_t smallint_less_than(uint64_t a, uint64_t b);
 extern uint64_t smallint_equal(uint64_t a, uint64_t b);
 extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var);
 extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
+
+// GC context for the interpreter: two semi-spaces
+// Layout (all uint64_t):
+//   [0] from_free_ptr    — current allocation pointer
+//   [1] from_end_ptr     — end of from-space
+//   [2] to_free_ptr      — start of to-space (reset before each GC)
+//   [3] to_end_ptr       — end of to-space
+//   [4] from_buf_start   — start address of from-space buffer
+//   [5] to_buf_start     — start address of to-space buffer
+//   [6] space_size       — size of each space in bytes
+#define GC_FROM_FREE 0
+#define GC_FROM_END 1
+#define GC_TO_FREE 2
+#define GC_TO_END 3
+#define GC_FROM_START 4
+#define GC_TO_START 5
+#define GC_SPACE_SIZE 6
+
+static inline void gc_ctx_init(uint64_t *gc_ctx, uint8_t *buf_a, uint8_t *buf_b, uint64_t size)
+{
+    gc_ctx[GC_FROM_FREE] = (uint64_t)buf_a;
+    gc_ctx[GC_FROM_END] = (uint64_t)(buf_a + size);
+    gc_ctx[GC_TO_FREE] = (uint64_t)buf_b;
+    gc_ctx[GC_TO_END] = (uint64_t)(buf_b + size);
+    gc_ctx[GC_FROM_START] = (uint64_t)buf_a;
+    gc_ctx[GC_TO_START] = (uint64_t)buf_b;
+    gc_ctx[GC_SPACE_SIZE] = size;
+}
+
+// Swap from/to spaces in the GC context
+static inline void gc_ctx_swap(uint64_t *gc_ctx)
+{
+    uint64_t tmp;
+    tmp = gc_ctx[GC_FROM_FREE];
+    gc_ctx[GC_FROM_FREE] = gc_ctx[GC_TO_FREE];
+    gc_ctx[GC_TO_FREE] = tmp;
+    tmp = gc_ctx[GC_FROM_END];
+    gc_ctx[GC_FROM_END] = gc_ctx[GC_TO_END];
+    gc_ctx[GC_TO_END] = tmp;
+    tmp = gc_ctx[GC_FROM_START];
+    gc_ctx[GC_FROM_START] = gc_ctx[GC_TO_START];
+    gc_ctx[GC_TO_START] = tmp;
+}
 extern uint64_t *oop_class(uint64_t oop, uint64_t *class_table);
 extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector);
 extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
@@ -75,6 +118,10 @@ extern uint64_t *gc_forwarding_ptr(uint64_t *obj);
 extern void gc_collect(uint64_t *roots, uint64_t num_roots,
                        uint64_t *from_space, uint64_t *to_space,
                        uint64_t from_start, uint64_t from_end);
+
+// gc_update_stack(fp, from_start, from_end)
+//   Walk stack frames, update any pointer in from-space range to its forwarding address.
+extern void gc_update_stack(uint64_t *fp, uint64_t from_start, uint64_t from_end);
 
 // gc_scan_stack(fp, root_buf, max_roots) -> num_roots_found
 //   Walk stack frames from fp, collecting object pointers (receiver, method, temps)

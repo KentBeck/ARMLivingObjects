@@ -378,7 +378,7 @@ Object header changes: add forwarding pointer support for copying.
 - [ ] remembered set: old-to-young pointer tracking
 - [x] GC + interpreter: collect, then dispatch on survived objects
 - [x] transaction log as GC root: log entries keep objects alive
-- [ ] GC-safe points: trigger collection at allocation or backward branch
+- [x] GC-safe points: auto-GC in interpreter block creation, gc_update_stack
 
 ### 16. Persistence
 

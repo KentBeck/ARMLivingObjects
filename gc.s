@@ -11,6 +11,7 @@
 .global _gc_forwarding_ptr
 .global _gc_collect
 .global _gc_scan_stack
+.global _gc_update_stack
 
 .align 2
 
@@ -280,4 +281,75 @@ _gc_scan_stack:
     str     x0, [x20, x22, lsl #3]
     add     x22, x22, #1
 .Lgc_not_root:
+    ret
+
+// gc_update_stack(fp, from_start, from_end)
+// x0 = fp, x1 = from_start, x2 = from_end
+// Walk stack frames, follow forwarding pointers for any from-space reference.
+_gc_update_stack:
+    PROLOGUE
+    mov     x19, x0             // x19 = fp
+    mov     x20, x1             // x20 = from_start
+    mov     x21, x2             // x21 = from_end
+
+.Lgu_frame_loop:
+    cbz     x19, .Lgu_done
+    mov     x22, #0xCAFE
+    cmp     x19, x22
+    b.eq    .Lgu_done
+
+    // Update receiver: [FP - 32]
+    sub     x0, x19, #32
+    bl      .Lgu_update_slot
+
+    // Update method: [FP - 8]
+    sub     x0, x19, #8
+    bl      .Lgu_update_slot
+
+    // Update context: [FP - 24]
+    sub     x0, x19, #24
+    bl      .Lgu_update_slot
+
+    // Get num_temps from method
+    ldr     x22, [x19, #-8]     // method (already updated)
+    ldr     x22, [x22, #40]     // num_temps (tagged)
+    asr     x22, x22, #2        // untag
+
+    // Update temps
+    mov     x23, #0
+.Lgu_temps:
+    cmp     x23, x22
+    b.ge    .Lgu_next_frame
+    add     x24, x23, #5
+    neg     x24, x24
+    add     x0, x19, x24, lsl #3   // &FP[-(5+i)]
+    bl      .Lgu_update_slot
+    add     x23, x23, #1
+    b       .Lgu_temps
+
+.Lgu_next_frame:
+    ldr     x19, [x19]
+    b       .Lgu_frame_loop
+
+.Lgu_done:
+    EPILOGUE
+    ret
+
+// Helper: update a slot at address x0 if it points to from-space
+.Lgu_update_slot:
+    ldr     x3, [x0]            // value in slot
+    tst     x3, #3              // tagged?
+    b.ne    .Lgu_slot_done
+    cbz     x3, .Lgu_slot_done
+    cmp     x3, x20             // >= from_start?
+    b.lo    .Lgu_slot_done
+    cmp     x3, x21             // < from_end?
+    b.hs    .Lgu_slot_done
+    // It's a from-space pointer — check if forwarded
+    ldr     x4, [x3]            // obj[0]
+    tst     x4, #1              // forwarding tag?
+    b.eq    .Lgu_slot_done
+    bic     x4, x4, #1          // clear tag
+    str     x4, [x0]            // update slot
+.Lgu_slot_done:
     ret

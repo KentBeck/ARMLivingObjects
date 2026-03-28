@@ -827,4 +827,188 @@ void test_gc(TestContext *ctx)
         ASSERT_EQ(ctx, (uint64_t)new_val >= (uint64_t)tb_txn, 1,
                   "gc+txn: val_obj in to-space");
     }
+
+    // --- Block creation in interpreter (pre-GC validation) ---
+    {
+        static uint8_t gs_a[16384] __attribute__((aligned(8)));
+        uint64_t gs[2];
+        om_init(gs_a, 16384, gs);
+
+        uint64_t *cc = ctx->class_class;
+
+        // SmallInt and Block classes in this space
+        uint64_t *si_class = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 3);
+        OBJ_FIELD(si_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(si_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(si_class, CLASS_METHOD_DICT) = tagged_nil();
+
+        uint64_t *blk_class = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 3);
+        OBJ_FIELD(blk_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(blk_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(blk_class, CLASS_METHOD_DICT) = tagged_nil();
+
+        uint64_t *ct = om_alloc(gs, (uint64_t)cc, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(ct, 0) = (uint64_t)si_class;
+        OBJ_FIELD(ct, 1) = (uint64_t)blk_class;
+        OBJ_FIELD(ct, 2) = 0;
+        OBJ_FIELD(ct, 3) = 0;
+
+        // Block body: PUSH_LITERAL 0, RETURN
+        uint64_t *blk_bc = om_alloc(gs, (uint64_t)cc, FORMAT_BYTES, 10);
+        uint8_t *bbc = (uint8_t *)&OBJ_FIELD(blk_bc, 0);
+        bbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(bbc + 1, 0);
+        bbc[5] = BC_RETURN;
+
+        uint64_t *blk_lits = om_alloc(gs, (uint64_t)cc, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(blk_lits, 0) = tag_smallint(42);
+
+        uint64_t *blk_cm = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(blk_cm, CM_LITERALS) = (uint64_t)blk_lits;
+        OBJ_FIELD(blk_cm, CM_BYTECODES) = (uint64_t)blk_bc;
+
+        // Outer: PUSH_BLOCK 0, POP, PUSH_BLOCK 0, POP, PUSH_BLOCK 0, POP,
+        //        PUSH_LITERAL 1, HALT
+        uint64_t *outer_bc = om_alloc(gs, (uint64_t)cc, FORMAT_BYTES, 30);
+        uint8_t *obc = (uint8_t *)&OBJ_FIELD(outer_bc, 0);
+        int ip = 0;
+        for (int i = 0; i < 3; i++)
+        {
+            obc[ip++] = BC_PUSH_CLOSURE;
+            WRITE_U32(obc + ip, 0);
+            ip += 4;
+            obc[ip++] = BC_POP;
+        }
+        obc[ip++] = BC_PUSH_LITERAL;
+        WRITE_U32(obc + ip, 1);
+        ip += 4;
+        obc[ip++] = BC_HALT;
+
+        uint64_t *outer_lits = om_alloc(gs, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(outer_lits, 0) = (uint64_t)blk_cm;
+        OBJ_FIELD(outer_lits, 1) = tag_smallint(777);
+
+        uint64_t *outer_cm = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(outer_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_LITERALS) = (uint64_t)outer_lits;
+        OBJ_FIELD(outer_cm, CM_BYTECODES) = (uint64_t)outer_bc;
+
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp, *fp;
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+
+        activate_method(&sp, &fp, 0, (uint64_t)outer_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(outer_bc, 0),
+                                    ct, gs, NULL);
+
+        ASSERT_EQ(ctx, result, tag_smallint(777),
+                  "gc block-create: 3 blocks created and dropped, result 777");
+    }
+
+    // --- Auto-GC: block creation fills nursery, triggers GC mid-interpret ---
+    {
+        static uint8_t ga[4096] __attribute__((aligned(8)));
+        static uint8_t gb[4096] __attribute__((aligned(8)));
+        uint64_t gc_ctx2[7];
+        gc_ctx_init(gc_ctx2, ga, gb, 4096);
+
+        uint64_t *cc = ctx->class_class;
+
+        // Classes in gc space
+        uint64_t *si2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 3);
+        OBJ_FIELD(si2, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(si2, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(si2, CLASS_METHOD_DICT) = tagged_nil();
+
+        uint64_t *blk2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 3);
+        OBJ_FIELD(blk2, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(blk2, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(blk2, CLASS_METHOD_DICT) = tagged_nil();
+
+        uint64_t *ct2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(ct2, 0) = (uint64_t)si2;
+        OBJ_FIELD(ct2, 1) = (uint64_t)blk2;
+        OBJ_FIELD(ct2, 2) = 0;
+        OBJ_FIELD(ct2, 3) = 0;
+
+        // Block body: PUSH_LITERAL 0, RETURN
+        uint64_t *bbc2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_BYTES, 10);
+        uint8_t *bb = (uint8_t *)&OBJ_FIELD(bbc2, 0);
+        bb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(bb + 1, 0);
+        bb[5] = BC_RETURN;
+
+        uint64_t *blits2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(blits2, 0) = tag_smallint(42);
+
+        uint64_t *bcm2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bcm2, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(bcm2, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bcm2, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bcm2, CM_LITERALS) = (uint64_t)blits2;
+        OBJ_FIELD(bcm2, CM_BYTECODES) = (uint64_t)bbc2;
+
+        // Outer: 20 x (PUSH_CLOSURE 0, POP), then PUSH_LITERAL 1, HALT
+        // 20 blocks * 40 bytes each = 800 bytes. In 4K space with ~2K used
+        // by classes, we have ~2K free = room for ~50 blocks. 20 should be fine.
+        // But let's fill the space to make it tight — leave room for only ~3 blocks
+        uint64_t *obc2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_BYTES, 140);
+        uint8_t *ob = (uint8_t *)&OBJ_FIELD(obc2, 0);
+        int ip = 0;
+        for (int i = 0; i < 20; i++)
+        {
+            ob[ip++] = BC_PUSH_CLOSURE;
+            WRITE_U32(ob + ip, 0);
+            ip += 4;
+            ob[ip++] = BC_POP;
+        }
+        ob[ip++] = BC_PUSH_LITERAL;
+        WRITE_U32(ob + ip, 1);
+        ip += 4;
+        ob[ip++] = BC_HALT;
+
+        uint64_t *olits2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(olits2, 0) = (uint64_t)bcm2;
+        OBJ_FIELD(olits2, 1) = tag_smallint(888);
+
+        uint64_t *ocm2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(ocm2, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(ocm2, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(ocm2, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(ocm2, CM_LITERALS) = (uint64_t)olits2;
+        OBJ_FIELD(ocm2, CM_BYTECODES) = (uint64_t)obc2;
+
+        // Fill most of the remaining space — leave room for ~2 blocks (80 bytes)
+        uint64_t remaining = gc_ctx2[GC_FROM_END] - gc_ctx2[GC_FROM_FREE];
+        uint64_t target = 80;
+        if (remaining > target + 32)
+        {
+            uint64_t fill = remaining - target;
+            uint64_t fw = fill / 8;
+            if (fw > 3)
+                om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, fw - 3);
+        }
+
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp, *fp;
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+
+        activate_method(&sp, &fp, 0, (uint64_t)ocm2, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(obc2, 0),
+                                    ct2, gc_ctx2, NULL);
+
+        ASSERT_EQ(ctx, result, tag_smallint(888),
+                  "gc auto: 20 blocks in tight space, GC triggered, result 888");
+    }
 }

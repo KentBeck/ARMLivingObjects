@@ -570,6 +570,98 @@ _interpret:
     stp     x9, x10, [sp, #-16]!
     bl      _om_alloc
     ldp     x9, x10, [sp], #16
+    // Check for OOM — if NULL, trigger GC and retry
+    cbnz    x0, .Lblock_alloc_ok
+
+    // --- GC safe point: collect and retry ---
+    // x26 points to GC context: [0..1] = from, [2..3] = to, [4..5] = starts, [6] = size
+    // Save x9 (block CM), x10 (home receiver) as roots along with stack roots
+
+    // First, scan stack roots
+    sub     sp, sp, #256        // root buffer on stack (max 32 roots)
+    mov     x0, sp
+    stp     x9, x10, [sp, #-16]!   // save on stack
+
+    // Scan stack frames
+    ldr     x0, [x20]          // FP
+    add     x1, sp, #16        // root_buf (past saved x9/x10)
+    mov     x2, #28             // max roots (leave room for extras)
+    bl      _gc_scan_stack
+    // x0 = num stack roots found
+    ldp     x9, x10, [sp], #16
+
+    // Add x9 (block CM) and x10 (receiver) and x25 (class table) as roots
+    // Use x28 (callee-saved) for root count so it survives bl calls
+    mov     x28, x0             // num roots so far
+    str     x9, [sp, x28, lsl #3]
+    add     x28, x28, #1
+    str     x10, [sp, x28, lsl #3]
+    add     x28, x28, #1
+    str     x25, [sp, x28, lsl #3]
+    add     x28, x28, #1
+
+    // Also add the current method from the frame
+    ldr     x0, [x20]          // FP
+    ldr     x0, [x0, #-8]     // method
+    str     x0, [sp, x28, lsl #3]
+    add     x28, x28, #1
+
+    // gc_collect(roots, num_roots, from_space, to_space, from_start, from_end)
+    mov     x0, sp              // roots
+    mov     x1, x28             // num_roots
+    mov     x2, x26             // from_space = gc_ctx[0..1]
+    add     x3, x26, #16       // to_space = gc_ctx[2..3]
+    ldr     x4, [x26, #32]     // from_start = gc_ctx[4]
+    ldr     x5, [x26, #8]      // from_end = gc_ctx[1]
+    bl      _gc_collect
+
+    // Update stack frame slots to follow forwarding pointers
+    ldr     x0, [x20]          // FP
+    ldr     x1, [x26, #32]     // from_start
+    ldr     x2, [x26, #8]      // from_end
+    bl      _gc_update_stack
+
+    // Read back updated roots
+    sub     x28, x28, #1
+    // skip method (x28 now points to class_table entry)
+    sub     x28, x28, #1
+    ldr     x25, [sp, x28, lsl #3]  // updated class table
+    sub     x28, x28, #1
+    ldr     x10, [sp, x28, lsl #3]  // updated receiver
+    sub     x28, x28, #1
+    ldr     x9, [sp, x28, lsl #3]   // updated block CM
+
+    add     sp, sp, #256        // pop root buffer
+
+    // Swap from/to in GC context
+    ldp     x0, x1, [x26]       // from_free, from_end
+    ldp     x2, x3, [x26, #16]  // to_free, to_end
+    stp     x2, x3, [x26]       // new from = old to
+    stp     x0, x1, [x26, #16]  // new to = old from
+    ldr     x0, [x26, #32]      // from_start
+    ldr     x1, [x26, #40]      // to_start
+    str     x1, [x26, #32]
+    str     x0, [x26, #40]
+
+    // Reset to-space free ptr to its start
+    ldr     x0, [x26, #40]      // new to_start
+    ldr     x1, [x26, #48]      // space_size
+    str     x0, [x26, #16]      // to_free = to_start
+    add     x0, x0, x1
+    str     x0, [x26, #24]      // to_end = to_start + size
+
+    // Retry allocation
+    mov     x0, x26
+    ldr     x1, [x25, #32]     // Block class
+    mov     x2, #0              // FORMAT_FIELDS
+    mov     x3, #2
+    stp     x9, x10, [sp, #-16]!
+    bl      _om_alloc
+    ldp     x9, x10, [sp], #16
+    // If still NULL, we're truly OOM — crash
+    cbz     x0, .Lblock_oom
+
+.Lblock_alloc_ok:
     // x0 = new Block object
     str     x10, [x0, #24]     // field 0 = home receiver (offset 24 = header)
     str     x9, [x0, #32]      // field 1 = CM (offset 32)
@@ -579,6 +671,9 @@ _interpret:
     str     x0, [x6]
     str     x6, [x19]
     b       .Ldispatch
+
+.Lblock_oom:
+    brk     #2                  // unrecoverable OOM after GC
 
 .Lbc_halt:
     // Return top of stack without dismantling frame
