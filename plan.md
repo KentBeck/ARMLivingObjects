@@ -20,7 +20,7 @@ LSP Server
 New primitives needed by the class library. Each is a VM primitive
 dispatched by the interpreter's primitive handler.
 
-- [ ] `basicNew` — primitive on Class: allocate fixed-size instance (reads instSize from receiver)
+- [x] `basicNew` — primitive on Class: allocate fixed-size instance (reads instSize from receiver)
 - [ ] `basicNew:` — primitive on Class: allocate indexable instance of given size
 - [ ] `new` / `new:` — Smalltalk methods on Class: `^ self basicNew initialize`
 - [ ] `size` — return object size (inst var count or indexable size)

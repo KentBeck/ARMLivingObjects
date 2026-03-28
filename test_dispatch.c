@@ -2,23 +2,29 @@
 
 void test_dispatch(TestContext *ctx)
 {
-    uint64_t *om=ctx->om;
-    uint64_t *class_class=ctx->class_class;
-    uint64_t *smallint_class=ctx->smallint_class;
-    uint64_t *block_class=ctx->block_class;
-    uint64_t *test_class=ctx->test_class;
-    uint64_t receiver=ctx->receiver;
-    uint64_t method=ctx->method;
-    uint64_t *class_table=ctx->class_table;
-    uint64_t *stack=ctx->stack;
-    (void)om;(void)class_class;(void)smallint_class;
-    (void)block_class;(void)test_class;(void)receiver;
-    (void)method;(void)class_table;(void)stack;
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *smallint_class = ctx->smallint_class;
+    uint64_t *block_class = ctx->block_class;
+    uint64_t *test_class = ctx->test_class;
+    uint64_t receiver = ctx->receiver;
+    uint64_t method = ctx->method;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    (void)om;
+    (void)class_class;
+    (void)smallint_class;
+    (void)block_class;
+    (void)test_class;
+    (void)receiver;
+    (void)method;
+    (void)class_table;
+    (void)stack;
     uint64_t *sp;
     uint64_t *fp;
     uint64_t ip;
-    uint64_t caller_fp_val=0xBEEF;
-    uint64_t caller_ip_val=0xDEAD;
+    uint64_t caller_fp_val = 0xBEEF;
+    uint64_t caller_ip_val = 0xDEAD;
     uint64_t result;
 
 // --- Section 10: Bytecode Dispatch Loop ---
@@ -521,7 +527,7 @@ void test_dispatch(TestContext *ctx)
         stack_push(&sp, stack, (uint64_t)wa_obj);
         activate_method(&sp, &fp, 0, (uint64_t)c3_cm, 0, 0);
         result = interpret(&sp, &fp,
-                                    (uint8_t *)&OBJ_FIELD(c3_bc, 0), class_table, om, NULL);
+                           (uint8_t *)&OBJ_FIELD(c3_bc, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, (uint64_t)wa_obj,
                   "SEND 1-arg: self withArg: 777 returns self");
     }
@@ -687,7 +693,7 @@ void test_dispatch(TestContext *ctx)
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)add_cm, 0, 0);
         result = interpret(&sp, &fp,
-                                    (uint8_t *)&OBJ_FIELD(add_bc, 0), class_table, om, NULL);
+                           (uint8_t *)&OBJ_FIELD(add_bc, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(7), "primitive: 3 + 4 = 7 via dispatch");
 
         // Test: 10 - 3 = 7 via dispatch
@@ -815,6 +821,83 @@ void test_dispatch(TestContext *ctx)
         ASSERT_EQ(ctx, result, tag_smallint(42), "primitive: 6 * 7 = 42 via dispatch");
     }
 
+    ctx->smallint_class = smallint_class;
 
-    ctx->smallint_class=smallint_class;
+    // --- basicNew primitive ---
+    // Send basicNew to a class, get back a new instance with correct class and size
+    {
+        uint64_t sel_basicNew = tag_smallint(70);
+
+        // Create a class with instSize=2
+        uint64_t *my_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(my_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(my_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(my_class, CLASS_METHOD_DICT) = tagged_nil();
+
+        // Add basicNew to class_class's method dict (since oop_class(my_class) = class_class)
+        uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *bn_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bn_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_NEW);
+        OBJ_FIELD(bn_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bn_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bn_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(bn_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+        // Extend class_class's method dict to include basicNew
+        uint64_t old_md_val = OBJ_FIELD(class_class, CLASS_METHOD_DICT);
+        uint64_t *old_cc_md = (old_md_val != tagged_nil() && (old_md_val & 3) == 0)
+                                  ? (uint64_t *)old_md_val
+                                  : NULL;
+        uint64_t old_cc_md_size = old_cc_md ? OBJ_SIZE(old_cc_md) : 0;
+        uint64_t *new_cc_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, old_cc_md_size + 2);
+        for (uint64_t i = 0; i < old_cc_md_size; i++)
+            OBJ_FIELD(new_cc_md, i) = OBJ_FIELD(old_cc_md, i);
+        OBJ_FIELD(new_cc_md, old_cc_md_size) = sel_basicNew;
+        OBJ_FIELD(new_cc_md, old_cc_md_size + 1) = (uint64_t)bn_cm;
+        OBJ_FIELD(class_class, CLASS_METHOD_DICT) = (uint64_t)new_cc_md;
+
+        // Caller: PUSH_SELF, SEND #basicNew 0, HALT
+        uint64_t *bn_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *bnbc = (uint8_t *)&OBJ_FIELD(bn_caller_bc, 0);
+        bnbc[0] = BC_PUSH_SELF;
+        bnbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&bnbc[2], 0); // selector lit index 0
+        WRITE_U32(&bnbc[6], 0); // 0 args
+        bnbc[10] = BC_HALT;
+
+        uint64_t *bn_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(bn_lits, 0) = sel_basicNew;
+
+        uint64_t *bn_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bn_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(bn_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bn_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bn_caller_cm, CM_LITERALS) = (uint64_t)bn_lits;
+        OBJ_FIELD(bn_caller_cm, CM_BYTECODES) = (uint64_t)bn_caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        // receiver is the class itself (we're sending basicNew to a class)
+        stack_push(&sp, stack, (uint64_t)my_class);
+
+        activate_method(&sp, &fp, 0, (uint64_t)bn_caller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(bn_caller_bc, 0),
+                           class_table, om, NULL);
+
+        // Result should be a new object pointer (tag 00)
+        ASSERT_EQ(ctx, result & 3, 0, "basicNew: result is object pointer");
+        uint64_t *new_obj = (uint64_t *)result;
+        ASSERT_EQ(ctx, OBJ_CLASS(new_obj), (uint64_t)my_class,
+                  "basicNew: class is correct");
+        ASSERT_EQ(ctx, OBJ_FORMAT(new_obj), FORMAT_FIELDS,
+                  "basicNew: format is fields");
+        ASSERT_EQ(ctx, OBJ_SIZE(new_obj), 2,
+                  "basicNew: size matches instSize");
+        // Fields should be initialized to nil
+        ASSERT_EQ(ctx, OBJ_FIELD(new_obj, 0), tagged_nil(),
+                  "basicNew: field 0 = nil");
+        ASSERT_EQ(ctx, OBJ_FIELD(new_obj, 1), tagged_nil(),
+                  "basicNew: field 1 = nil");
+    }
 }

@@ -319,6 +319,8 @@ _interpret:
     b.eq    .Lprim_at
     cmp     x3, #7              // PRIM_AT_PUT
     b.eq    .Lprim_at_put
+    cmp     x3, #8              // PRIM_BASIC_NEW
+    b.eq    .Lprim_basic_new
     cmp     x3, #9              // PRIM_BLOCK_VALUE
     b.eq    .Lprim_block_value
     // Debug: print unknown primitive
@@ -456,6 +458,47 @@ _interpret:
     str     x8, [x5]           // push original receiver
     str     x5, [x19]
     b       .Ldispatch
+
+.Lprim_basic_new:
+    // basicNew: receiver is a Class object on the stack.
+    // Read instSize from class (field 2 = CLASS_INST_SIZE, offset 40)
+    // Allocate a new instance with FORMAT_FIELDS and that size.
+    // Initialize all fields to nil.
+    ldr     x5, [x19]          // SP
+    ldr     x5, [x5]           // receiver = the class
+    ldr     x6, [x5, #40]      // CLASS_INST_SIZE (field 2, offset 24+16=40)
+    asr     x6, x6, #2         // untag SmallInt -> raw size
+
+    // om_alloc(om, class_ptr, format, size)
+    mov     x0, x26             // om
+    mov     x1, x5              // class ptr = the receiver class
+    mov     x2, #0              // FORMAT_FIELDS
+    mov     x3, x6              // size
+    stp     x5, x6, [sp, #-16]!
+    bl      _om_alloc
+    ldp     x5, x6, [sp], #16
+    // x0 = new object (or NULL)
+    cbz     x0, .Lbasicnew_oom
+
+    // Initialize fields to nil (0x03)
+    mov     x7, #0              // field index
+    mov     x8, #3              // tagged nil
+.Lbasicnew_init:
+    cmp     x7, x6
+    b.ge    .Lbasicnew_done
+    add     x9, x7, #3          // slot = 3 + field_index
+    str     x8, [x0, x9, lsl #3]
+    add     x7, x7, #1
+    b       .Lbasicnew_init
+
+.Lbasicnew_done:
+    // Replace receiver on stack with new object
+    ldr     x5, [x19]          // SP
+    str     x0, [x5]           // overwrite receiver with new obj
+    b       .Ldispatch
+
+.Lbasicnew_oom:
+    brk     #4                  // OOM in basicNew
 
 .Lprim_block_value:
     // Block>>value: receiver is a Block object on stack.

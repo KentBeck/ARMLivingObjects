@@ -170,7 +170,7 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define PRIM_SMALLINT_MUL 5
 #define PRIM_AT 6
 #define PRIM_AT_PUT 7
-#define PRIM_NEW 8
+#define PRIM_BASIC_NEW 8
 #define PRIM_BLOCK_VALUE 9
 #define BLOCK_HOME_RECEIVER 0
 #define BLOCK_CM 1
