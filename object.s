@@ -6,6 +6,8 @@
 //   word 2 = size (slot count or byte count)
 //   word 3..N = slots (tagged values or raw bytes)
 
+.include "macros.s"
+
 .global _om_init
 .global _om_alloc
 

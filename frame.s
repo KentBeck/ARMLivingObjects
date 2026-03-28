@@ -1,5 +1,7 @@
 // frame.s — Frame activation, return, and field accessors
 
+.include "macros.s"
+
 .global _activate_method
 .global _frame_receiver
 .global _frame_method
@@ -35,8 +37,7 @@
 //   FP - 4*W = receiver
 //   FP - 5*W = temp 0 ...
 _activate_method:
-    stp     x19, x20, [sp, #-16]!
-    stp     x21, x22, [sp, #-16]!
+    PROLOGUE
 
     ldr     x6, [x0]           // x6 = current smalltalk SP
     ldr     x7, [x1]           // x7 = current smalltalk FP
@@ -93,8 +94,7 @@ _activate_method:
     str     x6, [x0]
     str     x7, [x1]
 
-    ldp     x21, x22, [sp], #16
-    ldp     x19, x20, [sp], #16
+    EPILOGUE
     ret
 
 // frame_receiver(fp) -> uint64_t

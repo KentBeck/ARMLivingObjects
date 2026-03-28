@@ -4,6 +4,8 @@
 // Forwarding: after copy, old obj[0] = (new_addr | GC_FORWARD_TAG)
 // GC_FORWARD_TAG = 1 (bit 0). Real class ptrs are aligned, so bit 0 is always 0.
 
+.include "macros.s"
+
 .global _gc_copy_object
 .global _gc_is_forwarded
 .global _gc_forwarding_ptr
@@ -85,11 +87,7 @@ _gc_forwarding_ptr:
 // 2. Scan to-space objects, copy/update any from-space references in fields
 // 3. Scan pointer chases free pointer until they meet
 _gc_collect:
-    stp     x29, x30, [sp, #-16]!
-    stp     x19, x20, [sp, #-16]!
-    stp     x21, x22, [sp, #-16]!
-    stp     x23, x24, [sp, #-16]!
-    stp     x25, x26, [sp, #-16]!
+    PROLOGUE
 
     mov     x19, x0             // x19 = roots
     mov     x20, x1             // x20 = num_roots
@@ -175,11 +173,7 @@ _gc_collect:
     b       .Lgc_scan_loop
 
 .Lgc_scan_done:
-    ldp     x25, x26, [sp], #16
-    ldp     x23, x24, [sp], #16
-    ldp     x21, x22, [sp], #16
-    ldp     x19, x20, [sp], #16
-    ldp     x29, x30, [sp], #16
+    EPILOGUE
     ret
 
 // gc_scan_stack(fp, root_buf, max_roots) -> num_roots_found
@@ -199,9 +193,7 @@ _gc_collect:
 // For each frame: collect receiver, method, and all temps that are object ptrs.
 // An object ptr has tag bits == 00 and is non-zero.
 _gc_scan_stack:
-    stp     x29, x30, [sp, #-16]!
-    stp     x19, x20, [sp, #-16]!
-    stp     x21, x22, [sp, #-16]!
+    PROLOGUE
 
     mov     x19, x0             // x19 = fp
     mov     x20, x1             // x20 = root_buf
@@ -212,8 +204,8 @@ _gc_scan_stack:
     // Check for sentinel FP (0xCAFE or 0)
     cmp     x19, #0
     b.eq    .Lgc_stack_done
-    mov     x9, #0xCAFE
-    cmp     x19, x9
+    mov     x23, #0xCAFE
+    cmp     x19, x23
     b.eq    .Lgc_stack_done
 
     // Collect receiver: [FP - 32]
@@ -229,21 +221,21 @@ _gc_scan_stack:
     bl      .Lgc_maybe_add_root
 
     // Get num_temps from method object
-    ldr     x9, [x19, #-8]      // method ptr
+    ldr     x23, [x19, #-8]     // x23 = method ptr
     // OBJ_FIELD(method, CM_NUM_TEMPS) = method[3 + 2] = method[5]
-    ldr     x9, [x9, #40]       // method[5] = num_temps (tagged SmallInt)
-    asr     x9, x9, #2          // untag
+    ldr     x23, [x23, #40]     // method[5] = num_temps (tagged SmallInt)
+    asr     x23, x23, #2        // untag
 
     // Collect temps: [FP - 40], [FP - 48], ...
-    mov     x10, #0             // temp index
+    mov     x24, #0             // x24 = temp index
 .Lgc_stack_temps:
-    cmp     x10, x9
+    cmp     x24, x23
     b.ge    .Lgc_stack_next_frame
-    add     x11, x10, #5        // slot offset = 5 + temp_index (in words from FP)
-    neg     x11, x11            // negative offset
-    ldr     x0, [x19, x11, lsl #3]  // FP[-(5 + i)] = FP - (5+i)*8
+    add     x25, x24, #5        // slot offset = 5 + temp_index (in words from FP)
+    neg     x25, x25            // negative offset
+    ldr     x0, [x19, x25, lsl #3]  // FP[-(5 + i)] = FP - (5+i)*8
     bl      .Lgc_maybe_add_root
-    add     x10, x10, #1
+    add     x24, x24, #1
     b       .Lgc_stack_temps
 
 .Lgc_stack_next_frame:
@@ -252,12 +244,11 @@ _gc_scan_stack:
 
 .Lgc_stack_done:
     mov     x0, x22             // return count
-    ldp     x21, x22, [sp], #16
-    ldp     x19, x20, [sp], #16
-    ldp     x29, x30, [sp], #16
+    EPILOGUE
     ret
 
 // Helper: if x0 is an object ptr (tag 00, non-zero), add to root_buf
+// Only touches x0 and callee-saved x20-x22 (which are managed by caller)
 .Lgc_maybe_add_root:
     cbz     x0, .Lgc_not_root
     tst     x0, #3

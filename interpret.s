@@ -1,5 +1,7 @@
 // interpret.s — Bytecode dispatch loop
-//
+
+.include "macros.s"
+
 // interpret(sp_ptr, fp_ptr, ip, class_table, om, txn_log) -> result (tagged value)
 // x0 = pointer to SP variable
 // x1 = pointer to FP variable
@@ -37,14 +39,7 @@
 .align 2
 
 _interpret:
-    // Save callee-saved registers and link register
-    stp     x29, x30, [sp, #-16]!
-    mov     x29, sp
-    stp     x19, x20, [sp, #-16]!
-    stp     x21, x22, [sp, #-16]!
-    stp     x23, x24, [sp, #-16]!
-    stp     x25, x26, [sp, #-16]!
-    stp     x27, x28, [sp, #-16]!
+    PROLOGUE
 
     mov     x19, x0             // x19 = sp_ptr
     mov     x20, x1             // x20 = fp_ptr
@@ -592,10 +587,5 @@ _interpret:
     b       .Lexit
 
 .Lexit:
-    ldp     x27, x28, [sp], #16
-    ldp     x25, x26, [sp], #16
-    ldp     x23, x24, [sp], #16
-    ldp     x21, x22, [sp], #16
-    ldp     x19, x20, [sp], #16
-    ldp     x29, x30, [sp], #16
+    EPILOGUE
     ret

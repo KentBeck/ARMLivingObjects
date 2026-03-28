@@ -1,5 +1,7 @@
 // lookup.s — Class resolution, method dictionary lookup, class-based method resolution
 
+.include "macros.s"
+
 .global _oop_class
 .global _md_lookup
 .global _class_lookup
@@ -68,9 +70,7 @@ _md_lookup:
 // x1 = selector (tagged SmallInteger)
 // Walks superclass chain. Returns method pointer or 0.
 _class_lookup:
-    stp     x29, x30, [sp, #-16]!
-    mov     x29, sp
-    stp     x19, x20, [sp, #-16]!
+    PROLOGUE
     mov     x19, x1             // preserve selector
     mov     x20, x0             // current class
 .Lcl_loop:
@@ -91,7 +91,6 @@ _class_lookup:
 .Lcl_not_found:
     mov     x0, #0
 .Lcl_done:
-    ldp     x19, x20, [sp], #16
-    ldp     x29, x30, [sp], #16
+    EPILOGUE
     ret
 
