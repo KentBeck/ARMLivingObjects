@@ -323,6 +323,8 @@ _interpret:
     b.eq    .Lprim_basic_new
     cmp     x3, #9              // PRIM_BLOCK_VALUE
     b.eq    .Lprim_block_value
+    cmp     x3, #10             // PRIM_BASIC_NEW_SIZE
+    b.eq    .Lprim_basic_new_size
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -499,6 +501,62 @@ _interpret:
 
 .Lbasicnew_oom:
     brk     #4                  // OOM in basicNew
+
+.Lprim_basic_new_size:
+    // basicNew: — receiver is a Class, arg is size (SmallInt)
+    // Stack: [arg, receiver, ...]
+    // Read inst_format from receiver (CLASS_INST_FORMAT = field 3, offset 48)
+    // FORMAT_FIELDS (0) → error
+    // FORMAT_INDEXABLE (1) → alloc indexable with arg size
+    // FORMAT_BYTES (2) → alloc bytes with arg size
+    ldr     x5, [x19]          // SP
+    ldr     x8, [x5, #8]       // receiver (below arg) — the class
+    ldr     x6, [x5]           // arg = size (tagged SmallInt)
+    asr     x6, x6, #2         // untag size
+
+    // Read inst_format from the class
+    ldr     x7, [x8, #48]      // CLASS_INST_FORMAT (field 3, offset 24+24=48)
+    asr     x7, x7, #2         // untag format
+
+    // Check format
+    cbz     x7, .Lbasicnewsize_err  // FORMAT_FIELDS → error
+
+    // om_alloc(om, class_ptr, format, size)
+    mov     x0, x26             // om
+    mov     x1, x8              // class = receiver
+    mov     x2, x7              // format from class
+    mov     x3, x6              // size from arg
+    stp     x5, x6, [sp, #-16]!
+    stp     x7, x8, [sp, #-16]!
+    bl      _om_alloc
+    ldp     x7, x8, [sp], #16
+    ldp     x5, x6, [sp], #16
+    cbz     x0, .Lbasicnew_oom
+
+    // Initialize fields to nil for FORMAT_INDEXABLE
+    cmp     x7, #2              // FORMAT_BYTES?
+    b.eq    .Lbasicnewsize_done // bytes don't need nil init
+
+    mov     x9, #0
+    mov     x10, #3             // tagged nil
+.Lbasicnewsize_init:
+    cmp     x9, x6
+    b.ge    .Lbasicnewsize_done
+    add     x11, x9, #3
+    str     x10, [x0, x11, lsl #3]
+    add     x9, x9, #1
+    b       .Lbasicnewsize_init
+
+.Lbasicnewsize_done:
+    // Pop arg, replace receiver with new object
+    // SP currently points to arg. Pop arg, then overwrite receiver.
+    add     x5, x5, #8         // pop arg
+    str     x0, [x5]           // overwrite receiver with new obj
+    str     x5, [x19]          // update SP
+    b       .Ldispatch
+
+.Lbasicnewsize_err:
+    brk     #5                  // basicNew: on non-indexable class
 
 .Lprim_block_value:
     // Block>>value: receiver is a Block object on stack.

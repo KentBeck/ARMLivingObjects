@@ -906,4 +906,139 @@ void test_dispatch(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD(new_obj, 1), tagged_nil(),
                   "basicNew: field 1 = nil");
     }
+
+    // --- basicNew: on a non-indexable class → error ---
+    // (FORMAT_FIELDS class should not accept basicNew: — it's for variable-size)
+    // For now, we test this crashes by NOT calling it — just verify the
+    // primitive checks the format field and returns an error.
+    // TODO: test crash in subprocess when we have that infrastructure.
+
+    // --- basicNew: on an indexable class → correct size ---
+    {
+        uint64_t sel_basicNewSize = tag_smallint(71);
+
+        // Create an indexable class (like Array)
+        uint64_t *array_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(array_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+
+        // Add basicNew: to class_class's method dict
+        uint64_t *prim_bc2 = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *bns_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bns_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_NEW_SIZE);
+        OBJ_FIELD(bns_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(bns_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bns_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(bns_cm, CM_BYTECODES) = (uint64_t)prim_bc2;
+
+        uint64_t old_md_val2 = OBJ_FIELD(class_class, CLASS_METHOD_DICT);
+        uint64_t *old_md2 = (old_md_val2 != tagged_nil() && (old_md_val2 & 3) == 0)
+                                ? (uint64_t *)old_md_val2
+                                : NULL;
+        uint64_t old_md2_size = old_md2 ? OBJ_SIZE(old_md2) : 0;
+        uint64_t *new_md2 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, old_md2_size + 2);
+        for (uint64_t i = 0; i < old_md2_size; i++)
+            OBJ_FIELD(new_md2, i) = OBJ_FIELD(old_md2, i);
+        OBJ_FIELD(new_md2, old_md2_size) = sel_basicNewSize;
+        OBJ_FIELD(new_md2, old_md2_size + 1) = (uint64_t)bns_cm;
+        OBJ_FIELD(class_class, CLASS_METHOD_DICT) = (uint64_t)new_md2;
+
+        // Caller: PUSH_LITERAL 0 (the size=5), PUSH_SELF, SEND #basicNew: 1, HALT
+        uint64_t *bns_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *bnsbc = (uint8_t *)&OBJ_FIELD(bns_caller_bc, 0);
+        bnsbc[0] = BC_PUSH_SELF; // push receiver (array_class)
+        bnsbc[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&bnsbc[2], 1); // literal 1 = size arg
+        bnsbc[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&bnsbc[7], 0);  // selector lit index 0
+        WRITE_U32(&bnsbc[11], 1); // 1 arg
+        bnsbc[15] = BC_HALT;
+
+        uint64_t *bns_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(bns_lits, 0) = sel_basicNewSize;
+        OBJ_FIELD(bns_lits, 1) = tag_smallint(5); // size argument
+
+        uint64_t *bns_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bns_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(bns_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bns_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bns_caller_cm, CM_LITERALS) = (uint64_t)bns_lits;
+        OBJ_FIELD(bns_caller_cm, CM_BYTECODES) = (uint64_t)bns_caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)array_class);
+
+        activate_method(&sp, &fp, 0, (uint64_t)bns_caller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(bns_caller_bc, 0),
+                           class_table, om, NULL);
+
+        ASSERT_EQ(ctx, result & 3, 0, "basicNew: indexable result is object ptr");
+        uint64_t *arr = (uint64_t *)result;
+        ASSERT_EQ(ctx, OBJ_CLASS(arr), (uint64_t)array_class,
+                  "basicNew: indexable class correct");
+        ASSERT_EQ(ctx, OBJ_FORMAT(arr), FORMAT_INDEXABLE,
+                  "basicNew: indexable format correct");
+        ASSERT_EQ(ctx, OBJ_SIZE(arr), 5,
+                  "basicNew: indexable size = 5");
+        ASSERT_EQ(ctx, OBJ_FIELD(arr, 0), tagged_nil(),
+                  "basicNew: indexable field 0 = nil");
+        ASSERT_EQ(ctx, OBJ_FIELD(arr, 4), tagged_nil(),
+                  "basicNew: indexable field 4 = nil");
+    }
+
+    // --- basicNew: on a byte-indexable class → correct size ---
+    {
+        uint64_t sel_basicNewSize = tag_smallint(71);
+
+        // Create a byte-indexable class (like String/ByteArray)
+        uint64_t *bytearray_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(bytearray_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(bytearray_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(bytearray_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(bytearray_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+
+        // Caller: PUSH_SELF, PUSH_LITERAL 1 (size=10), SEND #basicNew: 1, HALT
+        uint64_t *bnsb_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *bnsbbc = (uint8_t *)&OBJ_FIELD(bnsb_bc, 0);
+        bnsbbc[0] = BC_PUSH_SELF;
+        bnsbbc[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&bnsbbc[2], 1);
+        bnsbbc[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&bnsbbc[7], 0);
+        WRITE_U32(&bnsbbc[11], 1);
+        bnsbbc[15] = BC_HALT;
+
+        uint64_t *bnsb_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(bnsb_lits, 0) = sel_basicNewSize;
+        OBJ_FIELD(bnsb_lits, 1) = tag_smallint(10); // 10 bytes
+
+        uint64_t *bnsb_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bnsb_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(bnsb_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bnsb_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bnsb_cm, CM_LITERALS) = (uint64_t)bnsb_lits;
+        OBJ_FIELD(bnsb_cm, CM_BYTECODES) = (uint64_t)bnsb_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)bytearray_class);
+
+        activate_method(&sp, &fp, 0, (uint64_t)bnsb_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(bnsb_bc, 0),
+                           class_table, om, NULL);
+
+        ASSERT_EQ(ctx, result & 3, 0, "basicNew: bytes result is object ptr");
+        uint64_t *ba = (uint64_t *)result;
+        ASSERT_EQ(ctx, OBJ_CLASS(ba), (uint64_t)bytearray_class,
+                  "basicNew: bytes class correct");
+        ASSERT_EQ(ctx, OBJ_FORMAT(ba), FORMAT_BYTES,
+                  "basicNew: bytes format correct");
+        ASSERT_EQ(ctx, OBJ_SIZE(ba), 10,
+                  "basicNew: bytes size = 10");
+    }
 }

@@ -21,7 +21,7 @@ New primitives needed by the class library. Each is a VM primitive
 dispatched by the interpreter's primitive handler.
 
 - [x] `basicNew` — primitive on Class: allocate fixed-size instance (reads instSize from receiver)
-- [ ] `basicNew:` — primitive on Class: allocate indexable instance of given size
+- [x] `basicNew:` — primitive on Class: allocate indexable/byte instance (reads instFormat from receiver)
 - [ ] `new` / `new:` — Smalltalk methods on Class: `^ self basicNew initialize`
 - [ ] `size` — return object size (inst var count or indexable size)
 - [ ] `==` — identity comparison (same pointer), returns tagged true/false
