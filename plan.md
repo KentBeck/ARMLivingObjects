@@ -29,6 +29,8 @@ dispatched by the interpreter's primitive handler.
 - [ ] `printChar` — write a single character (SmallInt) to stdout (for debugging/bootstrap)
 - [ ] `byteAt:` / `byteAt:put:` — byte-level access for ByteArray/String
 - [ ] `value:` — Block>>value: (1-arg block evaluation)
+- [ ] `perform:` — send a message (symbol) to receiver dynamically
+- [ ] `halt` — crash the VM (for assert: failure)
 
 ### 18. Characters
 
