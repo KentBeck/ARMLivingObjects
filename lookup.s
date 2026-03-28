@@ -6,9 +6,10 @@
 
 .align 2
 
-// oop_class(oop, class_table) -> class pointer
+// oop_class(oop, class_table_obj) -> class pointer
 // x0 = OOP (tagged value)
-// x1 = class table: [0]=SmallInteger, [1]=Block, [2]=True, [3]=False
+// x1 = class table object (heap object, FORMAT_INDEXABLE)
+//       fields at [x1 + 24 + index*8]  (3-word header)
 // Returns class pointer in x0.
 _oop_class:
     // Check tag bits
@@ -17,7 +18,7 @@ _oop_class:
     tst     x0, #2              // bit 1 set → special (tag 11)
     b.ne    .Loop_special
     // SmallInteger (tag 01)
-    ldr     x0, [x1]           // class_table[0]
+    ldr     x0, [x1, #24]      // class_table[0] (offset 24 = header)
     ret
 .Loop_special:
     cmp     x0, #7              // tagged true
@@ -28,10 +29,10 @@ _oop_class:
     mov     x0, #0
     ret
 .Loop_true:
-    ldr     x0, [x1, #16]      // class_table[2]
+    ldr     x0, [x1, #40]      // class_table[2] (offset 24 + 16)
     ret
 .Loop_false:
-    ldr     x0, [x1, #24]      // class_table[3]
+    ldr     x0, [x1, #48]      // class_table[3] (offset 24 + 24)
     ret
 .Loop_heap:
     ldr     x0, [x0]           // header word 0 = class pointer

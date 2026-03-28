@@ -68,8 +68,7 @@ int main()
     OBJ_FIELD(class_table_obj, 1) = (uint64_t)block_class;
     OBJ_FIELD(class_table_obj, 2) = 0;
     OBJ_FIELD(class_table_obj, 3) = 0;
-    ctx.class_table_obj = class_table_obj;
-    ctx.class_table = &OBJ_FIELD(class_table_obj, 0);
+    ctx.class_table = class_table_obj;
     ctx.passes = 0;
     ctx.failures = 0;
 

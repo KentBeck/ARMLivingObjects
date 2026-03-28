@@ -2,18 +2,24 @@
 
 void test_blocks(TestContext *ctx)
 {
-    uint64_t *om=ctx->om;
-    uint64_t *class_class=ctx->class_class;
-    uint64_t *smallint_class=ctx->smallint_class;
-    uint64_t *block_class=ctx->block_class;
-    uint64_t *test_class=ctx->test_class;
-    uint64_t receiver=ctx->receiver;
-    uint64_t method=ctx->method;
-    uint64_t *class_table=ctx->class_table;
-    uint64_t *stack=ctx->stack;
-    (void)om;(void)class_class;(void)smallint_class;
-    (void)block_class;(void)test_class;(void)receiver;
-    (void)method;(void)class_table;(void)stack;
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *smallint_class = ctx->smallint_class;
+    uint64_t *block_class = ctx->block_class;
+    uint64_t *test_class = ctx->test_class;
+    uint64_t receiver = ctx->receiver;
+    uint64_t method = ctx->method;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    (void)om;
+    (void)class_class;
+    (void)smallint_class;
+    (void)block_class;
+    (void)test_class;
+    (void)receiver;
+    (void)method;
+    (void)class_table;
+    (void)stack;
     uint64_t *sp;
     uint64_t *fp;
     uint64_t result;
@@ -78,8 +84,8 @@ void test_blocks(TestContext *ctx)
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)caller_cm2, 0, 0);
         result = interpret(&sp, &fp,
-                                    (uint8_t *)&OBJ_FIELD(caller_bc2, 0),
-                                    class_table, om, NULL);
+                           (uint8_t *)&OBJ_FIELD(caller_bc2, 0),
+                           class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(77),
                   "Block: PUSH_CLOSURE + send value returns 77");
 
@@ -211,8 +217,8 @@ void test_blocks(TestContext *ctx)
         OBJ_FIELD(false_class, CLASS_INST_SIZE) = tag_smallint(0);
 
         // Register in class table
-        class_table[2] = (uint64_t)true_class;
-        class_table[3] = (uint64_t)false_class;
+        OBJ_FIELD(class_table, 2) = (uint64_t)true_class;
+        OBJ_FIELD(class_table, 3) = (uint64_t)false_class;
 
         // Test: true ifTrue: [77] ifFalse: [99] → 77
         // Block bodies
@@ -276,8 +282,8 @@ void test_blocks(TestContext *ctx)
         stack_push(&sp, stack, receiver);
         activate_method(&sp, &fp, 0, (uint64_t)itf_cm, 0, 0);
         result = interpret(&sp, &fp,
-                                    (uint8_t *)&OBJ_FIELD(itf_bc, 0),
-                                    class_table, om, NULL);
+                           (uint8_t *)&OBJ_FIELD(itf_bc, 0),
+                           class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(77),
                   "True ifTrue: [77] ifFalse: [99] → 77");
 
@@ -306,6 +312,5 @@ void test_blocks(TestContext *ctx)
                   "False ifTrue: [77] ifFalse: [99] → 99");
     }
 
-
-    ctx->smallint_class=smallint_class;
+    ctx->smallint_class = smallint_class;
 }

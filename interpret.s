@@ -568,7 +568,7 @@ _interpret:
     ldr     x10, [x6, #-32]    // x10 = current receiver (home receiver)
     // Allocate Block: om_alloc(om, block_class, FORMAT_FIELDS, 2)
     mov     x0, x26             // om
-    ldr     x1, [x25, #8]      // class_table[1] = Block class
+    ldr     x1, [x25, #32]     // class_table_obj field[1] = Block class (24 + 8)
     mov     x2, #0              // FORMAT_FIELDS
     mov     x3, #2              // 2 fields
     // Save volatile state

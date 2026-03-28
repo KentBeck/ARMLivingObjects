@@ -130,8 +130,7 @@ typedef struct
     uint64_t *test_class;
     uint64_t receiver;
     uint64_t method;
-    uint64_t *class_table_obj; // heap-allocated indexable object
-    uint64_t *class_table;     // points to &OBJ_FIELD(class_table_obj, 0)
+    uint64_t *class_table; // heap-allocated indexable object
     uint64_t stack[STACK_WORDS];
     int passes;
     int failures;
