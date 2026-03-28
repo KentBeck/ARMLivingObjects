@@ -178,8 +178,37 @@ _interpret:
     ldp     x5, x7, [sp], #16
     b       .Ldispatch
 .Lsiv_no_txn:
-    add     x9, x9, #24        // skip header
-    str     x7, [x9, x5, lsl #3]
+    // Write the field
+    add     x10, x9, #24       // skip header (keep x9 = original receiver)
+    str     x7, [x10, x5, lsl #3]
+    // Write barrier: check if receiver is tenured and value is young
+    ldr     x10, [x26, #56]     // gc_ctx[7] = tenured_start
+    cbz     x10, .Ldispatch     // no tenured space, skip
+    cmp     x9, x10             // receiver >= tenured_start?
+    b.lo    .Ldispatch
+    ldr     x10, [x26, #64]     // gc_ctx[8] = tenured_end
+    cmp     x9, x10             // receiver < tenured_end?
+    b.hs    .Ldispatch
+    // Receiver is tenured. Check if value is young (in from-space)
+    tst     x7, #3              // tagged value? skip
+    b.ne    .Ldispatch
+    cbz     x7, .Ldispatch
+    ldr     x10, [x26, #32]     // gc_ctx[4] = from_start
+    cmp     x7, x10
+    b.lo    .Ldispatch
+    ldr     x10, [x26, #8]      // gc_ctx[1] = from_end
+    cmp     x7, x10
+    b.hs    .Ldispatch
+    // Old-to-young store: record in remembered set
+    ldr     x10, [x26, #72]     // gc_ctx[9] = remembered_set ptr
+    cbz     x10, .Ldispatch     // no remembered set
+    stp     x5, x7, [sp, #-16]!
+    mov     x0, x10             // remembered set (same format as txn log)
+    mov     x1, x9              // obj
+    mov     x2, x5              // field_index
+    mov     x3, x7              // value
+    bl      _txn_log_write
+    ldp     x5, x7, [sp], #16
     b       .Ldispatch
 
 .Lbc_store_temp:

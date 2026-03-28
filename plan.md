@@ -372,10 +372,10 @@ Object header changes: add forwarding pointer support for copying.
 - [x] stress test: 100 objects, 34 survivors verified correct
 - [x] om_alloc returns NULL on OOM (instead of crashing)
 - [x] alloc-collect-alloc cycle: fill space, GC, allocate again, double GC
-- [ ] write barrier: STORE_INST_VAR records old-to-young references
-- [ ] promotion: objects surviving N collections move to tenured space
-- [ ] tenured space: mark-sweep collector
-- [ ] remembered set: old-to-young pointer tracking
+- [x] promotion: objects surviving collections move to tenured space
+- [x] tenured space: bump-allocated old generation
+- [x] remembered set: old-to-young pointer tracking via txn_log format
+- [x] write barrier: STORE_INST_VAR auto-records old-to-young in remembered set
 - [x] GC + interpreter: collect, then dispatch on survived objects
 - [x] transaction log as GC root: log entries keep objects alive
 - [x] GC-safe points: auto-GC in interpreter block creation, gc_update_stack

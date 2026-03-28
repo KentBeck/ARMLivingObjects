@@ -917,7 +917,7 @@ void test_gc(TestContext *ctx)
     {
         static uint8_t ga[4096] __attribute__((aligned(8)));
         static uint8_t gb[4096] __attribute__((aligned(8)));
-        uint64_t gc_ctx2[7];
+        uint64_t gc_ctx2[10];
         gc_ctx_init(gc_ctx2, ga, gb, 4096);
 
         uint64_t *cc = ctx->class_class;
@@ -1010,5 +1010,198 @@ void test_gc(TestContext *ctx)
 
         ASSERT_EQ(ctx, result, tag_smallint(888),
                   "gc auto: 20 blocks in tight space, GC triggered, result 888");
+    }
+
+    // --- Promotion: objects surviving 2 collections move to tenured ---
+    {
+        static uint8_t pa[4096] __attribute__((aligned(8)));
+        static uint8_t pb[4096] __attribute__((aligned(8)));
+        static uint8_t tenured_buf[4096] __attribute__((aligned(8)));
+        uint64_t sa[2], sb[2], tenured[2];
+        om_init(pa, 4096, sa);
+        om_init(pb, 4096, sb);
+        om_init(tenured_buf, 4096, tenured);
+
+        uint64_t *cc = ctx->class_class;
+
+        // Allocate A (will survive) and B (garbage) in from-space
+        uint64_t *objA = om_alloc(sa, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objA, 0) = tag_smallint(111);
+        uint64_t *objB = om_alloc(sa, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objB, 0) = tag_smallint(222);
+        (void)objB;
+
+        // First collection: A survives to to-space (sb)
+        uint64_t roots[1];
+        roots[0] = (uint64_t)objA;
+        gc_collect(roots, 1, sa, sb,
+                   (uint64_t)pa, (uint64_t)(pa + 4096));
+
+        uint64_t *surv_A = (uint64_t *)roots[0];
+        ASSERT_EQ(ctx, (uint64_t)surv_A >= (uint64_t)pb, 1,
+                  "gc promote: A in survivor space after 1st GC");
+
+        // Now allocate more in sb (new from-space = old to-space)
+        // surv_A is already there
+        uint64_t *objC = om_alloc(sb, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objC, 0) = tag_smallint(333);
+
+        // Second collection: copy from sb back to sa
+        // But surv_A has survived once — promote it to tenured instead
+        // First, collect normally
+        om_init(pa, 4096, sa); // reset sa as to-space
+        uint64_t roots2[2];
+        roots2[0] = (uint64_t)surv_A;
+        roots2[1] = (uint64_t)objC;
+
+        // Mark surv_A's position as the survivor boundary
+        uint64_t survivor_boundary = (uint64_t)surv_A;
+
+        // Promote: copy surv_A to tenured
+        uint64_t *promoted_A = gc_copy_object(surv_A, tenured);
+        // Now surv_A has a forwarding ptr to tenured
+
+        // Collect rest normally (sa is to-space, sb is from-space)
+        gc_collect(roots2, 2, sb, sa,
+                   (uint64_t)pb, (uint64_t)(pb + 4096));
+
+        uint64_t *final_A = (uint64_t *)roots2[0];
+        uint64_t *final_C = (uint64_t *)roots2[1];
+
+        // A should be in tenured (promoted)
+        ASSERT_EQ(ctx, (uint64_t)final_A >= (uint64_t)tenured_buf, 1,
+                  "gc promote: A in tenured after promotion");
+        ASSERT_EQ(ctx, (uint64_t)final_A < (uint64_t)(tenured_buf + 4096), 1,
+                  "gc promote: A in tenured range");
+        ASSERT_EQ(ctx, OBJ_FIELD(final_A, 0), tag_smallint(111),
+                  "gc promote: A data preserved in tenured");
+
+        // C should be in sa (young survivor)
+        ASSERT_EQ(ctx, (uint64_t)final_C >= (uint64_t)pa, 1,
+                  "gc promote: C in young space");
+        ASSERT_EQ(ctx, OBJ_FIELD(final_C, 0), tag_smallint(333),
+                  "gc promote: C data preserved");
+    }
+
+    // --- Remembered set: tenured obj pointing to young obj ---
+    {
+        static uint8_t ra[4096] __attribute__((aligned(8)));
+        static uint8_t rb[4096] __attribute__((aligned(8)));
+        static uint8_t rt[4096] __attribute__((aligned(8)));
+        uint64_t rsa[2], rsb[2], rst[2];
+        om_init(ra, 4096, rsa);
+        om_init(rb, 4096, rsb);
+        om_init(rt, 4096, rst);
+
+        uint64_t *cc = ctx->class_class;
+
+        // Create a tenured object T with 1 field
+        uint64_t *objT = om_alloc(rst, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objT, 0) = tag_smallint(0);
+
+        // Create young object Y in nursery
+        uint64_t *objY = om_alloc(rsa, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objY, 0) = tag_smallint(777);
+
+        // T.field0 = Y (old-to-young reference)
+        OBJ_FIELD(objT, 0) = (uint64_t)objY;
+
+        // Remembered set: array of (object, field_index) pairs
+        // Reuse the txn log format: (obj, field_index, value) triples
+        uint64_t remembered[1 + 16 * 3];
+        remembered[0] = 0;
+        // Record the old-to-young write
+        txn_log_write(remembered, (uint64_t)objT, 0, (uint64_t)objY);
+
+        // GC the nursery. Y is only reachable via T (tenured).
+        // Without remembered set as roots, Y would be lost.
+        // Add remembered set entries as roots
+        uint64_t gc_roots[16];
+        int nr = 0;
+        for (uint64_t i = 0; i < remembered[0]; i++)
+        {
+            uint64_t val = remembered[3 + i * 3]; // the value (young ptr)
+            if (val && (val & 3) == 0)            // object ptr
+                gc_roots[nr++] = val;
+        }
+
+        gc_collect(gc_roots, nr, rsa, rsb,
+                   (uint64_t)ra, (uint64_t)(ra + 4096));
+
+        // Update T's field to point to new Y
+        uint64_t *newY = (uint64_t *)gc_roots[0];
+        OBJ_FIELD(objT, 0) = (uint64_t)newY;
+
+        ASSERT_EQ(ctx, (uint64_t)newY >= (uint64_t)rb, 1,
+                  "gc remembered: Y moved to survivor space");
+        ASSERT_EQ(ctx, OBJ_FIELD(newY, 0), tag_smallint(777),
+                  "gc remembered: Y data preserved");
+        ASSERT_EQ(ctx, OBJ_FIELD(objT, 0), (uint64_t)newY,
+                  "gc remembered: T updated to point to new Y");
+    }
+
+    // --- Write barrier: STORE_INST_VAR auto-records old-to-young ---
+    {
+        static uint8_t wa[4096] __attribute__((aligned(8)));
+        static uint8_t wb[4096] __attribute__((aligned(8)));
+        static uint8_t wt[4096] __attribute__((aligned(8)));
+        uint64_t gc_ctx3[10];
+        gc_ctx_init(gc_ctx3, wa, wb, 4096);
+        gc_ctx3[GC_TENURED_START] = (uint64_t)wt;
+        gc_ctx3[GC_TENURED_END] = (uint64_t)(wt + 4096);
+        uint64_t wb_rset[1 + 64 * 3]; // remembered set
+        wb_rset[0] = 0;
+        gc_ctx3[GC_REMEMBERED] = (uint64_t)wb_rset;
+
+        uint64_t *cc = ctx->class_class;
+        uint64_t wt_om[2];
+        om_init(wt, 4096, wt_om);
+
+        // Tenured object with 1 field
+        uint64_t *tenured_obj = om_alloc(wt_om, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(tenured_obj, 0) = tag_smallint(0);
+
+        // Young object
+        uint64_t *young_obj = om_alloc(gc_ctx3, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(young_obj, 0) = tag_smallint(555);
+
+        // Bytecodes: PUSH_LITERAL 0, STORE_INST_VAR 0, HALT
+        uint64_t *wbc = om_alloc(gc_ctx3, (uint64_t)cc, FORMAT_BYTES, 20);
+        uint8_t *wb_bc = (uint8_t *)&OBJ_FIELD(wbc, 0);
+        wb_bc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(wb_bc + 1, 0);
+        wb_bc[5] = BC_STORE_INST_VAR;
+        WRITE_U32(wb_bc + 6, 0);
+        wb_bc[10] = BC_HALT;
+
+        uint64_t *wlits = om_alloc(gc_ctx3, (uint64_t)cc, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(wlits, 0) = (uint64_t)young_obj;
+
+        uint64_t *wcm = om_alloc(gc_ctx3, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(wcm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(wcm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(wcm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(wcm, CM_LITERALS) = (uint64_t)wlits;
+        OBJ_FIELD(wcm, CM_BYTECODES) = (uint64_t)wbc;
+
+        uint64_t *stack = ctx->stack;
+        uint64_t *class_table = ctx->class_table;
+        uint64_t *sp, *fp;
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)tenured_obj); // receiver
+
+        activate_method(&sp, &fp, 0, (uint64_t)wcm, 0, 0);
+        interpret(&sp, &fp,
+                  (uint8_t *)&OBJ_FIELD(wbc, 0),
+                  class_table, gc_ctx3, NULL);
+
+        // The store wrote young_obj into tenured_obj field 0
+        ASSERT_EQ(ctx, OBJ_FIELD(tenured_obj, 0), (uint64_t)young_obj,
+                  "gc write-barrier: tenured field now points to young");
+
+        // The remembered set should have an entry
+        ASSERT_EQ(ctx, wb_rset[0], 1,
+                  "gc write-barrier: remembered set has 1 entry");
     }
 }

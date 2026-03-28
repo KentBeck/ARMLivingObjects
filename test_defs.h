@@ -56,6 +56,9 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t f
 //   [4] from_buf_start   — start address of from-space buffer
 //   [5] to_buf_start     — start address of to-space buffer
 //   [6] space_size       — size of each space in bytes
+//   [7] tenured_start    — start of tenured space (0 if none)
+//   [8] tenured_end      — end of tenured space
+//   [9] remembered_set   — pointer to remembered set log (or 0)
 #define GC_FROM_FREE 0
 #define GC_FROM_END 1
 #define GC_TO_FREE 2
@@ -63,6 +66,9 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t f
 #define GC_FROM_START 4
 #define GC_TO_START 5
 #define GC_SPACE_SIZE 6
+#define GC_TENURED_START 7
+#define GC_TENURED_END 8
+#define GC_REMEMBERED 9
 
 static inline void gc_ctx_init(uint64_t *gc_ctx, uint8_t *buf_a, uint8_t *buf_b, uint64_t size)
 {
@@ -73,6 +79,9 @@ static inline void gc_ctx_init(uint64_t *gc_ctx, uint8_t *buf_a, uint8_t *buf_b,
     gc_ctx[GC_FROM_START] = (uint64_t)buf_a;
     gc_ctx[GC_TO_START] = (uint64_t)buf_b;
     gc_ctx[GC_SPACE_SIZE] = size;
+    gc_ctx[GC_TENURED_START] = 0;
+    gc_ctx[GC_TENURED_END] = 0;
+    gc_ctx[GC_REMEMBERED] = 0;
 }
 
 // Swap from/to spaces in the GC context
