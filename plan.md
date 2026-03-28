@@ -337,8 +337,10 @@ New primitives:
 - [x] Transaction abort: discard log, restore interpreter state
 - [ ] Nested transactions: commit inner merges into outer log
 - [ ] Object allocation during transaction: track for rollback
-- [ ] End-to-end: begin, modify field, read field (sees new value), commit, read field (still new)
-- [ ] End-to-end: begin, modify field, abort, read field (sees old value)
+- [x] End-to-end: begin, modify field, read field (sees new value), commit, read field (still new)
+- [x] End-to-end: begin, modify field, abort, read field (sees old value)
+- [x] at: primitive (with transaction-aware reads)
+- [x] at:put: primitive (with transaction-aware writes)
 
 ### 15. Generational Garbage Collection
 

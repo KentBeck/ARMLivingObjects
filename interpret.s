@@ -291,6 +291,10 @@ _interpret:
     b.eq    .Lprim_eq
     cmp     x3, #5              // PRIM_SMALLINT_MUL
     b.eq    .Lprim_mul
+    cmp     x3, #6              // PRIM_AT
+    b.eq    .Lprim_at
+    cmp     x3, #7              // PRIM_AT_PUT
+    b.eq    .Lprim_at_put
     cmp     x3, #9              // PRIM_BLOCK_VALUE
     b.eq    .Lprim_block_value
     // Debug: print unknown primitive
@@ -364,6 +368,68 @@ _interpret:
     orr     x8, x8, #1
     add     x5, x5, #8         // pop arg, result replaces receiver
     str     x8, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_at:
+    // receiver at: index
+    // Stack: [SP]=index (tagged SmallInt), [SP+8]=receiver (object ptr)
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // index (tagged)
+    ldr     x7, [x5, #8]       // receiver (array object)
+    asr     x6, x6, #2         // untag index -> 0-based
+    // If transaction active, check log first
+    cbz     x27, .Lprim_at_no_txn
+    stp     x5, x6, [sp, #-16]!
+    stp     x7, xzr, [sp, #-16]!
+    sub     sp, sp, #16         // space for found flag
+    mov     x0, x27             // log
+    mov     x1, x7              // obj
+    mov     x2, x6              // field_index (0-based)
+    mov     x3, sp              // &found
+    bl      _txn_log_read
+    ldr     x8, [sp]            // found flag
+    add     sp, sp, #16
+    ldp     x7, xzr, [sp], #16
+    ldp     x5, x6, [sp], #16
+    cbnz    x8, .Lprim_at_got_value  // x0 = value from log
+.Lprim_at_no_txn:
+    add     x7, x7, #24        // skip 3-word header
+    ldr     x0, [x7, x6, lsl #3]   // obj[3 + index]
+.Lprim_at_got_value:
+    // x0 = result value
+    add     x5, x5, #8         // pop index, result replaces receiver
+    str     x0, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_at_put:
+    // receiver at: index put: value
+    // Stack: [SP]=value, [SP+8]=index (tagged SmallInt), [SP+16]=receiver
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // value
+    ldr     x7, [x5, #8]       // index (tagged)
+    ldr     x8, [x5, #16]      // receiver (array object)
+    asr     x7, x7, #2         // untag index -> 0-based
+    // If transaction active, write to log
+    cbz     x27, .Lprim_atput_no_txn
+    stp     x5, x6, [sp, #-16]!
+    stp     x7, x8, [sp, #-16]!
+    mov     x0, x27             // log
+    mov     x1, x8              // obj
+    mov     x2, x7              // field_index
+    mov     x3, x6              // value
+    bl      _txn_log_write
+    ldp     x7, x8, [sp], #16
+    ldp     x5, x6, [sp], #16
+    b       .Lprim_atput_done
+.Lprim_atput_no_txn:
+    add     x9, x8, #24        // skip header (keep x8 = original receiver)
+    str     x6, [x9, x7, lsl #3]   // obj[3 + index] = value
+.Lprim_atput_done:
+    // Return the receiver
+    add     x5, x5, #16        // pop value and index
+    str     x8, [x5]           // push original receiver
     str     x5, [x19]
     b       .Ldispatch
 
