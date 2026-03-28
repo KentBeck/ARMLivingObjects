@@ -57,6 +57,7 @@ extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip, uin
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 extern void txn_commit(uint64_t *log);
+extern void txn_abort(uint64_t *log);
 
 #define OBJ_CLASS(obj) ((obj)[0])
 #define OBJ_FORMAT(obj) ((obj)[1])

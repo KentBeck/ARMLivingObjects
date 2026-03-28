@@ -144,4 +144,59 @@ void test_transaction(TestContext *ctx)
         ASSERT_EQ(ctx, result, tag_smallint(77),
                   "txn PUSH_INST_VAR: reads 77 from log, not 10 from object");
     }
+
+    // --- Transaction abort: discard log, object unchanged ---
+    {
+        uint64_t *om = ctx->om;
+        uint64_t *class_class = ctx->class_class;
+        uint64_t *class_table = ctx->class_table;
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp, *fp;
+
+        // Object with field 0 = 42
+        uint64_t *tobj = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(tobj, 0) = tag_smallint(42);
+
+        // Bytecodes: PUSH_LITERAL 0, STORE_INST_VAR 0, HALT
+        uint64_t *tbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *bc = (uint8_t *)&OBJ_FIELD(tbc, 0);
+        bc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(bc + 1, 0);
+        bc[5] = BC_STORE_INST_VAR;
+        WRITE_U32(bc + 6, 0);
+        bc[10] = BC_HALT;
+
+        uint64_t *tlits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(tlits, 0) = tag_smallint(999);
+
+        uint64_t *tcm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(tcm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(tcm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(tcm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(tcm, CM_LITERALS) = (uint64_t)tlits;
+        OBJ_FIELD(tcm, CM_BYTECODES) = (uint64_t)tbc;
+
+        uint64_t txn[1 + 64 * 3];
+        txn[0] = 0;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)tobj);
+
+        activate_method(&sp, &fp, 0, (uint64_t)tcm, 0, 0);
+        interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(tbc, 0), class_table, om, txn);
+
+        // Log has the write, object unchanged
+        ASSERT_EQ(ctx, txn[0], 1,
+                  "txn abort: log has 1 entry before abort");
+        ASSERT_EQ(ctx, OBJ_FIELD(tobj, 0), tag_smallint(42),
+                  "txn abort: object still 42 before abort");
+
+        // Abort: discard log
+        txn_abort(txn);
+        ASSERT_EQ(ctx, txn[0], (uint64_t)0,
+                  "txn abort: log empty after abort");
+        ASSERT_EQ(ctx, OBJ_FIELD(tobj, 0), tag_smallint(42),
+                  "txn abort: object still 42 after abort");
+    }
 }

@@ -5,6 +5,7 @@
 .global _txn_log_write
 .global _txn_log_read
 .global _txn_commit
+.global _txn_abort
 
 .align 2
 
@@ -86,3 +87,10 @@ _txn_commit:
     str     xzr, [x0]              // log[0] = 0 (clear)
     ret
 
+
+// txn_abort(log)
+// x0 = log
+// Discard all log entries (set count to 0).
+_txn_abort:
+    str     xzr, [x0]              // log[0] = 0
+    ret

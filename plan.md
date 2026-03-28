@@ -334,7 +334,7 @@ New primitives:
 - [x] STORE_INST_VAR through transaction log when active
 - [x] PUSH_INST_VAR reads from transaction log when active
 - [x] Transaction commit: write all log entries to objects
-- [ ] Transaction abort: discard log, restore interpreter state
+- [x] Transaction abort: discard log, restore interpreter state
 - [ ] Nested transactions: commit inner merges into outer log
 - [ ] Object allocation during transaction: track for rollback
 - [ ] End-to-end: begin, modify field, read field (sees new value), commit, read field (still new)
