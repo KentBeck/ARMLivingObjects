@@ -394,6 +394,22 @@ to AI assistants for tool use.
 - [ ] tool: modify object fields (within a transaction)
 - [ ] resource: expose live object graph as browsable context
 
+### 19. JIT Compiler
+
+Compile hot bytecode methods to native ARM64 machine code.
+Tiered: interpret first, JIT after invocation threshold.
+
+- [ ] method invocation counter: increment on SEND, trigger JIT at threshold
+- [ ] IR generation: translate bytecodes to low-level intermediate representation
+- [ ] register allocation: map Smalltalk temps/stack to ARM64 registers
+- [ ] code generation: emit ARM64 instructions to executable memory
+- [ ] entry/exit glue: transition between interpreted and JIT'd frames
+- [ ] inline caching: monomorphic/polymorphic inline caches for SEND
+- [ ] deoptimization: bail out to interpreter when assumptions break
+- [ ] GC interaction: JIT'd code emits write barriers, stack maps for root scanning
+- [ ] transaction interaction: JIT'd field access checks transaction log
+- [ ] on-stack replacement: JIT a running method mid-execution
+
 ---
 
 ## Deferred: Stack Infrastructure (implement when needed)
