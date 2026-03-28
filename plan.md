@@ -376,8 +376,9 @@ Object header changes: add forwarding pointer support for copying.
 - [ ] promotion: objects surviving N collections move to tenured space
 - [ ] tenured space: mark-sweep collector
 - [ ] remembered set: old-to-young pointer tracking
+- [x] GC + interpreter: collect, then dispatch on survived objects
+- [x] transaction log as GC root: log entries keep objects alive
 - [ ] GC-safe points: trigger collection at allocation or backward branch
-- [ ] transaction log as GC root: log entries keep objects alive
 
 ### 16. Persistence
 

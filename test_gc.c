@@ -674,4 +674,157 @@ void test_gc(TestContext *ctx)
         ASSERT_EQ(ctx, (uint64_t)survived2 >= (uint64_t)space_a, 1,
                   "gc alloc-cycle: back in space_a after double GC");
     }
+
+    // --- GC with stack roots: interpret, collect, verify ---
+    {
+        // Use two small spaces for objects
+        static uint8_t spa[32768] __attribute__((aligned(8)));
+        static uint8_t spb[32768] __attribute__((aligned(8)));
+        uint64_t sa2[2], sb2[2];
+        om_init(spa, 32768, sa2);
+        om_init(spb, 32768, sb2);
+
+        uint64_t *cc = ctx->class_class;
+
+        // Build a class with a method: PUSH_INST_VAR 0, HALT
+        uint64_t *my_class = om_alloc(sa2, (uint64_t)cc, FORMAT_FIELDS, 3);
+        OBJ_FIELD(my_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(my_class, CLASS_INST_SIZE) = tag_smallint(2);
+
+        uint64_t *my_bc = om_alloc(sa2, (uint64_t)cc, FORMAT_BYTES, 10);
+        uint8_t *bc = (uint8_t *)&OBJ_FIELD(my_bc, 0);
+        bc[0] = BC_PUSH_INST_VAR;
+        WRITE_U32(bc + 1, 0);
+        bc[5] = BC_HALT;
+
+        uint64_t *my_cm = om_alloc(sa2, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(my_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(my_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(my_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(my_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(my_cm, CM_BYTECODES) = (uint64_t)my_bc;
+
+        uint64_t sel = tag_smallint(60);
+        uint64_t *my_md = om_alloc(sa2, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(my_md, 0) = sel;
+        OBJ_FIELD(my_md, 1) = (uint64_t)my_cm;
+        OBJ_FIELD(my_class, CLASS_METHOD_DICT) = (uint64_t)my_md;
+
+        // Create instance and lots of garbage
+        uint64_t *inst = om_alloc(sa2, (uint64_t)my_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(inst, 0) = tag_smallint(123);
+        OBJ_FIELD(inst, 1) = tag_smallint(456);
+
+        // Fill the rest of the space with garbage
+        while (om_alloc(sa2, (uint64_t)cc, FORMAT_FIELDS, 4) != NULL)
+            ;
+
+        // Now GC — only inst is the root
+        uint64_t roots_gc[1];
+        roots_gc[0] = (uint64_t)inst;
+        gc_collect(roots_gc, 1, sa2, sb2,
+                   (uint64_t)spa, (uint64_t)(spa + 32768));
+
+        uint64_t *ninst = (uint64_t *)roots_gc[0];
+        ASSERT_EQ(ctx, OBJ_FIELD(ninst, 0), tag_smallint(123),
+                  "gc+interp: inst field 0 after GC");
+
+        // Now run the interpreter using the GC'd objects
+        uint64_t *stack = ctx->stack;
+        uint64_t *class_table = ctx->class_table;
+        uint64_t *sp, *fp;
+
+        // Caller: PUSH_SELF, SEND sel 0 args, HALT
+        uint64_t *caller_bc = om_alloc(sb2, (uint64_t)cc, FORMAT_BYTES, 20);
+        uint8_t *cbc = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        cbc[0] = BC_PUSH_SELF;
+        cbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(cbc + 2, 0);
+        WRITE_U32(cbc + 6, 0);
+        cbc[10] = BC_HALT;
+
+        uint64_t *caller_lits = om_alloc(sb2, (uint64_t)cc, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(caller_lits, 0) = sel;
+
+        uint64_t *caller_cm = om_alloc(sb2, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)ninst);
+
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                                    class_table, sb2, NULL);
+
+        ASSERT_EQ(ctx, result, tag_smallint(123),
+                  "gc+interp: interpret after GC returns 123");
+    }
+
+    // --- GC with transaction log entries as roots ---
+    {
+        static uint8_t fb_txn[8192] __attribute__((aligned(8)));
+        static uint8_t tb_txn[8192] __attribute__((aligned(8)));
+        uint64_t from_txn[2], to_txn[2];
+        om_init(fb_txn, 8192, from_txn);
+        om_init(tb_txn, 8192, to_txn);
+
+        uint64_t *cc = ctx->class_class;
+
+        // Object and a value object referenced only from the txn log
+        uint64_t *tobj = om_alloc(from_txn, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(tobj, 0) = tag_smallint(10);
+
+        uint64_t *val_obj = om_alloc(from_txn, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(val_obj, 0) = tag_smallint(555);
+
+        // Put (tobj, 0, val_obj) in the log
+        uint64_t txn[1 + 64 * 3];
+        txn[0] = 0;
+        txn_log_write(txn, (uint64_t)tobj, 0, (uint64_t)val_obj);
+
+        // Fill rest with garbage
+        while (om_alloc(from_txn, (uint64_t)cc, FORMAT_FIELDS, 2) != NULL)
+            ;
+
+        // Roots: tobj. But val_obj is only in the txn log.
+        // We need to scan the log as roots too.
+        // Collect log entries as additional roots
+        uint64_t all_roots[64];
+        int nr = 0;
+        all_roots[nr++] = (uint64_t)tobj;
+        // Add log values: obj ptrs and value ptrs
+        for (uint64_t i = 0; i < txn[0]; i++)
+        {
+            uint64_t log_obj = txn[1 + i * 3];
+            uint64_t log_val = txn[3 + i * 3];
+            all_roots[nr++] = log_obj;
+            all_roots[nr++] = log_val;
+        }
+
+        gc_collect(all_roots, nr, from_txn, to_txn,
+                   (uint64_t)fb_txn, (uint64_t)(fb_txn + 8192));
+
+        // Update txn log entries from the roots
+        uint64_t *new_tobj = (uint64_t *)all_roots[0];
+        txn[1] = all_roots[1]; // updated obj ptr
+        txn[3] = all_roots[2]; // updated val ptr
+
+        // Commit the transaction
+        txn_commit(txn);
+
+        // val_obj should now be in the object's field
+        ASSERT_EQ(ctx, OBJ_FIELD(new_tobj, 0) != tag_smallint(10), 1,
+                  "gc+txn: field changed after commit");
+        uint64_t *new_val = (uint64_t *)OBJ_FIELD(new_tobj, 0);
+        ASSERT_EQ(ctx, OBJ_FIELD(new_val, 0), tag_smallint(555),
+                  "gc+txn: val_obj survived via log, data preserved");
+        ASSERT_EQ(ctx, (uint64_t)new_val >= (uint64_t)tb_txn, 1,
+                  "gc+txn: val_obj in to-space");
+    }
 }
