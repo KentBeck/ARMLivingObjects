@@ -370,7 +370,8 @@ Object header changes: add forwarding pointer support for copying.
 - [x] edge cases: cycles, self-ref, deep chains, shared refs, mixed formats, tagged roots
 - [x] class hierarchy: full class+method+bytecodes chain survives GC and dispatch works
 - [x] stress test: 100 objects, 34 survivors verified correct
-- [ ] wire GC into om_alloc: trigger collection when nursery fills
+- [x] om_alloc returns NULL on OOM (instead of crashing)
+- [x] alloc-collect-alloc cycle: fill space, GC, allocate again, double GC
 - [ ] write barrier: STORE_INST_VAR records old-to-young references
 - [ ] promotion: objects surviving N collections move to tenured space
 - [ ] tenured space: mark-sweep collector

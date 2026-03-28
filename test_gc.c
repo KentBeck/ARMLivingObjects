@@ -600,4 +600,78 @@ void test_gc(TestContext *ctx)
         ASSERT_EQ(ctx, to_used < from_used, 1,
                   "gc stress: to-space smaller than from-space");
     }
+
+    // --- Alloc-collect-alloc cycle ---
+    {
+        // Small nursery: 2048 bytes = room for ~25 4-word objects
+        static uint8_t space_a[2048] __attribute__((aligned(8)));
+        static uint8_t space_b[2048] __attribute__((aligned(8)));
+        uint64_t sa[2], sb[2];
+        om_init(space_a, 2048, sa);
+        om_init(space_b, 2048, sb);
+
+        uint64_t *cc = ctx->class_class;
+
+        // Allocate until full, keep only the last one
+        uint64_t *last = NULL;
+        int alloc_count = 0;
+        while (1)
+        {
+            uint64_t *obj = om_alloc(sa, (uint64_t)cc, FORMAT_FIELDS, 1);
+            if (!obj)
+                break;
+            OBJ_FIELD(obj, 0) = tag_smallint(alloc_count);
+            last = obj;
+            alloc_count++;
+        }
+
+        ASSERT_EQ(ctx, alloc_count > 10, 1,
+                  "gc alloc-cycle: allocated many objects");
+        ASSERT_EQ(ctx, OBJ_FIELD(last, 0), tag_smallint(alloc_count - 1),
+                  "gc alloc-cycle: last obj has correct value");
+
+        // GC: only keep 'last'
+        uint64_t roots_ac[1];
+        roots_ac[0] = (uint64_t)last;
+        gc_collect(roots_ac, 1, sa, sb,
+                   (uint64_t)space_a, (uint64_t)(space_a + 2048));
+
+        uint64_t *survived = (uint64_t *)roots_ac[0];
+        ASSERT_EQ(ctx, OBJ_FIELD(survived, 0), tag_smallint(alloc_count - 1),
+                  "gc alloc-cycle: survivor has correct value");
+        ASSERT_EQ(ctx, (uint64_t)survived >= (uint64_t)space_b, 1,
+                  "gc alloc-cycle: survivor in to-space");
+
+        // Now allocate more in to-space (sb) — should succeed
+        uint64_t *after_gc = om_alloc(sb, (uint64_t)cc, FORMAT_FIELDS, 1);
+        ASSERT_EQ(ctx, after_gc != NULL, 1,
+                  "gc alloc-cycle: can allocate after GC");
+        OBJ_FIELD(after_gc, 0) = tag_smallint(9999);
+        ASSERT_EQ(ctx, OBJ_FIELD(after_gc, 0), tag_smallint(9999),
+                  "gc alloc-cycle: new obj has correct value");
+
+        // Do another full cycle: fill sb, collect back to sa
+        om_init(space_a, 2048, sa); // reset sa as new to-space
+        int alloc_count2 = 0;
+        uint64_t *last2 = survived; // keep the original survivor
+        while (1)
+        {
+            uint64_t *obj = om_alloc(sb, (uint64_t)cc, FORMAT_FIELDS, 1);
+            if (!obj)
+                break;
+            OBJ_FIELD(obj, 0) = tag_smallint(alloc_count2 + 1000);
+            alloc_count2++;
+        }
+
+        uint64_t roots_ac2[1];
+        roots_ac2[0] = (uint64_t)last2;
+        gc_collect(roots_ac2, 1, sb, sa,
+                   (uint64_t)space_b, (uint64_t)(space_b + 2048));
+
+        uint64_t *survived2 = (uint64_t *)roots_ac2[0];
+        ASSERT_EQ(ctx, OBJ_FIELD(survived2, 0), tag_smallint(alloc_count - 1),
+                  "gc alloc-cycle: double-GC survivor preserved");
+        ASSERT_EQ(ctx, (uint64_t)survived2 >= (uint64_t)space_a, 1,
+                  "gc alloc-cycle: back in space_a after double GC");
+    }
 }
