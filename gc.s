@@ -8,6 +8,7 @@
 .global _gc_is_forwarded
 .global _gc_forwarding_ptr
 .global _gc_collect
+.global _gc_scan_stack
 
 .align 2
 
@@ -179,4 +180,91 @@ _gc_collect:
     ldp     x21, x22, [sp], #16
     ldp     x19, x20, [sp], #16
     ldp     x29, x30, [sp], #16
+    ret
+
+// gc_scan_stack(fp, root_buf, max_roots) -> num_roots_found
+// x0 = fp (current frame pointer)
+// x1 = root_buf (output array of object pointers)
+// x2 = max_roots (capacity of root_buf)
+//
+// Frame layout:
+//   [FP + 8]  = saved IP
+//   [FP + 0]  = saved caller FP
+//   [FP - 8]  = method (CompiledMethod pointer)
+//   [FP - 16] = flags
+//   [FP - 24] = context slot
+//   [FP - 32] = receiver
+//   [FP - 40] = temp 0, [FP - 48] = temp 1, ...
+//
+// For each frame: collect receiver, method, and all temps that are object ptrs.
+// An object ptr has tag bits == 00 and is non-zero.
+_gc_scan_stack:
+    stp     x29, x30, [sp, #-16]!
+    stp     x19, x20, [sp, #-16]!
+    stp     x21, x22, [sp, #-16]!
+
+    mov     x19, x0             // x19 = fp
+    mov     x20, x1             // x20 = root_buf
+    mov     x21, x2             // x21 = max_roots
+    mov     x22, #0             // x22 = count
+
+.Lgc_stack_frame_loop:
+    // Check for sentinel FP (0xCAFE or 0)
+    cmp     x19, #0
+    b.eq    .Lgc_stack_done
+    mov     x9, #0xCAFE
+    cmp     x19, x9
+    b.eq    .Lgc_stack_done
+
+    // Collect receiver: [FP - 32]
+    ldr     x0, [x19, #-32]
+    bl      .Lgc_maybe_add_root
+
+    // Collect method: [FP - 8]
+    ldr     x0, [x19, #-8]
+    bl      .Lgc_maybe_add_root
+
+    // Collect context slot: [FP - 24]
+    ldr     x0, [x19, #-24]
+    bl      .Lgc_maybe_add_root
+
+    // Get num_temps from method object
+    ldr     x9, [x19, #-8]      // method ptr
+    // OBJ_FIELD(method, CM_NUM_TEMPS) = method[3 + 2] = method[5]
+    ldr     x9, [x9, #40]       // method[5] = num_temps (tagged SmallInt)
+    asr     x9, x9, #2          // untag
+
+    // Collect temps: [FP - 40], [FP - 48], ...
+    mov     x10, #0             // temp index
+.Lgc_stack_temps:
+    cmp     x10, x9
+    b.ge    .Lgc_stack_next_frame
+    add     x11, x10, #5        // slot offset = 5 + temp_index (in words from FP)
+    neg     x11, x11            // negative offset
+    ldr     x0, [x19, x11, lsl #3]  // FP[-(5 + i)] = FP - (5+i)*8
+    bl      .Lgc_maybe_add_root
+    add     x10, x10, #1
+    b       .Lgc_stack_temps
+
+.Lgc_stack_next_frame:
+    ldr     x19, [x19]          // FP = saved caller FP
+    b       .Lgc_stack_frame_loop
+
+.Lgc_stack_done:
+    mov     x0, x22             // return count
+    ldp     x21, x22, [sp], #16
+    ldp     x19, x20, [sp], #16
+    ldp     x29, x30, [sp], #16
+    ret
+
+// Helper: if x0 is an object ptr (tag 00, non-zero), add to root_buf
+.Lgc_maybe_add_root:
+    cbz     x0, .Lgc_not_root
+    tst     x0, #3
+    b.ne    .Lgc_not_root
+    cmp     x22, x21            // buffer full?
+    b.ge    .Lgc_not_root
+    str     x0, [x20, x22, lsl #3]
+    add     x22, x22, #1
+.Lgc_not_root:
     ret

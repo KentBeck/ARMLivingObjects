@@ -76,6 +76,11 @@ extern void gc_collect(uint64_t *roots, uint64_t num_roots,
                        uint64_t *from_space, uint64_t *to_space,
                        uint64_t from_start, uint64_t from_end);
 
+// gc_scan_stack(fp, root_buf, max_roots) -> num_roots_found
+//   Walk stack frames from fp, collecting object pointers (receiver, method, temps)
+//   into root_buf. Stops at sentinel FP (0xCAFE or 0).
+extern uint64_t gc_scan_stack(uint64_t *fp, uint64_t *root_buf, uint64_t max_roots);
+
 #define GC_FORWARD_TAG 1 // bit 0 set on a forwarding pointer (real class ptrs are aligned)
 
 #define OBJ_CLASS(obj) ((obj)[0])

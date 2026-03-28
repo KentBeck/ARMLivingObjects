@@ -365,7 +365,7 @@ Object header changes: add forwarding pointer support for copying.
 - [x] gc_copy_object: copy single object, leave forwarding pointer
 - [x] gc_is_forwarded / gc_forwarding_ptr: detect and follow forwards
 - [x] gc_collect: Cheney's semi-space collector with explicit roots
-- [ ] root scanning: walk stack frames for tagged object pointers
+- [x] root scanning: walk stack frames for tagged object pointers
 - [ ] write barrier: STORE_INST_VAR records old-to-young references
 - [ ] promotion: objects surviving N collections move to tenured space
 - [ ] tenured space: mark-sweep collector

@@ -100,4 +100,57 @@ void test_gc(TestContext *ctx)
         ASSERT_EQ(ctx, (uint64_t)newB >= (uint64_t)to_buf3, 1,
                   "gc_collect: B is in to-space");
     }
+
+    // --- gc_scan_roots: walk stack frames, collect object pointers ---
+    {
+        uint64_t *om = ctx->om;
+        uint64_t *class_class = ctx->class_class;
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp, *fp;
+
+        // Create two objects
+        uint64_t *objX = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objX, 0) = tag_smallint(1);
+        uint64_t *objY = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objY, 0) = tag_smallint(2);
+
+        // Method with 0 args, 1 temp
+        uint64_t *tcm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        uint64_t *tbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        ((uint8_t *)&OBJ_FIELD(tbc, 0))[0] = BC_HALT;
+        OBJ_FIELD(tcm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(tcm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(tcm, CM_NUM_TEMPS) = tag_smallint(1);
+        OBJ_FIELD(tcm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(tcm, CM_BYTECODES) = (uint64_t)tbc;
+
+        // Build a stack frame: receiver=objX, temp0=objY
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)objX); // receiver
+        activate_method(&sp, &fp, 0, (uint64_t)tcm, 0, 1);
+        // Store objY into temp 0
+        frame_store_temp(fp, 0, (uint64_t)objY);
+
+        // Scan roots from stack
+        uint64_t root_buf[32];
+        uint64_t num_found = gc_scan_stack(fp, root_buf, 32);
+
+        // Should find: receiver (objX), temp0 (objY), method (tcm)
+        // At minimum, receiver and temp must be found
+        ASSERT_EQ(ctx, num_found >= 2, 1,
+                  "gc_scan_stack: found at least 2 roots");
+
+        // Check that objX and objY are in the root buffer
+        int found_x = 0, found_y = 0;
+        for (uint64_t i = 0; i < num_found; i++)
+        {
+            if (root_buf[i] == (uint64_t)objX)
+                found_x = 1;
+            if (root_buf[i] == (uint64_t)objY)
+                found_y = 1;
+        }
+        ASSERT_EQ(ctx, found_x, 1, "gc_scan_stack: found objX");
+        ASSERT_EQ(ctx, found_y, 1, "gc_scan_stack: found objY");
+    }
 }
