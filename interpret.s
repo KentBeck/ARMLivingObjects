@@ -331,6 +331,8 @@ _interpret:
     b.eq    .Lprim_identity_eq
     cmp     x3, #13             // PRIM_BASIC_CLASS
     b.eq    .Lprim_basic_class
+    cmp     x3, #14             // PRIM_HASH
+    b.eq    .Lprim_hash
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -652,6 +654,23 @@ _interpret:
 .Lbasicclass_false:
     ldr     x7, [x25, #48]    // class_table field 3 (false class)
     str     x7, [x5]
+    b       .Ldispatch
+
+.Lprim_hash:
+    // hash: return identity hash as tagged SmallInt
+    // SmallInt receiver → value is its own hash
+    // Heap object → address-based hash (shift right 3 to remove alignment, mask)
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // receiver
+    tst     x6, #1             // SmallInt?
+    b.ne    .Lhash_done         // SmallInt is already tagged — it IS its hash
+    // Heap object: use address >> 3, mask to fit SmallInt range
+    lsr     x6, x6, #3
+    and     x6, x6, #0x3FFFFFFF // 30 bits
+    lsl     x6, x6, #2
+    orr     x6, x6, #1         // tag as SmallInt
+.Lhash_done:
+    str     x6, [x5]           // replace receiver with hash
     b       .Ldispatch
 
 .Lprim_identity_eq:

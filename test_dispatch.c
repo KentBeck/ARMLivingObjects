@@ -1309,6 +1309,68 @@ void test_dispatch(TestContext *ctx)
                   "class: Smalltalk method via basicClass returns class");
     }
 
+    // --- hash primitive ---
+    {
+        uint64_t sel_hash = tag_smallint(76);
+
+        uint64_t *h_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *h_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(h_cm, CM_PRIMITIVE) = tag_smallint(PRIM_HASH);
+        OBJ_FIELD(h_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(h_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(h_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(h_cm, CM_BYTECODES) = (uint64_t)h_bc;
+
+        uint64_t *h_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(h_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(h_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(h_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        uint64_t *h_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(h_md, 0) = sel_hash;
+        OBJ_FIELD(h_md, 1) = (uint64_t)h_cm;
+        OBJ_FIELD(h_class, CLASS_METHOD_DICT) = (uint64_t)h_md;
+
+        uint64_t *hobj = om_alloc(om, (uint64_t)h_class, FORMAT_FIELDS, 0);
+
+        // Caller: PUSH_SELF, SEND hash 0, HALT
+        uint64_t *h_cbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *hbc = (uint8_t *)&OBJ_FIELD(h_cbc, 0);
+        hbc[0] = BC_PUSH_SELF;
+        hbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&hbc[2], 0);
+        WRITE_U32(&hbc[6], 0);
+        hbc[10] = BC_HALT;
+
+        uint64_t *h_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(h_lits, 0) = sel_hash;
+
+        uint64_t *h_ccm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(h_ccm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(h_ccm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(h_ccm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(h_ccm, CM_LITERALS) = (uint64_t)h_lits;
+        OBJ_FIELD(h_ccm, CM_BYTECODES) = (uint64_t)h_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)hobj);
+        activate_method(&sp, &fp, 0, (uint64_t)h_ccm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(h_cbc, 0),
+                           class_table, om, NULL);
+        // Result should be a tagged SmallInt (tag = 01)
+        ASSERT_EQ(ctx, result & 1, 1, "hash: result is SmallInt");
+        // Same object → same hash
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)hobj);
+        activate_method(&sp, &fp, 0, (uint64_t)h_ccm, 0, 0);
+        uint64_t result2 = interpret(&sp, &fp,
+                                     (uint8_t *)&OBJ_FIELD(h_cbc, 0),
+                                     class_table, om, NULL);
+        ASSERT_EQ(ctx, result, result2, "hash: same object → same hash");
+    }
+
     // --- at: format dispatch ---
     {
         uint64_t sel_at = tag_smallint(90);
