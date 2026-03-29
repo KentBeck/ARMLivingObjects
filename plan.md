@@ -24,7 +24,7 @@ dispatched by the interpreter's primitive handler.
 - [x] `basicNew:` — primitive on Class: allocate indexable/byte instance (reads instFormat from receiver)
 - [ ] `new` / `new:` — Smalltalk methods on Class: `^ self basicNew initialize`
 - [x] `size` — return object size (inst var count or indexable size)
-- [ ] `==` — identity comparison (same pointer), returns tagged true/false
+- [x] `==` — identity comparison (same pointer), returns tagged true/false
 - [ ] `class` — return the class of the receiver
 - [ ] fix `at:` / `at:put:` — dispatch on format:
   - FORMAT_FIELDS: error (use inst var access instead)

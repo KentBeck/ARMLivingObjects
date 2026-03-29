@@ -327,6 +327,8 @@ _interpret:
     b.eq    .Lprim_basic_new_size
     cmp     x3, #11             // PRIM_SIZE
     b.eq    .Lprim_size
+    cmp     x3, #12             // PRIM_IDENTITY_EQ
+    b.eq    .Lprim_identity_eq
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -559,6 +561,21 @@ _interpret:
 
 .Lbasicnewsize_err:
     brk     #5                  // basicNew: on non-indexable class
+
+.Lprim_identity_eq:
+    // ==: receiver arg → true if same value, false otherwise
+    // Stack: [arg, receiver, ...]
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // arg
+    ldr     x7, [x5, #8]       // receiver
+    cmp     x6, x7
+    mov     x8, #0x07           // tagged true
+    mov     x9, #0x0B           // tagged false
+    csel    x8, x8, x9, eq
+    add     x5, x5, #8         // pop arg
+    str     x8, [x5]           // replace receiver with result
+    str     x5, [x19]          // update SP
+    b       .Ldispatch
 
 .Lprim_size:
     // size: return the object's size field as a tagged SmallInt

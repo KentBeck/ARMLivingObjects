@@ -1098,4 +1098,83 @@ void test_dispatch(TestContext *ctx)
         ASSERT_EQ(ctx, result, tag_smallint(4),
                   "size: indexable object size = 4");
     }
+
+    // --- == identity primitive ---
+    {
+        uint64_t sel_eq_eq = tag_smallint(73);
+
+        // Add == to test_class (any class will do)
+        uint64_t *eq_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *eq_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(eq_cm, CM_PRIMITIVE) = tag_smallint(PRIM_IDENTITY_EQ);
+        OBJ_FIELD(eq_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(eq_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(eq_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(eq_cm, CM_BYTECODES) = (uint64_t)eq_bc;
+
+        uint64_t *eq_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(eq_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(eq_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(eq_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        uint64_t *eq_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(eq_md, 0) = sel_eq_eq;
+        OBJ_FIELD(eq_md, 1) = (uint64_t)eq_cm;
+        OBJ_FIELD(eq_class, CLASS_METHOD_DICT) = (uint64_t)eq_md;
+
+        uint64_t *objX = om_alloc(om, (uint64_t)eq_class, FORMAT_FIELDS, 0);
+        uint64_t *objY = om_alloc(om, (uint64_t)eq_class, FORMAT_FIELDS, 0);
+
+        // Caller: PUSH_SELF, PUSH_LITERAL 1, SEND == 1, HALT
+        uint64_t *eq_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *eqbc = (uint8_t *)&OBJ_FIELD(eq_caller_bc, 0);
+        eqbc[0] = BC_PUSH_SELF;
+        eqbc[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&eqbc[2], 1);
+        eqbc[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&eqbc[7], 0);
+        WRITE_U32(&eqbc[11], 1);
+        eqbc[15] = BC_HALT;
+
+        // Test 1: objX == objX → true
+        uint64_t *eq_lits1 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(eq_lits1, 0) = sel_eq_eq;
+        OBJ_FIELD(eq_lits1, 1) = (uint64_t)objX; // same object
+
+        uint64_t *eq_caller_cm1 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(eq_caller_cm1, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(eq_caller_cm1, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(eq_caller_cm1, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(eq_caller_cm1, CM_LITERALS) = (uint64_t)eq_lits1;
+        OBJ_FIELD(eq_caller_cm1, CM_BYTECODES) = (uint64_t)eq_caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)objX);
+        activate_method(&sp, &fp, 0, (uint64_t)eq_caller_cm1, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(eq_caller_bc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tagged_true(), "==: same object → true");
+
+        // Test 2: objX == objY → false
+        uint64_t *eq_lits2 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(eq_lits2, 0) = sel_eq_eq;
+        OBJ_FIELD(eq_lits2, 1) = (uint64_t)objY; // different object
+
+        uint64_t *eq_caller_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(eq_caller_cm2, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(eq_caller_cm2, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(eq_caller_cm2, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(eq_caller_cm2, CM_LITERALS) = (uint64_t)eq_lits2;
+        OBJ_FIELD(eq_caller_cm2, CM_BYTECODES) = (uint64_t)eq_caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)objX);
+        activate_method(&sp, &fp, 0, (uint64_t)eq_caller_cm2, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(eq_caller_bc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tagged_false(), "==: different object → false");
+    }
 }
