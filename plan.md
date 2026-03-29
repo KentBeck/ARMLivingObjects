@@ -25,7 +25,8 @@ dispatched by the interpreter's primitive handler.
 - [ ] `new` / `new:` — Smalltalk methods on Class: `^ self basicNew initialize`
 - [x] `size` — return object size (inst var count or indexable size)
 - [x] `==` — identity comparison (same pointer), returns tagged true/false
-- [ ] `class` — return the class of the receiver
+- [x] `basicClass` — primitive: return class of receiver (handles tagged values)
+- [x] `class` — Smalltalk method: `^ self basicClass`
 - [ ] fix `at:` / `at:put:` — dispatch on format:
   - FORMAT_FIELDS: error (use inst var access instead)
   - FORMAT_INDEXABLE: 1-based word access, bounds-checked

@@ -329,6 +329,8 @@ _interpret:
     b.eq    .Lprim_size
     cmp     x3, #12             // PRIM_IDENTITY_EQ
     b.eq    .Lprim_identity_eq
+    cmp     x3, #13             // PRIM_BASIC_CLASS
+    b.eq    .Lprim_basic_class
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -561,6 +563,44 @@ _interpret:
 
 .Lbasicnewsize_err:
     brk     #5                  // basicNew: on non-indexable class
+
+.Lprim_basic_class:
+    // basicClass: return the class of the receiver
+    // Uses oop_class logic: SmallInt → class_table[0], heap obj → obj[0]
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // receiver
+    tst     x6, #1             // SmallInt? (bit 0)
+    b.ne    .Lbasicclass_smallint
+    // Heap object — read class from obj[0]
+    ldr     x7, [x6]           // obj[0] = class ptr
+    str     x7, [x5]           // replace receiver with class
+    b       .Ldispatch
+.Lbasicclass_smallint:
+    // Check if it's SmallInt (tag 01) or special (tag 11)
+    tst     x6, #2             // bit 1 set? → special (true/false/nil)
+    b.ne    .Lbasicclass_special
+    // SmallInt: class_table[0]
+    ldr     x7, [x25, #24]    // class_table field 0 (offset 24 = 3*8 header)
+    str     x7, [x5]
+    b       .Ldispatch
+.Lbasicclass_special:
+    // true (0x07) → class_table[2], false (0x0B) → class_table[3]
+    cmp     x6, #0x07
+    b.eq    .Lbasicclass_true
+    cmp     x6, #0x0B
+    b.eq    .Lbasicclass_false
+    // nil (0x03) — could return UndefinedObject class, but we don't have one yet
+    // For now, return nil itself
+    str     x6, [x5]
+    b       .Ldispatch
+.Lbasicclass_true:
+    ldr     x7, [x25, #40]    // class_table field 2 (true class)
+    str     x7, [x5]
+    b       .Ldispatch
+.Lbasicclass_false:
+    ldr     x7, [x25, #48]    // class_table field 3 (false class)
+    str     x7, [x5]
+    b       .Ldispatch
 
 .Lprim_identity_eq:
     // ==: receiver arg → true if same value, false otherwise

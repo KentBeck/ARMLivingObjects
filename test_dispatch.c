@@ -1177,4 +1177,135 @@ void test_dispatch(TestContext *ctx)
                            class_table, om, NULL);
         ASSERT_EQ(ctx, result, tagged_false(), "==: different object → false");
     }
+
+    // --- basicClass primitive ---
+    {
+        uint64_t sel_basicClass = tag_smallint(74);
+
+        uint64_t *bc_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *bc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bc_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_CLASS);
+        OBJ_FIELD(bc_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bc_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bc_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(bc_cm, CM_BYTECODES) = (uint64_t)bc_bc;
+
+        // A class with basicClass in its method dict
+        uint64_t *dog_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(dog_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(dog_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(dog_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        uint64_t *bc_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(bc_md, 0) = sel_basicClass;
+        OBJ_FIELD(bc_md, 1) = (uint64_t)bc_cm;
+        OBJ_FIELD(dog_class, CLASS_METHOD_DICT) = (uint64_t)bc_md;
+
+        uint64_t *dog = om_alloc(om, (uint64_t)dog_class, FORMAT_FIELDS, 0);
+
+        // Caller: PUSH_SELF, SEND #basicClass 0, HALT
+        uint64_t *bc_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *bcbc = (uint8_t *)&OBJ_FIELD(bc_caller_bc, 0);
+        bcbc[0] = BC_PUSH_SELF;
+        bcbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&bcbc[2], 0);
+        WRITE_U32(&bcbc[6], 0);
+        bcbc[10] = BC_HALT;
+
+        uint64_t *bc_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(bc_lits, 0) = sel_basicClass;
+
+        uint64_t *bc_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bc_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(bc_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bc_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bc_caller_cm, CM_LITERALS) = (uint64_t)bc_lits;
+        OBJ_FIELD(bc_caller_cm, CM_BYTECODES) = (uint64_t)bc_caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)dog);
+        activate_method(&sp, &fp, 0, (uint64_t)bc_caller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(bc_caller_bc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)dog_class,
+                  "basicClass: heap object returns its class");
+    }
+
+    // --- class method: ^ self basicClass ---
+    {
+        uint64_t sel_class = tag_smallint(75);
+        uint64_t sel_basicClass = tag_smallint(74);
+
+        // basicClass prim method
+        uint64_t *bc2_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *bc2_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bc2_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_CLASS);
+        OBJ_FIELD(bc2_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bc2_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bc2_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(bc2_cm, CM_BYTECODES) = (uint64_t)bc2_bc;
+
+        // class method: PUSH_SELF, SEND #basicClass 0, RETURN
+        uint64_t *cl_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *clbc = (uint8_t *)&OBJ_FIELD(cl_bc, 0);
+        clbc[0] = BC_PUSH_SELF;
+        clbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&clbc[2], 0); // lit 0 = #basicClass
+        WRITE_U32(&clbc[6], 0); // 0 args
+        clbc[10] = BC_RETURN;
+
+        uint64_t *cl_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(cl_lits, 0) = sel_basicClass;
+
+        uint64_t *cl_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(cl_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(cl_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(cl_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(cl_cm, CM_LITERALS) = (uint64_t)cl_lits;
+        OBJ_FIELD(cl_cm, CM_BYTECODES) = (uint64_t)cl_bc;
+
+        // A class with both #basicClass and #class
+        uint64_t *cat_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(cat_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(cat_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(cat_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        uint64_t *cl_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(cl_md, 0) = sel_basicClass;
+        OBJ_FIELD(cl_md, 1) = (uint64_t)bc2_cm;
+        OBJ_FIELD(cl_md, 2) = sel_class;
+        OBJ_FIELD(cl_md, 3) = (uint64_t)cl_cm;
+        OBJ_FIELD(cat_class, CLASS_METHOD_DICT) = (uint64_t)cl_md;
+
+        uint64_t *cat = om_alloc(om, (uint64_t)cat_class, FORMAT_FIELDS, 0);
+
+        // Caller: PUSH_SELF, SEND #class 0, HALT
+        uint64_t *cl_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *clcbc = (uint8_t *)&OBJ_FIELD(cl_caller_bc, 0);
+        clcbc[0] = BC_PUSH_SELF;
+        clcbc[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&clcbc[2], 0);
+        WRITE_U32(&clcbc[6], 0);
+        clcbc[10] = BC_HALT;
+
+        uint64_t *cl_caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(cl_caller_lits, 0) = sel_class;
+
+        uint64_t *cl_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(cl_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(cl_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(cl_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(cl_caller_cm, CM_LITERALS) = (uint64_t)cl_caller_lits;
+        OBJ_FIELD(cl_caller_cm, CM_BYTECODES) = (uint64_t)cl_caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)cat);
+        activate_method(&sp, &fp, 0, (uint64_t)cl_caller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(cl_caller_bc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)cat_class,
+                  "class: Smalltalk method via basicClass returns class");
+    }
 }
