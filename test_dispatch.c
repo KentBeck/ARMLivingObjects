@@ -1556,4 +1556,162 @@ void test_dispatch(TestContext *ctx)
         ASSERT_EQ(ctx, result, tag_smallint(46),
                   "printChar: returns self (46='.')");
     }
+
+    // --- value: primitive (1-arg block) ---
+    {
+        uint64_t sel_valueArg = tag_smallint(78);
+
+        // Block body CM: push literal 0, return
+        uint64_t *bv_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 10);
+        uint8_t *bvbc = (uint8_t *)&OBJ_FIELD(bv_bc, 0);
+        bvbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&bvbc[1], 0); // literal 0 = 99
+        bvbc[5] = BC_RETURN;
+
+        uint64_t *bv_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(bv_lits, 0) = tag_smallint(99);
+        uint64_t *bv_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bv_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(bv_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(bv_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bv_cm, CM_LITERALS) = (uint64_t)bv_lits;
+        OBJ_FIELD(bv_cm, CM_BYTECODES) = (uint64_t)bv_bc;
+
+        // Create block object: field 0 = home receiver, field 1 = CM
+        uint64_t *block_obj = om_alloc(om, (uint64_t)ctx->block_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(block_obj, 0) = tag_smallint(0); // home receiver (dummy)
+        OBJ_FIELD(block_obj, 1) = (uint64_t)bv_cm;
+
+        // Add value: prim to block class
+        uint64_t *bvp_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *bvp_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bvp_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BLOCK_VALUE_ARG);
+        OBJ_FIELD(bvp_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(bvp_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bvp_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(bvp_cm, CM_BYTECODES) = (uint64_t)bvp_bc;
+
+        uint64_t *block_class = ctx->block_class;
+        uint64_t bmd_val = OBJ_FIELD(block_class, CLASS_METHOD_DICT);
+        uint64_t *bmd_old = (bmd_val != tagged_nil() && (bmd_val & 3) == 0)
+                                ? (uint64_t *)bmd_val
+                                : NULL;
+        uint64_t bmd_sz = bmd_old ? OBJ_SIZE(bmd_old) : 0;
+        uint64_t *bmd_new = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, bmd_sz + 2);
+        for (uint64_t i = 0; i < bmd_sz; i++)
+            OBJ_FIELD(bmd_new, i) = OBJ_FIELD(bmd_old, i);
+        OBJ_FIELD(bmd_new, bmd_sz) = sel_valueArg;
+        OBJ_FIELD(bmd_new, bmd_sz + 1) = (uint64_t)bvp_cm;
+        OBJ_FIELD(block_class, CLASS_METHOD_DICT) = (uint64_t)bmd_new;
+
+        // Caller: PUSH_SELF (block), PUSH_LITERAL 1 (arg=99), SEND value: 1, HALT
+        uint64_t *bv_cbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *bvcbc = (uint8_t *)&OBJ_FIELD(bv_cbc, 0);
+        bvcbc[0] = BC_PUSH_SELF; // block
+        bvcbc[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&bvcbc[2], 1); // lit 1 = arg
+        bvcbc[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&bvcbc[7], 0);  // lit 0 = sel
+        WRITE_U32(&bvcbc[11], 1); // 1 arg
+        bvcbc[15] = BC_HALT;
+
+        uint64_t *bv_caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(bv_caller_lits, 0) = sel_valueArg;
+        OBJ_FIELD(bv_caller_lits, 1) = tag_smallint(99);
+
+        uint64_t *bv_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bv_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(bv_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bv_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bv_caller_cm, CM_LITERALS) = (uint64_t)bv_caller_lits;
+        OBJ_FIELD(bv_caller_cm, CM_BYTECODES) = (uint64_t)bv_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)block_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)bv_caller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(bv_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(99),
+                  "value: 1-arg block returns the argument");
+    }
+
+    // --- perform: primitive ---
+    {
+        uint64_t sel_perform = tag_smallint(79);
+        uint64_t sel_answer = tag_smallint(80);
+
+        // A method that returns 42
+        uint64_t *ans_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 10);
+        uint8_t *ansbc = (uint8_t *)&OBJ_FIELD(ans_bc, 0);
+        ansbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&ansbc[1], 0);
+        ansbc[5] = BC_RETURN;
+
+        uint64_t *ans_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(ans_lits, 0) = tag_smallint(42);
+
+        uint64_t *ans_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(ans_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(ans_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(ans_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(ans_cm, CM_LITERALS) = (uint64_t)ans_lits;
+        OBJ_FIELD(ans_cm, CM_BYTECODES) = (uint64_t)ans_bc;
+
+        // perform: prim method
+        uint64_t *perf_pbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *perf_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(perf_cm, CM_PRIMITIVE) = tag_smallint(PRIM_PERFORM);
+        OBJ_FIELD(perf_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(perf_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(perf_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(perf_cm, CM_BYTECODES) = (uint64_t)perf_pbc;
+
+        // A class with both #answer and #perform:
+        uint64_t *perf_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(perf_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(perf_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(perf_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        uint64_t *perf_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(perf_md, 0) = sel_answer;
+        OBJ_FIELD(perf_md, 1) = (uint64_t)ans_cm;
+        OBJ_FIELD(perf_md, 2) = sel_perform;
+        OBJ_FIELD(perf_md, 3) = (uint64_t)perf_cm;
+        OBJ_FIELD(perf_class, CLASS_METHOD_DICT) = (uint64_t)perf_md;
+
+        uint64_t *perf_obj = om_alloc(om, (uint64_t)perf_class, FORMAT_FIELDS, 0);
+
+        // Caller: PUSH_SELF, PUSH_LITERAL 1 (#answer), SEND #perform: 1, HALT
+        uint64_t *perf_cbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *pcbc2 = (uint8_t *)&OBJ_FIELD(perf_cbc, 0);
+        pcbc2[0] = BC_PUSH_SELF;
+        pcbc2[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&pcbc2[2], 1); // lit 1 = #answer
+        pcbc2[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&pcbc2[7], 0);  // lit 0 = #perform:
+        WRITE_U32(&pcbc2[11], 1); // 1 arg
+        pcbc2[15] = BC_HALT;
+
+        uint64_t *perf_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(perf_lits, 0) = sel_perform;
+        OBJ_FIELD(perf_lits, 1) = sel_answer;
+
+        uint64_t *perf_ccm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(perf_ccm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(perf_ccm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(perf_ccm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(perf_ccm, CM_LITERALS) = (uint64_t)perf_lits;
+        OBJ_FIELD(perf_ccm, CM_BYTECODES) = (uint64_t)perf_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)perf_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)perf_ccm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(perf_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(42),
+                  "perform: dynamically sends #answer, returns 42");
+    }
 }

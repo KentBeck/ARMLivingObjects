@@ -34,9 +34,9 @@ dispatched by the interpreter's primitive handler.
 - [x] `basicAt:` / `basicAt:put:` — same primitives as at:/at:put: (not overridden by convention)
 - [x] `hash` — identity hash (address-based, or SmallInt value)
 - [x] `printChar` — write a single character (SmallInt) to stdout (for debugging/bootstrap)
-- [ ] `value:` — Block>>value: (1-arg block evaluation)
-- [ ] `perform:` — send a message (symbol) to receiver dynamically
-- [ ] `halt` — crash the VM (for assert: failure)
+- [x] `value:` — Block>>value: (1-arg block evaluation)
+- [x] `perform:` — send a message (symbol) to receiver dynamically
+- [x] `halt` — crash the VM (brk #9)
 
 ### 18. Characters
 

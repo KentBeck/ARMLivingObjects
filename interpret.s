@@ -305,6 +305,7 @@ _interpret:
     // Stack has: ... receiver arg0 arg1 ... (top = last arg, receiver below args)
     // After primitive: pop args and receiver, push result.
 
+.Lcheck_prim_dispatch:
     cmp     x3, #1              // PRIM_SMALLINT_ADD
     b.eq    .Lprim_add
     cmp     x3, #2              // PRIM_SMALLINT_SUB
@@ -335,6 +336,12 @@ _interpret:
     b.eq    .Lprim_hash
     cmp     x3, #15             // PRIM_PRINT_CHAR
     b.eq    .Lprim_print_char
+    cmp     x3, #16             // PRIM_BLOCK_VALUE_ARG
+    b.eq    .Lprim_block_value_arg
+    cmp     x3, #17             // PRIM_PERFORM
+    b.eq    .Lprim_perform
+    cmp     x3, #18             // PRIM_HALT
+    b.eq    .Lprim_halt
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -663,13 +670,13 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // receiver (tagged SmallInt)
     asr     x6, x6, #2         // untag → byte value
-    // write(1, &byte, 1)
-    strb    w6, [sp, #-16]!    // store byte on stack
+    // write(1, &byte, 1) via C library
+    sub     sp, sp, #16
+    strb    w6, [sp]            // store byte on machine stack
     mov     x0, #1              // fd = stdout
     mov     x1, sp              // buf
     mov     x2, #1              // count
-    mov     x16, #4             // write syscall on macOS
-    svc     #0x80
+    bl      _write
     add     sp, sp, #16
     // receiver stays on stack (return self)
     b       .Ldispatch
@@ -756,6 +763,109 @@ _interpret:
     add     x23, x10, #24      // skip header → data
     mov     x21, x23
     b       .Ldispatch
+
+.Lprim_block_value_arg:
+    // value: — 1-arg block evaluation
+    // NO frame has been built yet. Stack: [arg, block, ...]
+    // Strategy: replace block with home_rcv in place, call _activate_method with 1 arg.
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5, #8]       // block object
+
+    ldr     x7, [x6, #24]      // home receiver (block field 0)
+    ldr     x8, [x6, #32]      // CM (block field 1)
+
+    // Replace block with home receiver on stack
+    str     x7, [x5, #8]
+    // Stack now: [arg, home_rcv, ...]
+
+    // Read num_temps from block's CM
+    ldr     x3, [x8, #40]      // num_temps (tagged)
+    asr     x3, x3, #2
+
+    // Activate: _activate_method(sp_ptr, fp_ptr, saved_ip, method, num_args=1, num_temps)
+    mov     x5, x3             // num_temps
+    mov     x4, #1             // 1 arg
+    mov     x3, x8             // method = block's CM
+    mov     x2, x21            // saved IP
+    mov     x1, x20            // fp_ptr
+    mov     x0, x19            // sp_ptr
+    bl      _activate_method
+
+    // Mark frame as block
+    ldr     x6, [x20]          // new FP
+    ldr     x10, [x6, #-16]    // flags
+    orr     x10, x10, #(1 << 16) // is_block = 1
+    str     x10, [x6, #-16]
+
+    // Set IP to block CM's bytecodes
+    ldr     x7, [x6, #-8]      // method from frame
+    ldr     x10, [x7, #56]     // CM_BYTECODES
+    add     x23, x10, #24      // skip header
+    mov     x21, x23
+    b       .Ldispatch
+
+.Lprim_perform:
+    // perform: selector — dynamically send a 0-arg message
+    // NO frame built. Stack: [selector, receiver, ...]
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // selector
+    ldr     x7, [x5, #8]       // receiver
+    add     x5, x5, #8         // pop selector, receiver stays
+    str     x5, [x19]
+    // Get class of receiver
+    tst     x7, #1
+    b.ne    .Lperf_tagged
+    ldr     x8, [x7]           // heap obj class
+    b       .Lperf_lookup
+.Lperf_tagged:
+    tst     x7, #2
+    b.ne    .Lperf_special
+    ldr     x8, [x25, #24]     // SmallInt class = class_table[0]
+    b       .Lperf_lookup
+.Lperf_special:
+    cmp     x7, #0x07
+    b.eq    .Lperf_true
+    cmp     x7, #0x0B
+    b.eq    .Lperf_false
+    brk     #8                  // perform on nil or unknown
+.Lperf_true:
+    ldr     x8, [x25, #40]     // true class
+    b       .Lperf_lookup
+.Lperf_false:
+    ldr     x8, [x25, #48]     // false class
+.Lperf_lookup:
+    stp     x6, x8, [sp, #-16]!
+    mov     x0, x8              // class
+    mov     x1, x6              // selector
+    bl      _class_lookup
+    ldp     x6, x8, [sp], #16
+    cbz     x0, .Lperf_mnu
+    mov     x8, x0              // method
+    ldr     x3, [x8, #40]      // CM_NUM_TEMPS (tagged)
+    asr     x3, x3, #2
+    mov     x5, x3             // num_temps
+    mov     x4, #0             // 0 args
+    mov     x3, x8             // method
+    mov     x2, x21            // saved IP
+    mov     x1, x20            // fp_ptr
+    mov     x0, x19            // sp_ptr
+    stp     x8, xzr, [sp, #-16]!
+    bl      _activate_method
+    ldp     x8, xzr, [sp], #16
+    // Check if found method has primitive
+    ldr     x3, [x8, #24]     // CM_PRIMITIVE (tagged)
+    asr     x3, x3, #2
+    cbnz    x3, .Lcheck_prim_dispatch
+    // Set IP from method (x8)
+    ldr     x10, [x8, #56]     // CM_BYTECODES
+    add     x23, x10, #24
+    mov     x21, x23
+    b       .Ldispatch
+.Lperf_mnu:
+    brk     #3                  // message not understood in perform:
+
+.Lprim_halt:
+    brk     #9                  // halt primitive — crash the VM
 
 .Lbc_return_stack_top:
     // Pop return value, dismantle frame
