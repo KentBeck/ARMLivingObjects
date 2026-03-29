@@ -1493,4 +1493,67 @@ void test_dispatch(TestContext *ctx)
         ASSERT_EQ(ctx, result, tag_smallint(66),
                   "at: bytes 1-based: at:2 → 66 (B)");
     }
+
+    // --- printChar primitive ---
+    {
+        // printChar on SmallInteger — writes byte to stdout, returns self
+        // We can't easily capture stdout in a test, so just verify it doesn't crash
+        // and returns the receiver
+        uint64_t sel_printChar = tag_smallint(77);
+
+        uint64_t *pc_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *pc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(pc_cm, CM_PRIMITIVE) = tag_smallint(PRIM_PRINT_CHAR);
+        OBJ_FIELD(pc_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(pc_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(pc_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(pc_cm, CM_BYTECODES) = (uint64_t)pc_bc;
+
+        // Add printChar to SmallInteger class
+        uint64_t *si_class = ctx->smallint_class;
+        uint64_t old_md_val = OBJ_FIELD(si_class, CLASS_METHOD_DICT);
+        uint64_t *old_md = (old_md_val != tagged_nil() && (old_md_val & 3) == 0)
+                               ? (uint64_t *)old_md_val
+                               : NULL;
+        uint64_t old_size = old_md ? OBJ_SIZE(old_md) : 0;
+        uint64_t *new_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, old_size + 2);
+        for (uint64_t i = 0; i < old_size; i++)
+            OBJ_FIELD(new_md, i) = OBJ_FIELD(old_md, i);
+        OBJ_FIELD(new_md, old_size) = sel_printChar;
+        OBJ_FIELD(new_md, old_size + 1) = (uint64_t)pc_cm;
+        OBJ_FIELD(si_class, CLASS_METHOD_DICT) = (uint64_t)new_md;
+
+        // Caller: PUSH_LITERAL 0 (char 46 = '.'), SEND printChar 0, HALT
+        uint64_t *pc_cbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *pcbc = (uint8_t *)&OBJ_FIELD(pc_cbc, 0);
+        pcbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&pcbc[1], 0);
+        pcbc[5] = BC_SEND_MESSAGE;
+        WRITE_U32(&pcbc[6], 1);
+        WRITE_U32(&pcbc[10], 0);
+        pcbc[14] = BC_HALT;
+
+        uint64_t *pc_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(pc_lits, 0) = tag_smallint(46); // '.'
+        OBJ_FIELD(pc_lits, 1) = sel_printChar;
+
+        uint64_t *pc_ccm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(pc_ccm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(pc_ccm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(pc_ccm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(pc_ccm, CM_LITERALS) = (uint64_t)pc_lits;
+        OBJ_FIELD(pc_ccm, CM_BYTECODES) = (uint64_t)pc_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0)); // dummy receiver
+
+        activate_method(&sp, &fp, 0, (uint64_t)pc_ccm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(pc_cbc, 0),
+                           class_table, om, NULL);
+        // printChar returns self (the SmallInt)
+        ASSERT_EQ(ctx, result, tag_smallint(46),
+                  "printChar: returns self (46='.')");
+    }
 }
