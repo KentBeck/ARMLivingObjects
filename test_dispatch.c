@@ -1360,6 +1360,122 @@ void test_dispatch(TestContext *ctx)
                   "basicClass: Character $A returns Character class");
     }
 
+    // --- Character>>value primitive ---
+    {
+        uint64_t sel_value = tag_smallint(81);
+
+        uint64_t *cv_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *cv_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(cv_cm, CM_PRIMITIVE) = tag_smallint(PRIM_CHAR_VALUE);
+        OBJ_FIELD(cv_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(cv_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(cv_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(cv_cm, CM_BYTECODES) = (uint64_t)cv_bc;
+
+        // Add value to Character class method dict
+        uint64_t *char_class2 = ctx->character_class;
+        uint64_t md_val = OBJ_FIELD(char_class2, CLASS_METHOD_DICT);
+        uint64_t *md_old = (md_val != tagged_nil() && (md_val & 3) == 0)
+                               ? (uint64_t *)md_val
+                               : NULL;
+        uint64_t md_sz = md_old ? OBJ_SIZE(md_old) : 0;
+        uint64_t *md_new = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, md_sz + 2);
+        for (uint64_t i = 0; i < md_sz; i++)
+            OBJ_FIELD(md_new, i) = OBJ_FIELD(md_old, i);
+        OBJ_FIELD(md_new, md_sz) = sel_value;
+        OBJ_FIELD(md_new, md_sz + 1) = (uint64_t)cv_cm;
+        OBJ_FIELD(char_class2, CLASS_METHOD_DICT) = (uint64_t)md_new;
+
+        // Caller: PUSH_LITERAL 0 ($A), SEND #value 0, HALT
+        uint64_t *cv_cbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *cvbc = (uint8_t *)&OBJ_FIELD(cv_cbc, 0);
+        cvbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&cvbc[1], 0);
+        cvbc[5] = BC_SEND_MESSAGE;
+        WRITE_U32(&cvbc[6], 1);
+        WRITE_U32(&cvbc[10], 0);
+        cvbc[14] = BC_HALT;
+
+        uint64_t *cv_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(cv_lits, 0) = tag_character(65);
+        OBJ_FIELD(cv_lits, 1) = sel_value;
+
+        uint64_t *cv_ccm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(cv_ccm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(cv_ccm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(cv_ccm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(cv_ccm, CM_LITERALS) = (uint64_t)cv_lits;
+        OBJ_FIELD(cv_ccm, CM_BYTECODES) = (uint64_t)cv_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+        activate_method(&sp, &fp, 0, (uint64_t)cv_ccm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(cv_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(65),
+                  "Character>>value: $A value = 65");
+    }
+
+    // --- SmallInteger>>asCharacter primitive ---
+    {
+        uint64_t sel_asChar = tag_smallint(82);
+
+        uint64_t *ac_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *ac_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(ac_cm, CM_PRIMITIVE) = tag_smallint(PRIM_AS_CHARACTER);
+        OBJ_FIELD(ac_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(ac_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(ac_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(ac_cm, CM_BYTECODES) = (uint64_t)ac_bc;
+
+        // Add asCharacter to SmallInteger class
+        uint64_t *si_class = ctx->smallint_class;
+        uint64_t si_md_val = OBJ_FIELD(si_class, CLASS_METHOD_DICT);
+        uint64_t *si_md_old = (si_md_val != tagged_nil() && (si_md_val & 3) == 0)
+                                  ? (uint64_t *)si_md_val
+                                  : NULL;
+        uint64_t si_md_sz = si_md_old ? OBJ_SIZE(si_md_old) : 0;
+        uint64_t *si_md_new = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, si_md_sz + 2);
+        for (uint64_t i = 0; i < si_md_sz; i++)
+            OBJ_FIELD(si_md_new, i) = OBJ_FIELD(si_md_old, i);
+        OBJ_FIELD(si_md_new, si_md_sz) = sel_asChar;
+        OBJ_FIELD(si_md_new, si_md_sz + 1) = (uint64_t)ac_cm;
+        OBJ_FIELD(si_class, CLASS_METHOD_DICT) = (uint64_t)si_md_new;
+
+        // Caller: PUSH_LITERAL 0 (65), SEND #asCharacter 0, HALT
+        uint64_t *ac_cbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *acbc = (uint8_t *)&OBJ_FIELD(ac_cbc, 0);
+        acbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&acbc[1], 0);
+        acbc[5] = BC_SEND_MESSAGE;
+        WRITE_U32(&acbc[6], 1);
+        WRITE_U32(&acbc[10], 0);
+        acbc[14] = BC_HALT;
+
+        uint64_t *ac_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(ac_lits, 0) = tag_smallint(65);
+        OBJ_FIELD(ac_lits, 1) = sel_asChar;
+
+        uint64_t *ac_ccm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(ac_ccm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(ac_ccm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(ac_ccm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(ac_ccm, CM_LITERALS) = (uint64_t)ac_lits;
+        OBJ_FIELD(ac_ccm, CM_BYTECODES) = (uint64_t)ac_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+        activate_method(&sp, &fp, 0, (uint64_t)ac_ccm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(ac_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_character(65),
+                  "SmallInteger>>asCharacter: 65 asCharacter = $A");
+    }
+
     // --- hash primitive ---
     {
         uint64_t sel_hash = tag_smallint(76);

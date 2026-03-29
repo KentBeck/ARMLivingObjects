@@ -342,6 +342,10 @@ _interpret:
     b.eq    .Lprim_perform
     cmp     x3, #18             // PRIM_HALT
     b.eq    .Lprim_halt
+    cmp     x3, #19             // PRIM_CHAR_VALUE
+    b.eq    .Lprim_char_value
+    cmp     x3, #20             // PRIM_AS_CHARACTER
+    b.eq    .Lprim_as_character
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -687,6 +691,28 @@ _interpret:
     bl      _write
     add     sp, sp, #16
     // receiver stays on stack (return self)
+    b       .Ldispatch
+
+.Lprim_char_value:
+    // Character>>value: return code point as tagged SmallInt
+    // Receiver is Character immediate: (codePoint << 4) | 0x0F
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // receiver (Character immediate)
+    lsr     x6, x6, #4         // extract code point
+    lsl     x6, x6, #2
+    orr     x6, x6, #1         // tag as SmallInt
+    str     x6, [x5]           // replace receiver with result
+    b       .Ldispatch
+
+.Lprim_as_character:
+    // SmallInteger>>asCharacter: convert to Character immediate
+    // Receiver is tagged SmallInt, result is (value << 4) | 0x0F
+    ldr     x5, [x19]          // SP
+    ldr     x6, [x5]           // receiver (tagged SmallInt)
+    asr     x6, x6, #2         // untag SmallInt → code point
+    lsl     x6, x6, #4
+    orr     x6, x6, #0x0F      // tag as Character
+    str     x6, [x5]           // replace receiver with result
     b       .Ldispatch
 
 .Lprim_hash:

@@ -185,6 +185,8 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define PRIM_BLOCK_VALUE_ARG 16
 #define PRIM_PERFORM 17
 #define PRIM_HALT 18
+#define PRIM_CHAR_VALUE 19
+#define PRIM_AS_CHARACTER 20
 #define BLOCK_HOME_RECEIVER 0
 #define BLOCK_CM 1
 #define BC_PUSH_LITERAL 0
