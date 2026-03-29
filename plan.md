@@ -48,8 +48,8 @@ Encoding: `(codePoint << 4) | 0x0F`. E.g. `$A` = `(65 << 4) | 0x0F` = `0x41F`.
 
 The class table entry for Character is at index 4 (after SmallInteger, BlockClosure, True, False).
 
-- [ ] `tag_character(code_point)` / `untag_character(tagged)` in tagged.s
-- [ ] `is_character(tagged)` — check low 4 bits = `0x0F`
+- [x] `tag_character(code_point)` / `untag_character(tagged)` in tagged.s
+- [x] `is_character(tagged)` — check low 4 bits = `0x0F`
 - [ ] Character class in class table (index 4), `basicClass` returns it
 - [ ] `value` — return the code point as SmallInteger
 - [ ] `asCharacter` on SmallInteger — convert to Character immediate

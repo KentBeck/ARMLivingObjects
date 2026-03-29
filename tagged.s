@@ -13,6 +13,9 @@
 .global _tagged_false
 .global _is_nil
 .global _is_boolean
+.global _tag_character
+.global _untag_character
+.global _is_character
 .global _smallint_add
 .global _smallint_sub
 .global _smallint_less_than
@@ -126,5 +129,25 @@ _smallint_equal:
     mov     x0, #7
     mov     x1, #11
     csel    x0, x0, x1, eq
+    ret
+
+// tag_character(uint64_t code_point) -> uint64_t
+// Encoding: (code_point << 4) | 0x0F
+_tag_character:
+    lsl     x0, x0, #4
+    orr     x0, x0, #0x0F
+    ret
+
+// untag_character(uint64_t tagged) -> uint64_t
+_untag_character:
+    lsr     x0, x0, #4
+    ret
+
+// is_character(uint64_t value) -> uint64_t
+// Check low 4 bits == 0x0F
+_is_character:
+    and     x0, x0, #0x0F
+    cmp     x0, #0x0F
+    cset    x0, eq
     ret
 

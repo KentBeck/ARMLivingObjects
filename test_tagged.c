@@ -2,18 +2,24 @@
 
 void test_tagged(TestContext *ctx)
 {
-    uint64_t *om=ctx->om;
-    uint64_t *class_class=ctx->class_class;
-    uint64_t *smallint_class=ctx->smallint_class;
-    uint64_t *block_class=ctx->block_class;
-    uint64_t *test_class=ctx->test_class;
-    uint64_t receiver=ctx->receiver;
-    uint64_t method=ctx->method;
-    uint64_t *class_table=ctx->class_table;
-    uint64_t *stack=ctx->stack;
-    (void)om;(void)class_class;(void)smallint_class;
-    (void)block_class;(void)test_class;(void)receiver;
-    (void)method;(void)class_table;(void)stack;
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *smallint_class = ctx->smallint_class;
+    uint64_t *block_class = ctx->block_class;
+    uint64_t *test_class = ctx->test_class;
+    uint64_t receiver = ctx->receiver;
+    uint64_t method = ctx->method;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    (void)om;
+    (void)class_class;
+    (void)smallint_class;
+    (void)block_class;
+    (void)test_class;
+    (void)receiver;
+    (void)method;
+    (void)class_table;
+    (void)stack;
     uint64_t *sp;
     uint64_t ip;
 
@@ -97,6 +103,31 @@ void test_tagged(TestContext *ctx)
     ASSERT_EQ(ctx, smallint_equal(tag_smallint(42), tag_smallint(43)),
               tagged_false(), "42 = 43 is false");
 
+    // --- Character immediates ---
 
-    ctx->smallint_class=smallint_class;
+    // Test: tag_character($A = 65) has low 4 bits = 0x0F
+    uint64_t charA = tag_character(65);
+    ASSERT_EQ(ctx, charA & 0x0F, 0x0F, "Character $A: low 4 bits = 0x0F");
+
+    // Test: tag_character / untag_character roundtrip
+    ASSERT_EQ(ctx, untag_character(charA), 65, "Character $A: roundtrip = 65");
+
+    // Test: is_character detects character immediates
+    ASSERT_EQ(ctx, is_character(charA), 1, "is_character($A) == 1");
+    ASSERT_EQ(ctx, is_character(tag_smallint(65)), 0, "is_character(SmallInt 65) == 0");
+    ASSERT_EQ(ctx, is_character(tagged_nil()), 0, "is_character(nil) == 0");
+    ASSERT_EQ(ctx, is_character(tagged_true()), 0, "is_character(true) == 0");
+
+    // Test: Character encoding is (codePoint << 4) | 0x0F
+    ASSERT_EQ(ctx, charA, (65ULL << 4) | 0x0F, "Character $A: raw value = (65<<4)|0x0F");
+
+    // Test: zero character
+    uint64_t charNul = tag_character(0);
+    ASSERT_EQ(ctx, untag_character(charNul), 0, "Character NUL: roundtrip = 0");
+    ASSERT_EQ(ctx, is_character(charNul), 1, "is_character(NUL) == 1");
+
+    // Test: is_special still works (Characters are special too — tag 11)
+    ASSERT_EQ(ctx, is_special(charA), 1, "is_special($A) == 1");
+
+    ctx->smallint_class = smallint_class;
 }
