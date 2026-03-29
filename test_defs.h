@@ -228,6 +228,7 @@ typedef struct
     uint64_t *class_class;
     uint64_t *smallint_class;
     uint64_t *block_class;
+    uint64_t *character_class;
     uint64_t *test_class;
     uint64_t receiver;
     uint64_t method;

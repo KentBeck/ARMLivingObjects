@@ -50,7 +50,7 @@ The class table entry for Character is at index 4 (after SmallInteger, BlockClos
 
 - [x] `tag_character(code_point)` / `untag_character(tagged)` in tagged.s
 - [x] `is_character(tagged)` — check low 4 bits = `0x0F`
-- [ ] Character class in class table (index 4), `basicClass` returns it
+- [x] Character class in class table (index 4), `basicClass` returns it
 - [ ] `value` — return the code point as SmallInteger
 - [ ] `asCharacter` on SmallInteger — convert to Character immediate
 - [ ] `isLetter`, `isDigit`, `isAlphanumeric` as Character methods

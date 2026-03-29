@@ -1309,6 +1309,57 @@ void test_dispatch(TestContext *ctx)
                   "class: Smalltalk method via basicClass returns class");
     }
 
+    // --- basicClass on Character immediate ---
+    {
+        uint64_t sel_basicClass = tag_smallint(74);
+
+        // Character class should have basicClass method
+        uint64_t *char_class = ctx->character_class;
+        uint64_t *cbc_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *cbc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(cbc_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_CLASS);
+        OBJ_FIELD(cbc_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(cbc_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(cbc_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(cbc_cm, CM_BYTECODES) = (uint64_t)cbc_bc;
+
+        uint64_t *cbc_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(cbc_md, 0) = sel_basicClass;
+        OBJ_FIELD(cbc_md, 1) = (uint64_t)cbc_cm;
+        OBJ_FIELD(char_class, CLASS_METHOD_DICT) = (uint64_t)cbc_md;
+
+        // Caller: PUSH_LITERAL 0 ($A), SEND #basicClass 0, HALT
+        uint64_t *cbc_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *cbcbc = (uint8_t *)&OBJ_FIELD(cbc_caller_bc, 0);
+        cbcbc[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&cbcbc[1], 0); // lit 0 = $A
+        cbcbc[5] = BC_SEND_MESSAGE;
+        WRITE_U32(&cbcbc[6], 1);  // lit 1 = #basicClass
+        WRITE_U32(&cbcbc[10], 0); // 0 args
+        cbcbc[14] = BC_HALT;
+
+        uint64_t *cbc_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(cbc_lits, 0) = tag_character(65); // $A
+        OBJ_FIELD(cbc_lits, 1) = sel_basicClass;
+
+        uint64_t *cbc_ccm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(cbc_ccm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(cbc_ccm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(cbc_ccm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(cbc_ccm, CM_LITERALS) = (uint64_t)cbc_lits;
+        OBJ_FIELD(cbc_ccm, CM_BYTECODES) = (uint64_t)cbc_caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+        activate_method(&sp, &fp, 0, (uint64_t)cbc_ccm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(cbc_caller_bc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)char_class,
+                  "basicClass: Character $A returns Character class");
+    }
+
     // --- hash primitive ---
     {
         uint64_t sel_hash = tag_smallint(76);

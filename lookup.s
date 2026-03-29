@@ -23,6 +23,10 @@ _oop_class:
     ldr     x0, [x1, #24]      // class_table[0] (offset 24 = header)
     ret
 .Loop_special:
+    // Check low 4 bits for Character (0x0F)
+    and     x2, x0, #0x0F
+    cmp     x2, #0x0F
+    b.eq    .Loop_character
     cmp     x0, #7              // tagged true
     b.eq    .Loop_true
     cmp     x0, #11             // tagged false
@@ -35,6 +39,9 @@ _oop_class:
     ret
 .Loop_false:
     ldr     x0, [x1, #48]      // class_table[3] (offset 24 + 24)
+    ret
+.Loop_character:
+    ldr     x0, [x1, #56]      // class_table[4] (offset 24 + 32)
     ret
 .Loop_heap:
     ldr     x0, [x0]           // header word 0 = class pointer

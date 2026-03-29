@@ -647,6 +647,10 @@ _interpret:
     str     x7, [x5]
     b       .Ldispatch
 .Lbasicclass_special:
+    // Check Character first (low 4 bits = 0x0F)
+    and     x7, x6, #0x0F
+    cmp     x7, #0x0F
+    b.eq    .Lbasicclass_character
     // true (0x07) → class_table[2], false (0x0B) → class_table[3]
     cmp     x6, #0x07
     b.eq    .Lbasicclass_true
@@ -662,6 +666,10 @@ _interpret:
     b       .Ldispatch
 .Lbasicclass_false:
     ldr     x7, [x25, #48]    // class_table field 3 (false class)
+    str     x7, [x5]
+    b       .Ldispatch
+.Lbasicclass_character:
+    ldr     x7, [x25, #56]    // class_table field 4 (Character class)
     str     x7, [x5]
     b       .Ldispatch
 
@@ -823,6 +831,10 @@ _interpret:
     ldr     x8, [x25, #24]     // SmallInt class = class_table[0]
     b       .Lperf_lookup
 .Lperf_special:
+    // Check Character first (low 4 bits = 0x0F)
+    and     x8, x7, #0x0F
+    cmp     x8, #0x0F
+    b.eq    .Lperf_character
     cmp     x7, #0x07
     b.eq    .Lperf_true
     cmp     x7, #0x0B
@@ -833,6 +845,9 @@ _interpret:
     b       .Lperf_lookup
 .Lperf_false:
     ldr     x8, [x25, #48]     // false class
+    b       .Lperf_lookup
+.Lperf_character:
+    ldr     x8, [x25, #56]     // Character class
 .Lperf_lookup:
     stp     x6, x8, [sp, #-16]!
     mov     x0, x8              // class
