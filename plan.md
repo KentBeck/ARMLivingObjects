@@ -27,7 +27,7 @@ dispatched by the interpreter's primitive handler.
 - [x] `==` — identity comparison (same pointer), returns tagged true/false
 - [x] `basicClass` — primitive: return class of receiver (handles tagged values)
 - [x] `class` — Smalltalk method: `^ self basicClass`
-- [ ] fix `at:` / `at:put:` — dispatch on format:
+- [x] fix `at:` / `at:put:` — dispatch on format:
   - FORMAT_FIELDS: error (use inst var access instead)
   - FORMAT_INDEXABLE: 1-based word access, bounds-checked
   - FORMAT_BYTES: 1-based byte access, returns/stores SmallInt byte value, bounds-checked

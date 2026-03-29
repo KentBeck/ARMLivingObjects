@@ -1308,4 +1308,127 @@ void test_dispatch(TestContext *ctx)
         ASSERT_EQ(ctx, result, (uint64_t)cat_class,
                   "class: Smalltalk method via basicClass returns class");
     }
+
+    // --- at: format dispatch ---
+    {
+        uint64_t sel_at = tag_smallint(90);
+
+        // Reuse existing at: prim method
+        uint64_t *at_pbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *at_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(at_cm, CM_PRIMITIVE) = tag_smallint(PRIM_AT);
+        OBJ_FIELD(at_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(at_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(at_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(at_cm, CM_BYTECODES) = (uint64_t)at_pbc;
+
+        // --- Test 1: indexable, 1-based ---
+        uint64_t *idx_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(idx_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(idx_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(idx_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        uint64_t *idx_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(idx_md, 0) = sel_at;
+        OBJ_FIELD(idx_md, 1) = (uint64_t)at_cm;
+        OBJ_FIELD(idx_class, CLASS_METHOD_DICT) = (uint64_t)idx_md;
+
+        uint64_t *arr = om_alloc(om, (uint64_t)idx_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(arr, 0) = tag_smallint(10);
+        OBJ_FIELD(arr, 1) = tag_smallint(20);
+        OBJ_FIELD(arr, 2) = tag_smallint(30);
+
+        // Caller: PUSH_SELF, PUSH_LITERAL 1, SEND at: 1, HALT
+        uint64_t *at_cbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *atbc = (uint8_t *)&OBJ_FIELD(at_cbc, 0);
+        atbc[0] = BC_PUSH_SELF;
+        atbc[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&atbc[2], 1); // lit 1 = index
+        atbc[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&atbc[7], 0);  // lit 0 = sel
+        WRITE_U32(&atbc[11], 1); // 1 arg
+        atbc[15] = BC_HALT;
+
+        // at: 1 → first element (10)
+        uint64_t *at_lits1 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(at_lits1, 0) = sel_at;
+        OBJ_FIELD(at_lits1, 1) = tag_smallint(1); // 1-based
+
+        uint64_t *at_ccm1 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(at_ccm1, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(at_ccm1, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(at_ccm1, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(at_ccm1, CM_LITERALS) = (uint64_t)at_lits1;
+        OBJ_FIELD(at_ccm1, CM_BYTECODES) = (uint64_t)at_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)arr);
+        activate_method(&sp, &fp, 0, (uint64_t)at_ccm1, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(at_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(10),
+                  "at: indexable 1-based: at:1 → 10");
+
+        // at: 3 → third element (30)
+        uint64_t *at_lits3 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(at_lits3, 0) = sel_at;
+        OBJ_FIELD(at_lits3, 1) = tag_smallint(3);
+
+        uint64_t *at_ccm3 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(at_ccm3, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(at_ccm3, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(at_ccm3, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(at_ccm3, CM_LITERALS) = (uint64_t)at_lits3;
+        OBJ_FIELD(at_ccm3, CM_BYTECODES) = (uint64_t)at_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)arr);
+        activate_method(&sp, &fp, 0, (uint64_t)at_ccm3, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(at_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(30),
+                  "at: indexable 1-based: at:3 → 30");
+
+        // --- Test 2: byte-indexable, 1-based, returns SmallInt byte ---
+        uint64_t *byte_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(byte_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(byte_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(byte_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+        uint64_t *byte_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(byte_md, 0) = sel_at;
+        OBJ_FIELD(byte_md, 1) = (uint64_t)at_cm;
+        OBJ_FIELD(byte_class, CLASS_METHOD_DICT) = (uint64_t)byte_md;
+
+        uint64_t *ba = om_alloc(om, (uint64_t)byte_class, FORMAT_BYTES, 4);
+        uint8_t *ba_data = (uint8_t *)&OBJ_FIELD(ba, 0);
+        ba_data[0] = 65; // 'A'
+        ba_data[1] = 66; // 'B'
+        ba_data[2] = 67; // 'C'
+        ba_data[3] = 68; // 'D'
+
+        // at: 2 → 66 (B)
+        uint64_t *at_blits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(at_blits, 0) = sel_at;
+        OBJ_FIELD(at_blits, 1) = tag_smallint(2);
+
+        uint64_t *at_bccm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(at_bccm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(at_bccm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(at_bccm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(at_bccm, CM_LITERALS) = (uint64_t)at_blits;
+        OBJ_FIELD(at_bccm, CM_BYTECODES) = (uint64_t)at_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)ba);
+        activate_method(&sp, &fp, 0, (uint64_t)at_bccm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(at_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(66),
+                  "at: bytes 1-based: at:2 → 66 (B)");
+    }
 }

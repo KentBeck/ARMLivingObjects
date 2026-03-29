@@ -406,14 +406,29 @@ _interpret:
     b       .Ldispatch
 
 .Lprim_at:
-    // receiver at: index
+    // receiver at: index — dispatch on format
     // Stack: [SP]=index (tagged SmallInt), [SP+8]=receiver (object ptr)
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // index (tagged)
-    ldr     x7, [x5, #8]       // receiver (array object)
-    asr     x6, x6, #2         // untag index -> 0-based
+    ldr     x7, [x5, #8]       // receiver (object)
+    asr     x6, x6, #2         // untag index -> 1-based
+    sub     x6, x6, #1         // convert to 0-based
+
+    // Check format
+    ldr     x8, [x7, #8]       // obj[1] = format
+    cbz     x8, .Lprim_at_fields_err  // FORMAT_FIELDS → error
+
+    // Bounds check: 0 <= x6 < size
+    ldr     x9, [x7, #16]      // obj[2] = size
+    cmp     x6, x9
+    b.hs    .Lprim_at_bounds_err
+
+    cmp     x8, #2
+    b.eq    .Lprim_at_bytes
+
+    // FORMAT_INDEXABLE — word access
     // If transaction active, check log first
-    cbz     x27, .Lprim_at_no_txn
+    cbz     x27, .Lprim_at_idx_no_txn
     stp     x5, x6, [sp, #-16]!
     stp     x7, xzr, [sp, #-16]!
     sub     sp, sp, #16         // space for found flag
@@ -427,9 +442,18 @@ _interpret:
     ldp     x7, xzr, [sp], #16
     ldp     x5, x6, [sp], #16
     cbnz    x8, .Lprim_at_got_value  // x0 = value from log
-.Lprim_at_no_txn:
+.Lprim_at_idx_no_txn:
     add     x7, x7, #24        // skip 3-word header
     ldr     x0, [x7, x6, lsl #3]   // obj[3 + index]
+    b       .Lprim_at_got_value
+
+.Lprim_at_bytes:
+    // FORMAT_BYTES — byte access, return tagged SmallInt
+    add     x7, x7, #24        // skip 3-word header
+    ldrb    w0, [x7, x6]       // load single byte
+    lsl     x0, x0, #2
+    orr     x0, x0, #1         // tag as SmallInt
+
 .Lprim_at_got_value:
     // x0 = result value
     add     x5, x5, #8         // pop index, result replaces receiver
@@ -437,29 +461,57 @@ _interpret:
     str     x5, [x19]
     b       .Ldispatch
 
+.Lprim_at_fields_err:
+    brk     #6                  // at: on FORMAT_FIELDS object
+.Lprim_at_bounds_err:
+    brk     #7                  // at: index out of bounds
+
 .Lprim_at_put:
-    // receiver at: index put: value
+    // receiver at: index put: value — dispatch on format
     // Stack: [SP]=value, [SP+8]=index (tagged SmallInt), [SP+16]=receiver
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // value
     ldr     x7, [x5, #8]       // index (tagged)
-    ldr     x8, [x5, #16]      // receiver (array object)
-    asr     x7, x7, #2         // untag index -> 0-based
+    ldr     x8, [x5, #16]      // receiver (object)
+    asr     x7, x7, #2         // untag index -> 1-based
+    sub     x7, x7, #1         // convert to 0-based
+
+    // Check format
+    ldr     x9, [x8, #8]       // obj[1] = format
+    cbz     x9, .Lprim_at_fields_err  // FORMAT_FIELDS → error
+
+    // Bounds check
+    ldr     x10, [x8, #16]     // obj[2] = size
+    cmp     x7, x10
+    b.hs    .Lprim_at_bounds_err
+
+    cmp     x9, #2
+    b.eq    .Lprim_atput_bytes
+
+    // FORMAT_INDEXABLE — word store
     // If transaction active, write to log
     cbz     x27, .Lprim_atput_no_txn
     stp     x5, x6, [sp, #-16]!
     stp     x7, x8, [sp, #-16]!
     mov     x0, x27             // log
     mov     x1, x8              // obj
-    mov     x2, x7              // field_index
+    mov     x2, x7              // field_index (0-based)
     mov     x3, x6              // value
     bl      _txn_log_write
     ldp     x7, x8, [sp], #16
     ldp     x5, x6, [sp], #16
     b       .Lprim_atput_done
 .Lprim_atput_no_txn:
-    add     x9, x8, #24        // skip header (keep x8 = original receiver)
+    add     x9, x8, #24        // skip header
     str     x6, [x9, x7, lsl #3]   // obj[3 + index] = value
+    b       .Lprim_atput_done
+
+.Lprim_atput_bytes:
+    // FORMAT_BYTES — byte store, value is tagged SmallInt
+    asr     x6, x6, #2         // untag value → byte
+    add     x9, x8, #24        // skip header
+    strb    w6, [x9, x7]       // store single byte
+
 .Lprim_atput_done:
     // Return the receiver
     add     x5, x5, #16        // pop value and index

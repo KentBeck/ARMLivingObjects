@@ -243,7 +243,7 @@ void test_transaction(TestContext *ctx)
         cbc[15] = BC_HALT;
 
         uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
-        OBJ_FIELD(caller_lits, 0) = tag_smallint(2); // index: at: 2 (0-based)
+        OBJ_FIELD(caller_lits, 0) = tag_smallint(3); // index: at: 3 (1-based, gets third element)
         OBJ_FIELD(caller_lits, 1) = sel_at;          // selector
 
         uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
@@ -315,7 +315,7 @@ void test_transaction(TestContext *ctx)
         cbc2[20] = BC_HALT;
 
         uint64_t *caller_lits2 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
-        OBJ_FIELD(caller_lits2, 0) = tag_smallint(1);  // index (0-based)
+        OBJ_FIELD(caller_lits2, 0) = tag_smallint(2);  // index (1-based, second element)
         OBJ_FIELD(caller_lits2, 1) = tag_smallint(99); // value
         OBJ_FIELD(caller_lits2, 2) = sel_atput;        // selector
 
@@ -355,9 +355,10 @@ void test_transaction(TestContext *ctx)
         uint64_t *stack = ctx->stack;
         uint64_t *sp, *fp;
 
-        uint64_t *array_class3 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 3);
+        uint64_t *array_class3 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(array_class3, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(array_class3, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(array_class3, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
 
         uint64_t sel_atput = tag_smallint(91);
         uint64_t *atput_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
@@ -388,7 +389,7 @@ void test_transaction(TestContext *ctx)
         b3[20] = BC_HALT;
 
         uint64_t *clits3 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
-        OBJ_FIELD(clits3, 0) = tag_smallint(0);
+        OBJ_FIELD(clits3, 0) = tag_smallint(1); // 1-based index
         OBJ_FIELD(clits3, 1) = tag_smallint(77);
         OBJ_FIELD(clits3, 2) = sel_atput;
 
