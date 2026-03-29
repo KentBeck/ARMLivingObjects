@@ -40,12 +40,24 @@ dispatched by the interpreter's primitive handler.
 
 ### 18. Characters
 
-Characters are SmallIntegers — `$A` is just `65` tagged. No separate
-Character class needed initially. String methods work with integer code points.
+Character is its own class, represented as an immediate with tag `1111` (low 4 bits = `0x0F`).
+This shares the `11` low-2-bit tag with nil/true/false, distinguished by bits 3:2 = `11`.
+The Unicode code point is stored in bits [31:4], giving 28-bit range (covers all of Unicode).
 
-- [ ] character literal `$A` = tag_smallint(65) in the bootstrap compiler
-- [ ] `isLetter`, `isDigit`, `isAlphanumeric` as SmallInteger methods
-- [ ] `asUppercase`, `asLowercase` as SmallInteger methods
+Encoding: `(codePoint << 4) | 0x0F`. E.g. `$A` = `(65 << 4) | 0x0F` = `0x41F`.
+
+The class table entry for Character is at index 4 (after SmallInteger, BlockClosure, True, False).
+
+- [ ] `tag_character(code_point)` / `untag_character(tagged)` in tagged.s
+- [ ] `is_character(tagged)` — check low 4 bits = `0x0F`
+- [ ] Character class in class table (index 4), `basicClass` returns it
+- [ ] `value` — return the code point as SmallInteger
+- [ ] `asCharacter` on SmallInteger — convert to Character immediate
+- [ ] `isLetter`, `isDigit`, `isAlphanumeric` as Character methods
+- [ ] `asUppercase`, `asLowercase` as Character methods
+- [ ] `printChar` on Character (not SmallInteger) — write byte to stdout
+- [ ] character literal `$A` in the bootstrap compiler
+- [ ] `=` on Character — identity comparison (same encoding → same bits)
 
 ### 19. String (ByteArray subclass)
 
