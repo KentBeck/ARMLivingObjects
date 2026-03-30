@@ -53,11 +53,11 @@ The class table entry for Character is at index 4 (after SmallInteger, BlockClos
 - [x] Character class in class table (index 4), `basicClass` returns it
 - [x] `value` — return the code point as SmallInteger (PRIM_CHAR_VALUE 19)
 - [x] `asCharacter` on SmallInteger — convert to Character immediate (PRIM_AS_CHARACTER 20)
-- [ ] `isLetter`, `isDigit`, `isAlphanumeric` as Character methods
-- [ ] `asUppercase`, `asLowercase` as Character methods
-- [ ] `printChar` on Character (not SmallInteger) — write byte to stdout
+- [x] `isLetter`, `isDigit` as Character primitives (21, 22)
+- [x] `asUppercase`, `asLowercase` as Character primitives (23, 24)
+- [x] `printChar` on Character (not SmallInteger) — write byte to stdout
 - [ ] character literal `$A` in the bootstrap compiler
-- [ ] `=` on Character — identity comparison (same encoding → same bits)
+- [x] `=` on Character — identity comparison via `==` (same encoding → same bits)
 
 ### 19. String (ByteArray subclass)
 

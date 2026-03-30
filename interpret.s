@@ -346,6 +346,14 @@ _interpret:
     b.eq    .Lprim_char_value
     cmp     x3, #20             // PRIM_AS_CHARACTER
     b.eq    .Lprim_as_character
+    cmp     x3, #21             // PRIM_CHAR_IS_LETTER
+    b.eq    .Lprim_char_is_letter
+    cmp     x3, #22             // PRIM_CHAR_IS_DIGIT
+    b.eq    .Lprim_char_is_digit
+    cmp     x3, #23             // PRIM_CHAR_UPPERCASE
+    b.eq    .Lprim_char_uppercase
+    cmp     x3, #24             // PRIM_CHAR_LOWERCASE
+    b.eq    .Lprim_char_lowercase
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -678,10 +686,10 @@ _interpret:
     b       .Ldispatch
 
 .Lprim_print_char:
-    // printChar: receiver is SmallInt, write byte to stdout, return self
+    // printChar: receiver is Character immediate, write byte to stdout, return self
     ldr     x5, [x19]          // SP
-    ldr     x6, [x5]           // receiver (tagged SmallInt)
-    asr     x6, x6, #2         // untag → byte value
+    ldr     x6, [x5]           // receiver (Character immediate)
+    lsr     x6, x6, #4         // untag Character → code point
     // write(1, &byte, 1) via C library
     sub     sp, sp, #16
     strb    w6, [sp]            // store byte on machine stack
@@ -713,6 +721,68 @@ _interpret:
     lsl     x6, x6, #4
     orr     x6, x6, #0x0F      // tag as Character
     str     x6, [x5]           // replace receiver with result
+    b       .Ldispatch
+
+.Lprim_char_is_letter:
+    // Character>>isLetter: A-Z or a-z → true, else false
+    ldr     x5, [x19]
+    ldr     x6, [x5]           // Character immediate
+    lsr     x6, x6, #4         // code point
+    // Check A-Z (65-90)
+    sub     x7, x6, #65
+    cmp     x7, #25
+    b.ls    .Lchar_true
+    // Check a-z (97-122)
+    sub     x7, x6, #97
+    cmp     x7, #25
+    b.ls    .Lchar_true
+    b       .Lchar_false
+
+.Lprim_char_is_digit:
+    // Character>>isDigit: 0-9 → true, else false
+    ldr     x5, [x19]
+    ldr     x6, [x5]
+    lsr     x6, x6, #4
+    sub     x7, x6, #48        // '0' = 48
+    cmp     x7, #9
+    b.ls    .Lchar_true
+    b       .Lchar_false
+
+.Lchar_true:
+    mov     x6, #7              // tagged true
+    str     x6, [x5]
+    b       .Ldispatch
+.Lchar_false:
+    mov     x6, #11             // tagged false
+    str     x6, [x5]
+    b       .Ldispatch
+
+.Lprim_char_uppercase:
+    // Character>>asUppercase: a-z → A-Z, else self
+    ldr     x5, [x19]
+    ldr     x6, [x5]           // Character immediate
+    lsr     x7, x6, #4         // code point
+    sub     x8, x7, #97        // 'a'
+    cmp     x8, #25
+    b.hi    .Ldispatch          // not lowercase → return self
+    sub     x7, x7, #32        // to uppercase
+    lsl     x7, x7, #4
+    orr     x7, x7, #0x0F
+    str     x7, [x5]
+    b       .Ldispatch
+
+.Lprim_char_lowercase:
+    // Character>>asLowercase: A-Z → a-z, else self
+    ldr     x5, [x19]
+    ldr     x6, [x5]           // Character immediate
+    lsr     x7, x6, #4         // code point
+    sub     x8, x7, #65        // 'A'
+    cmp     x8, #25
+    b.hi    .Ldispatch          // not uppercase → return self
+    add     x7, x7, #32        // to lowercase
+    lsl     x7, x7, #4
+    orr     x7, x7, #0x0F
+    str     x7, [x5]
     b       .Ldispatch
 
 .Lprim_hash:
