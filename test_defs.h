@@ -47,6 +47,11 @@ extern uint64_t smallint_add(uint64_t a, uint64_t b);
 extern uint64_t smallint_sub(uint64_t a, uint64_t b);
 extern uint64_t smallint_less_than(uint64_t a, uint64_t b);
 extern uint64_t smallint_equal(uint64_t a, uint64_t b);
+extern uint64_t prim_string_eq(uint64_t receiver, uint64_t arg);
+extern uint64_t prim_string_hash_fnv(uint64_t receiver);
+extern uint64_t prim_string_as_symbol(uint64_t receiver);
+extern uint64_t prim_symbol_eq(uint64_t receiver, uint64_t arg);
+extern uint64_t *global_symbol_table; // Declare global symbol table
 extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var);
 extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
 
@@ -191,6 +196,10 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define PRIM_CHAR_IS_DIGIT 22
 #define PRIM_CHAR_UPPERCASE 23
 #define PRIM_CHAR_LOWERCASE 24
+#define PRIM_STRING_EQ 25
+#define PRIM_STRING_HASH_FNV 26
+#define PRIM_STRING_AS_SYMBOL 27
+#define PRIM_SYMBOL_EQ 28 // Identity equality for symbols
 #define BLOCK_HOME_RECEIVER 0
 #define BLOCK_CM 1
 #define BC_PUSH_LITERAL 0
@@ -235,6 +244,9 @@ typedef struct
     uint64_t *smallint_class;
     uint64_t *block_class;
     uint64_t *character_class;
+    uint64_t *string_class;
+    uint64_t *symbol_class;
+    uint64_t *symbol_table;
     uint64_t *test_class;
     uint64_t receiver;
     uint64_t method;
@@ -273,5 +285,6 @@ void test_factorial(TestContext *ctx);
 void test_transaction(TestContext *ctx);
 void test_gc(TestContext *ctx);
 void test_persist(TestContext *ctx);
+void test_primitives(TestContext *ctx);
 
 #endif

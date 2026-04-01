@@ -354,6 +354,14 @@ _interpret:
     b.eq    .Lprim_char_uppercase
     cmp     x3, #24             // PRIM_CHAR_LOWERCASE
     b.eq    .Lprim_char_lowercase
+    cmp     x3, #25             // PRIM_STRING_EQ
+    b.eq    .Lprim_string_eq
+    cmp     x3, #26             // PRIM_STRING_HASH_FNV
+    b.eq    .Lprim_string_hash_fnv
+    cmp     x3, #27             // PRIM_STRING_AS_SYMBOL
+    b.eq    .Lprim_string_as_symbol
+    cmp     x3, #28             // PRIM_SYMBOL_EQ
+    b.eq    .Lprim_symbol_eq
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -773,13 +781,13 @@ _interpret:
 
 .Lprim_char_lowercase:
     // Character>>asLowercase: A-Z → a-z, else self
-    ldr     x5, [x19]
-    ldr     x6, [x5]           // Character immediate
-    lsr     x7, x6, #4         // code point
-    sub     x8, x7, #65        // 'A'
+    ldr     x5, [x19]           // SP
+    ldr     x6, [x5]            // Character immediate
+    lsr     x7, x6, #4          // code point
+    sub     x8, x7, #65         // 'A'
     cmp     x8, #25
     b.hi    .Ldispatch          // not uppercase → return self
-    add     x7, x7, #32        // to lowercase
+    add     x7, x7, #32         // to lowercase
     lsl     x7, x7, #4
     orr     x7, x7, #0x0F
     str     x7, [x5]
@@ -800,6 +808,44 @@ _interpret:
     orr     x6, x6, #1         // tag as SmallInt
 .Lhash_done:
     str     x6, [x5]           // replace receiver with hash
+    b       .Ldispatch
+
+.Lprim_string_eq:
+    ldr     x5, [x19]          // SP
+    ldr     x1, [x5]           // arg
+    ldr     x0, [x5, #8]       // receiver
+    bl      _prim_string_eq    // Call C function
+    add     x5, x5, #16        // Pop arg and receiver
+    str     x0, [x5]           // Push result
+    str     x5, [x19]          // Update SP
+    b       .Ldispatch
+
+.Lprim_string_hash_fnv:
+    ldr     x5, [x19]          // SP
+    ldr     x0, [x5]           // receiver
+    bl      _prim_string_hash_fnv  // Call C function
+    add     x5, x5, #8         // Pop receiver
+    str     x0, [x5]           // Push result
+    str     x5, [x19]          // Update SP
+    b       .Ldispatch
+
+.Lprim_string_as_symbol:
+    ldr     x5, [x19]          // SP
+    ldr     x0, [x5]           // receiver
+    bl      _prim_string_as_symbol // Call C function
+    add     x5, x5, #8         // Pop receiver
+    str     x0, [x5]           // Push result
+    str     x5, [x19]          // Update SP
+    b       .Ldispatch
+
+.Lprim_symbol_eq:
+    ldr     x5, [x19]          // SP
+    ldr     x1, [x5]           // arg
+    ldr     x0, [x5, #8]       // receiver
+    bl      _prim_symbol_eq    // Call C function
+    add     x5, x5, #16        // Pop arg and receiver
+    str     x0, [x5]           // Push result
+    str     x5, [x19]          // Update SP
     b       .Ldispatch
 
 .Lprim_identity_eq:

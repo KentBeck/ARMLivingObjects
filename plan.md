@@ -64,12 +64,12 @@ The class table entry for Character is at index 4 (after SmallInteger, BlockClos
 String is a FORMAT_BYTES object. Characters accessed via `byteAt:`.
 Selectors (Symbols) are interned Strings — identity comparison suffices.
 
-- [ ] String class with `size`, `at:`, `at:put:` (bytecodes, using byteAt: prim)
-- [ ] `=` — byte-by-byte comparison
+- [x] String class with `size`, `at:`, `at:put:` (wired to primitives)
+- [x] `=` — byte-by-byte comparison
 - [ ] `,` (comma) — concatenation (allocate new string, copy bytes) — in Smalltalk
-- [ ] `hash` — string hash (FNV-1a or similar)
-- [ ] `asSymbol` — intern a string (look up in symbol table, add if absent)
-- [ ] Symbol table — a global Array of interned strings
+- [x] `hash` — string hash (FNV-1a or similar)
+- [x] `asSymbol` — intern a string (look up in symbol table, add if absent)
+- [x] Symbol table — a global Array of interned strings
 - [ ] `printString` — for debugging (calls printChar per byte)
 
 ### 20. Array
@@ -111,6 +111,17 @@ ReadStream and WriteStream over collections.
 - [ ] WriteStream: `nextPut:`, `nextPutAll:`, `contents`
 - [ ] ReadStream on String (for the scanner)
 - [ ] WriteStream on String (for code generation output)
+
+### 23b. Global Namespace
+
+A system dictionary, conventionally named `Smalltalk`, for storing global variables,
+primarily classes. This dictionary acts as the central namespace for the compiler.
+
+- [ ] Create a global `Dictionary` instance named `Smalltalk`.
+- [ ] The bootstrap process will populate this dictionary with newly created classes.
+- [ ] Keys are `Symbols` (e.g., `#Array`), values are the `Class` objects.
+- [ ] The compiler looks up class names and globals in this dictionary.
+- [ ] Store the dictionary itself under the key `#Smalltalk` for reflective access.
 
 ### 24. Bootstrap Compiler (in C)
 
