@@ -20,6 +20,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char array_src[4096];
     char association_src[4096];
     char dictionary_src[12288];
+    char system_dictionary_src[4096];
 
     ASSERT_EQ(ctx, read_file("smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "smalltalk/Class.st exists");
@@ -71,4 +72,13 @@ void test_smalltalk_sources(TestContext *ctx)
               "Dictionary appends association in storage array");
     ASSERT_EQ(ctx, strstr(dictionary_src, "at: aKey ifAbsent: aBlock") != NULL, 1,
               "Dictionary supports at:ifAbsent:");
+
+    ASSERT_EQ(ctx, read_file("smalltalk/SystemDictionary.st", system_dictionary_src, sizeof(system_dictionary_src)), 1,
+              "smalltalk/SystemDictionary.st exists");
+    ASSERT_EQ(ctx, strstr(system_dictionary_src, "initializeSmalltalkNamespace") != NULL, 1,
+              "SystemDictionary has namespace initializer");
+    ASSERT_EQ(ctx, strstr(system_dictionary_src, "globals := Dictionary new.") != NULL, 1,
+              "Namespace initializer allocates Dictionary");
+    ASSERT_EQ(ctx, strstr(system_dictionary_src, "globals at: #Smalltalk put: globals.") != NULL, 1,
+              "Namespace initializer stores #Smalltalk self-binding");
 }

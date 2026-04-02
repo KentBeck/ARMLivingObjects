@@ -25,7 +25,7 @@ LSP Server
 
 - [x] Finish `String>>printString` (Smalltalk)
 - [x] Finish minimal `Array` protocol needed by compiler
-- [ ] Build minimal `Dictionary` + global `Smalltalk` namespace (Dictionary done; namespace pending)
+- [x] Build minimal `Dictionary` + global `Smalltalk` namespace
 - [ ] Build minimal `ReadStream`/`WriteStream`
 - [ ] Start C bootstrap compiler (scanner/parser/codegen)
 - [ ] Defer `OrderedCollection` until needed by compiler ergonomics/perf
@@ -135,11 +135,11 @@ ReadStream and WriteStream over collections.
 A system dictionary, conventionally named `Smalltalk`, for storing global variables,
 primarily classes. This dictionary acts as the central namespace for the compiler.
 
-- [ ] Create a global `Dictionary` instance named `Smalltalk`.
+- [x] Create a global `Dictionary` instance named `Smalltalk`.
 - [ ] The bootstrap process will populate this dictionary with newly created classes.
 - [ ] Keys are `Symbols` (e.g., `#Array`), values are the `Class` objects.
 - [ ] The compiler looks up class names and globals in this dictionary.
-- [ ] Store the dictionary itself under the key `#Smalltalk` for reflective access.
+- [x] Store the dictionary itself under the key `#Smalltalk` for reflective access.
 
 ### 24. Bootstrap Compiler (in C)
 

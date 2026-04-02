@@ -7,7 +7,7 @@ ASFLAGS += -arch $(ARCH)
 ASM_SRCS = stack_ops.s frame.s bytecode.s tagged.s object.s lookup.s interpret.s txn.s gc.s persist.s
 ASM_OBJS = $(ASM_SRCS:.s=.o)
 
-TEST_SRCS = test_main.c test_stack.c test_tagged.c test_object.c test_dispatch.c test_blocks.c test_factorial.c test_transaction.c test_gc.c test_persist.c test_primitives.c test_smalltalk_sources.c test_string_dispatch.c primitives.c
+TEST_SRCS = test_main.c test_stack.c test_tagged.c test_object.c test_dispatch.c test_blocks.c test_factorial.c test_transaction.c test_gc.c test_persist.c test_primitives.c test_smalltalk_sources.c test_string_dispatch.c test_array_dispatch.c primitives.c
 
 test: $(TEST_SRCS) test_defs.h $(ASM_OBJS)
 	$(CC) $(CFLAGS) -o test $(TEST_SRCS) $(ASM_OBJS)
