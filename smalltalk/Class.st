@@ -7,3 +7,8 @@ basicNew
 basicNew: size
     <primitive: 10>
 
+new
+    ^ self basicNew
+
+new: size
+    ^ self basicNew: size

@@ -173,6 +173,8 @@ int main()
     test_gc(&ctx);
     test_persist(&ctx);
     test_primitives(&ctx);
+    test_smalltalk_sources(&ctx);
+    test_string_dispatch(&ctx);
 
     printf("\n%d passed, %d failed\n", ctx.passes, ctx.failures);
     return ctx.failures > 0 ? 1 : 0;

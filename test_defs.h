@@ -286,5 +286,7 @@ void test_transaction(TestContext *ctx);
 void test_gc(TestContext *ctx);
 void test_persist(TestContext *ctx);
 void test_primitives(TestContext *ctx);
+void test_smalltalk_sources(TestContext *ctx);
+void test_string_dispatch(TestContext *ctx);
 
 #endif
