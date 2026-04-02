@@ -35,5 +35,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "String>>, copies receiver bytes");
     ASSERT_EQ(ctx, strstr(string_src, "result at: (offset + i) put: (aString at: i).") != NULL, 1,
               "String>>, copies argument bytes");
+    ASSERT_EQ(ctx, strstr(string_src, "printString") != NULL, 1,
+              "String>>printString exists");
+    ASSERT_EQ(ctx, strstr(string_src, "(self at: i) asCharacter printChar.") != NULL, 1,
+              "String>>printString prints chars via asCharacter printChar");
 }
-

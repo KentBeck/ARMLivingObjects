@@ -23,7 +23,7 @@ LSP Server
 
 ### Next (Critical Path)
 
-- [ ] Finish `String>>printString` (Smalltalk)
+- [x] Finish `String>>printString` (Smalltalk)
 - [ ] Finish minimal `Array` protocol needed by compiler
 - [ ] Build minimal `Dictionary` + global `Smalltalk` namespace
 - [ ] Build minimal `ReadStream`/`WriteStream`
@@ -85,7 +85,7 @@ Selectors (Symbols) are interned Strings — identity comparison suffices.
 - [x] `hash` — string hash (FNV-1a or similar)
 - [x] `asSymbol` — intern a string (look up in symbol table, add if absent)
 - [x] Symbol table — a global Array of interned strings
-- [ ] `printString` — for debugging (calls printChar per byte)
+- [x] `printString` — for debugging (calls printChar per byte)
 
 ### 20. Array
 

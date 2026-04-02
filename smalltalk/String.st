@@ -18,6 +18,15 @@ hash
 asSymbol
     <primitive: 27>
 
+printString
+    | i |
+    i := 1.
+    [i < (self size + 1)] whileTrue: [
+        (self at: i) asCharacter printChar.
+        i := i + 1
+    ].
+    ^ self
+
 , aString
     | result i offset |
     result := String new: self size + aString size.
@@ -36,4 +45,3 @@ asSymbol
     ].
 
     ^ result
-
