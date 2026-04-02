@@ -289,5 +289,6 @@ void test_primitives(TestContext *ctx);
 void test_smalltalk_sources(TestContext *ctx);
 void test_string_dispatch(TestContext *ctx);
 void test_array_dispatch(TestContext *ctx);
+void test_bootstrap_compiler(TestContext *ctx);
 
 #endif

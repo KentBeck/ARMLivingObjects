@@ -26,7 +26,7 @@ LSP Server
 - [x] Finish `String>>printString` (Smalltalk)
 - [x] Finish minimal `Array` protocol needed by compiler
 - [x] Build minimal `Dictionary` + global `Smalltalk` namespace
-- [ ] Build minimal `ReadStream`/`WriteStream`
+- [x] Build minimal `ReadStream`/`WriteStream`
 - [ ] Start C bootstrap compiler (scanner/parser/codegen)
 - [ ] Defer `OrderedCollection` until needed by compiler ergonomics/perf
 
@@ -125,10 +125,10 @@ hash for larger. Start with linear.
 
 ReadStream and WriteStream over collections.
 
-- [ ] ReadStream: `next`, `peek`, `atEnd`, `position`, `upToEnd`
-- [ ] WriteStream: `nextPut:`, `nextPutAll:`, `contents`
-- [ ] ReadStream on String (for the scanner)
-- [ ] WriteStream on String (for code generation output)
+- [x] ReadStream: `next`, `peek`, `atEnd`, `position`, `upToEnd`
+- [x] WriteStream: `nextPut:`, `nextPutAll:`, `contents`
+- [x] ReadStream on String (for the scanner)
+- [x] WriteStream on String (for code generation output)
 
 ### 23b. Global Namespace
 
@@ -148,7 +148,7 @@ Reads `.st` source files, emits bytecoded CompiledMethod objects
 into the heap. Just enough to compile the class library and the
 Smalltalk compiler itself.
 
-- [ ] Tokenizer: identifiers, keywords, integers, strings, symbols, special chars
+- [x] Tokenizer: identifiers, keywords, integers, strings, symbols, special chars
 - [ ] Parser: method syntax — unary, binary, keyword messages
 - [ ] Parser: temporaries `| x y |`, assignments `:=`
 - [ ] Parser: blocks `[ :arg | body ]`

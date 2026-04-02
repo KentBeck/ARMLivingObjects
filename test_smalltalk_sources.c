@@ -21,6 +21,8 @@ void test_smalltalk_sources(TestContext *ctx)
     char association_src[4096];
     char dictionary_src[12288];
     char system_dictionary_src[4096];
+    char read_stream_src[8192];
+    char write_stream_src[8192];
 
     ASSERT_EQ(ctx, read_file("smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "smalltalk/Class.st exists");
@@ -81,4 +83,26 @@ void test_smalltalk_sources(TestContext *ctx)
               "Namespace initializer allocates Dictionary");
     ASSERT_EQ(ctx, strstr(system_dictionary_src, "globals at: #Smalltalk put: globals.") != NULL, 1,
               "Namespace initializer stores #Smalltalk self-binding");
+
+    ASSERT_EQ(ctx, read_file("smalltalk/ReadStream.st", read_stream_src, sizeof(read_stream_src)), 1,
+              "smalltalk/ReadStream.st exists");
+    ASSERT_EQ(ctx, strstr(read_stream_src, "on: aCollection") != NULL, 1,
+              "ReadStream has class-side constructor protocol");
+    ASSERT_EQ(ctx, strstr(read_stream_src, "next") != NULL, 1,
+              "ReadStream has next");
+    ASSERT_EQ(ctx, strstr(read_stream_src, "peek") != NULL, 1,
+              "ReadStream has peek");
+    ASSERT_EQ(ctx, strstr(read_stream_src, "atEnd") != NULL, 1,
+              "ReadStream has atEnd");
+    ASSERT_EQ(ctx, strstr(read_stream_src, "upToEnd") != NULL, 1,
+              "ReadStream has upToEnd");
+
+    ASSERT_EQ(ctx, read_file("smalltalk/WriteStream.st", write_stream_src, sizeof(write_stream_src)), 1,
+              "smalltalk/WriteStream.st exists");
+    ASSERT_EQ(ctx, strstr(write_stream_src, "nextPut: aByte") != NULL, 1,
+              "WriteStream has nextPut:");
+    ASSERT_EQ(ctx, strstr(write_stream_src, "nextPutAll: aCollection") != NULL, 1,
+              "WriteStream has nextPutAll:");
+    ASSERT_EQ(ctx, strstr(write_stream_src, "contents") != NULL, 1,
+              "WriteStream has contents");
 }
