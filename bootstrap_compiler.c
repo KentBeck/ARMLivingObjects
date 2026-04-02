@@ -8,6 +8,14 @@ static char peek(BTokenizer *tokenizer)
     return tokenizer->source[tokenizer->index];
 }
 
+static int is_binary_selector_char(char character)
+{
+    return character == '+' || character == '-' || character == '*' || character == '/' ||
+           character == '<' || character == '>' || character == '=' || character == '~' ||
+           character == '&' || character == '|' || character == '@' || character == '%' ||
+           character == ',' || character == '?';
+}
+
 static char advance(BTokenizer *tokenizer)
 {
     char character = tokenizer->source[tokenizer->index];
@@ -157,3 +165,88 @@ BToken bt_next(BTokenizer *tokenizer)
     }
 }
 
+int bc_parse_method_header(const char *source, BMethodHeader *header)
+{
+    BTokenizer tokenizer;
+    bt_init(&tokenizer, source);
+
+    memset(header, 0, sizeof(*header));
+
+    BToken first = bt_next(&tokenizer);
+    if (first.type == BTOK_EOF)
+    {
+        return 0;
+    }
+
+    if (first.type == BTOK_IDENTIFIER)
+    {
+        BToken maybe_eof = bt_next(&tokenizer);
+        if (maybe_eof.type != BTOK_EOF)
+        {
+            return 0;
+        }
+        header->kind = BMETHOD_UNARY;
+        strncpy(header->selector, first.text, sizeof(header->selector) - 1);
+        return 1;
+    }
+
+    if (first.type == BTOK_SPECIAL && is_binary_selector_char(first.text[0]))
+    {
+        BToken arg = bt_next(&tokenizer);
+        if (arg.type != BTOK_IDENTIFIER)
+        {
+            return 0;
+        }
+        BToken maybe_eof = bt_next(&tokenizer);
+        if (maybe_eof.type != BTOK_EOF)
+        {
+            return 0;
+        }
+        header->kind = BMETHOD_BINARY;
+        strncpy(header->selector, first.text, sizeof(header->selector) - 1);
+        header->arg_count = 1;
+        strncpy(header->arg_names[0], arg.text, sizeof(header->arg_names[0]) - 1);
+        return 1;
+    }
+
+    if (first.type == BTOK_KEYWORD)
+    {
+        header->kind = BMETHOD_KEYWORD;
+        header->selector[0] = '\0';
+
+        BToken current = first;
+        while (1)
+        {
+            if (header->arg_count >= 8)
+            {
+                return 0;
+            }
+
+            strncat(header->selector, current.text,
+                    sizeof(header->selector) - strlen(header->selector) - 1);
+
+            BToken arg = bt_next(&tokenizer);
+            if (arg.type != BTOK_IDENTIFIER)
+            {
+                return 0;
+            }
+            strncpy(header->arg_names[header->arg_count], arg.text,
+                    sizeof(header->arg_names[header->arg_count]) - 1);
+            header->arg_count++;
+
+            BToken next = bt_next(&tokenizer);
+            if (next.type == BTOK_EOF)
+            {
+                break;
+            }
+            if (next.type != BTOK_KEYWORD)
+            {
+                return 0;
+            }
+            current = next;
+        }
+        return 1;
+    }
+
+    return 0;
+}

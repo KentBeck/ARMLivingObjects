@@ -30,5 +30,21 @@ typedef struct
 void bt_init(BTokenizer *tokenizer, const char *source);
 BToken bt_next(BTokenizer *tokenizer);
 
-#endif
+typedef enum
+{
+    BMETHOD_UNARY = 0,
+    BMETHOD_BINARY,
+    BMETHOD_KEYWORD
+} BMethodKind;
 
+typedef struct
+{
+    BMethodKind kind;
+    char selector[128];
+    int arg_count;
+    char arg_names[8][32];
+} BMethodHeader;
+
+int bc_parse_method_header(const char *source, BMethodHeader *header);
+
+#endif
