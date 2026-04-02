@@ -24,8 +24,8 @@ LSP Server
 ### Next (Critical Path)
 
 - [x] Finish `String>>printString` (Smalltalk)
-- [ ] Finish minimal `Array` protocol needed by compiler
-- [ ] Build minimal `Dictionary` + global `Smalltalk` namespace
+- [x] Finish minimal `Array` protocol needed by compiler
+- [ ] Build minimal `Dictionary` + global `Smalltalk` namespace (Dictionary done; namespace pending)
 - [ ] Build minimal `ReadStream`/`WriteStream`
 - [ ] Start C bootstrap compiler (scanner/parser/codegen)
 - [ ] Defer `OrderedCollection` until needed by compiler ergonomics/perf
@@ -91,7 +91,7 @@ Selectors (Symbols) are interned Strings — identity comparison suffices.
 
 Array is a FORMAT_INDEXABLE object. Already have `at:` and `at:put:` prims.
 
-- [ ] Array class with `size`, `at:`, `at:put:` (wired to existing prims)
+- [x] Array class with `size`, `at:`, `at:put:` (wired to existing prims)
 - [ ] `copyFrom:to:` — sub-array (in Smalltalk)
 - [ ] `do:` — iterate with a block (in Smalltalk)
 - [ ] `collect:` — map (in Smalltalk)
@@ -115,9 +115,9 @@ the compiler/class library needs dynamic growth convenience.
 Array of Associations (key→value). Linear scan for small dicts,
 hash for larger. Start with linear.
 
-- [ ] Association class (key, value)
-- [ ] `at:put:`, `at:`, `at:ifAbsent:`
-- [ ] `includesKey:`
+- [x] Association class (key, value)
+- [x] `at:put:`, `at:`, `at:ifAbsent:`
+- [x] `includesKey:`
 - [ ] `do:` (iterate values), `keysDo:`, `associationsDo:`
 - [ ] Hash-based lookup (when performance matters)
 
