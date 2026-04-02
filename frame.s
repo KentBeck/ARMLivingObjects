@@ -1,6 +1,7 @@
 // frame.s — Frame activation, return, and field accessors
 
 .include "macros.s"
+.include "asm_constants_shared.s"
 
 .global _activate_method
 .global _frame_receiver
@@ -63,7 +64,7 @@ _activate_method:
     str     x3, [x6]
 
     // Encode and push flags: (is_block<<16 | num_args<<8 | has_context)
-    lsl     x11, x4, #8
+    lsl     x11, x4, #FRAME_FLAGS_NUM_ARGS_SHIFT
     sub     x6, x6, #8
     str     x11, [x6]
 
@@ -99,40 +100,40 @@ _activate_method:
 
 // frame_receiver(fp) -> uint64_t
 _frame_receiver:
-    ldr     x0, [x0, #-32]     // FP - 4*8
+    ldr     x0, [x0, #FP_RECEIVER_OFS]
     ret
 
 // frame_method(fp) -> uint64_t
 _frame_method:
-    ldr     x0, [x0, #-8]      // FP - 1*8
+    ldr     x0, [x0, #FP_METHOD_OFS]
     ret
 
 // frame_flags(fp) -> uint64_t
 _frame_flags:
-    ldr     x0, [x0, #-16]     // FP - 2*8
+    ldr     x0, [x0, #FP_FLAGS_OFS]
     ret
 
 // frame_num_args(fp) -> uint64_t
 _frame_num_args:
-    ldr     x1, [x0, #-16]
-    ubfx    x0, x1, #8, #8
+    ldr     x1, [x0, #FP_FLAGS_OFS]
+    ubfx    x0, x1, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
     ret
 
 // frame_is_block(fp) -> uint64_t
 _frame_is_block:
-    ldr     x1, [x0, #-16]
-    ubfx    x0, x1, #16, #8
+    ldr     x1, [x0, #FP_FLAGS_OFS]
+    ubfx    x0, x1, #FRAME_FLAGS_IS_BLOCK_SHIFT, #FRAME_FLAGS_IS_BLOCK_WIDTH
     ret
 
 // frame_has_context(fp) -> uint64_t
 _frame_has_context:
-    ldr     x1, [x0, #-16]
-    and     x0, x1, #0xFF
+    ldr     x1, [x0, #FP_FLAGS_OFS]
+    and     x0, x1, #FRAME_FLAGS_HAS_CONTEXT_MASK
     ret
 
 // frame_temp(fp, index) -> uint64_t
 _frame_temp:
-    add     x1, x1, #5
+    add     x1, x1, #FP_TEMP_BASE_WORDS
     lsl     x1, x1, #3
     sub     x2, x0, x1
     ldr     x0, [x2]
@@ -140,7 +141,7 @@ _frame_temp:
 
 // frame_arg(fp, arg_index) -> uint64_t
 _frame_arg:
-    add     x1, x1, #2
+    add     x1, x1, #FP_ARG_BASE_WORDS
     lsl     x1, x1, #3
     add     x2, x0, x1
     ldr     x0, [x2]
@@ -148,7 +149,7 @@ _frame_arg:
 
 // frame_store_temp(fp, index, value)
 _frame_store_temp:
-    add     x1, x1, #5
+    add     x1, x1, #FP_TEMP_BASE_WORDS
     lsl     x1, x1, #3
     sub     x3, x0, x1
     str     x2, [x3]
@@ -158,16 +159,15 @@ _frame_store_temp:
 // Dismantles the current frame.
 _frame_return:
     ldr     x4, [x1]           // x4 = current FP
-    ldr     x5, [x4, #-16]     // flags word
-    ubfx    x5, x5, #8, #8     // num_args
-    add     x5, x5, #2
+    ldr     x5, [x4, #FP_FLAGS_OFS]     // flags word
+    ubfx    x5, x5, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    add     x5, x5, #FP_ARG_BASE_WORDS
     lsl     x5, x5, #3
     add     x6, x4, x5         // new SP
     str     x3, [x6]           // store return value
     ldr     x7, [x4]           // saved caller FP
     str     x7, [x1]
-    ldr     x8, [x4, #8]       // saved caller IP
+    ldr     x8, [x4, #FP_SAVED_IP_OFS]       // saved caller IP
     str     x8, [x2]
     str     x6, [x0]
     ret
-

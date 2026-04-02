@@ -5,6 +5,10 @@
 // GC_FORWARD_TAG = 1 (bit 0). Real class ptrs are aligned, so bit 0 is always 0.
 
 .include "macros.s"
+.include "asm_constants_shared.s"
+
+.equ GC_FORWARD_TAG, 1
+.equ FP_SENTINEL, 0xCAFE
 
 .global _gc_copy_object
 .global _gc_is_forwarded
@@ -29,16 +33,16 @@ _gc_copy_object:
     // Not forwarded — copy the object
     // For fields/indexable: total words = 3 + size
     // For bytes: total words = 3 + ceil(size / 8)
-    ldr     x3, [x0, #16]      // x3 = obj[2] = size
-    ldr     x4, [x0, #8]       // x4 = obj[1] = format
-    cmp     x4, #2              // FORMAT_BYTES?
+    ldr     x3, [x0, #OBJ_SIZE_OFS]      // x3 = obj[2] = size
+    ldr     x4, [x0, #OBJ_FORMAT_OFS]       // x4 = obj[1] = format
+    cmp     x4, #FORMAT_BYTES              // FORMAT_BYTES?
     b.ne    .Lgc_copy_not_bytes
     add     x4, x3, #7          // (byte_count + 7)
     lsr     x4, x4, #3          // / 8 = word count for data
-    add     x4, x4, #3          // + 3 header words
+    add     x4, x4, #OBJ_HEADER_WORDS          // + header words
     b       .Lgc_copy_size_done
 .Lgc_copy_not_bytes:
-    add     x4, x3, #3          // 3 + slot_count (total words)
+    add     x4, x3, #OBJ_HEADER_WORDS          // header + slot_count (total words)
 .Lgc_copy_size_done:
 
     ldr     x5, [x1]            // x5 = to_space free_ptr (destination)
@@ -227,7 +231,7 @@ _gc_scan_stack:
     // Check for sentinel FP (0xCAFE or 0)
     cmp     x19, #0
     b.eq    .Lgc_stack_done
-    mov     x23, #0xCAFE
+    mov     x23, #FP_SENTINEL
     cmp     x19, x23
     b.eq    .Lgc_stack_done
 
@@ -294,7 +298,7 @@ _gc_update_stack:
 
 .Lgu_frame_loop:
     cbz     x19, .Lgu_done
-    mov     x22, #0xCAFE
+    mov     x22, #FP_SENTINEL
     cmp     x19, x22
     b.eq    .Lgu_done
 

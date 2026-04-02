@@ -1,6 +1,76 @@
 // interpret.s — Bytecode dispatch loop
 
 .include "macros.s"
+.include "asm_constants_shared.s"
+
+// Primitive IDs (interpreter-local)
+.equ PRIM_SMALLINT_ADD, 1
+.equ PRIM_SMALLINT_SUB, 2
+.equ PRIM_SMALLINT_LT, 3
+.equ PRIM_SMALLINT_EQ, 4
+.equ PRIM_SMALLINT_MUL, 5
+.equ PRIM_AT, 6
+.equ PRIM_AT_PUT, 7
+.equ PRIM_BASIC_NEW, 8
+.equ PRIM_BLOCK_VALUE, 9
+.equ PRIM_BASIC_NEW_SIZE, 10
+.equ PRIM_SIZE, 11
+.equ PRIM_IDENTITY_EQ, 12
+.equ PRIM_BASIC_CLASS, 13
+.equ PRIM_HASH, 14
+.equ PRIM_PRINT_CHAR, 15
+.equ PRIM_BLOCK_VALUE_ARG, 16
+.equ PRIM_PERFORM, 17
+.equ PRIM_HALT, 18
+.equ PRIM_CHAR_VALUE, 19
+.equ PRIM_AS_CHARACTER, 20
+.equ PRIM_CHAR_IS_LETTER, 21
+.equ PRIM_CHAR_IS_DIGIT, 22
+.equ PRIM_CHAR_UPPERCASE, 23
+.equ PRIM_CHAR_LOWERCASE, 24
+.equ PRIM_STRING_EQ, 25
+.equ PRIM_STRING_HASH_FNV, 26
+.equ PRIM_STRING_AS_SYMBOL, 27
+.equ PRIM_SYMBOL_EQ, 28
+
+// Bytecodes (interpreter-local)
+.equ BC_PUSH_LITERAL, 0
+.equ BC_PUSH_INST_VAR, 1
+.equ BC_PUSH_TEMP, 2
+.equ BC_PUSH_SELF, 3
+.equ BC_STORE_INST_VAR, 4
+.equ BC_STORE_TEMP, 5
+.equ BC_SEND_MESSAGE, 6
+.equ BC_RETURN_STACK_TOP, 7
+.equ BC_JUMP, 8
+.equ BC_JUMP_IF_TRUE, 9
+.equ BC_JUMP_IF_FALSE, 10
+.equ BC_POP, 11
+.equ BC_DUPLICATE, 12
+.equ BC_HALT, 13
+.equ BC_PUSH_CLOSURE, 14
+.equ BC_PUSH_ARG, 15
+
+// Other interpreter-local constants
+.equ ASCII_A_UPPER, 65
+.equ ASCII_Z_UPPER, 90
+.equ ASCII_A_LOWER, 97
+.equ ASCII_Z_LOWER, 122
+.equ ASCII_0, 48
+.equ ASCII_9, 57
+.equ ASCII_CASE_DELTA, 32
+
+// GC context offsets (interpreter-local)
+.equ GCCTX_FROM_FREE_OFS, 0
+.equ GCCTX_FROM_END_OFS, 8
+.equ GCCTX_TO_FREE_OFS, 16
+.equ GCCTX_TO_END_OFS, 24
+.equ GCCTX_FROM_START_OFS, 32
+.equ GCCTX_TO_START_OFS, 40
+.equ GCCTX_SPACE_SIZE_OFS, 48
+.equ GCCTX_TENURED_START_OFS, 56
+.equ GCCTX_TENURED_END_OFS, 64
+.equ GCCTX_REMEMBERED_SET_OFS, 72
 
 // interpret(sp_ptr, fp_ptr, ip, class_table, om, txn_log) -> result (tagged value)
 // x0 = pointer to SP variable
@@ -96,9 +166,9 @@ _interpret:
 .Lbc_push_literal:
     READ_U32                    // w5 = literal index
     ldr     x6, [x20]          // FP
-    ldr     x7, [x6, #-8]      // method (CompiledMethod obj ptr)
-    ldr     x7, [x7, #48]      // CM_LITERALS → Array pointer
-    add     x7, x7, #24        // skip Array 3-word header
+    ldr     x7, [x6, #FP_METHOD_OFS]      // method (CompiledMethod obj ptr)
+    ldr     x7, [x7, #CM_LITERALS_OFS]      // CM_LITERALS → Array pointer
+    add     x7, x7, #OBJ_FIELDS_OFS        // skip Array header
     ldr     x8, [x7, x5, lsl #3]  // literal value
     ldr     x9, [x19]          // SP
     sub     x9, x9, #8
@@ -109,7 +179,7 @@ _interpret:
 .Lbc_push_inst_var:
     READ_U32                    // x5 = field_index
     ldr     x6, [x20]          // FP
-    ldr     x7, [x6, #-32]     // receiver (object pointer)
+    ldr     x7, [x6, #FP_RECEIVER_OFS]     // receiver (object pointer)
     // If transaction active, check log first
     cbz     x27, .Lpiv_no_txn
     // txn_log_read(log, obj, field_index, &found)
@@ -126,7 +196,7 @@ _interpret:
     cbnz    x8, .Lpiv_found     // found in log -> x0 = value
     // Not in log, fall through to read from object
 .Lpiv_no_txn:
-    add     x7, x7, #24        // skip 3-word header
+    add     x7, x7, #OBJ_FIELDS_OFS        // skip header
     ldr     x0, [x7, x5, lsl #3]   // read from object
 .Lpiv_found:
     // x0 = value (from log or object)
@@ -139,7 +209,7 @@ _interpret:
 .Lbc_push_temp:
     READ_U32
     ldr     x6, [x20]          // FP
-    add     x7, x5, #5
+    add     x7, x5, #FP_TEMP_BASE_WORDS
     lsl     x7, x7, #3
     sub     x8, x6, x7
     ldr     x9, [x8]
@@ -151,7 +221,7 @@ _interpret:
 
 .Lbc_push_self:
     ldr     x6, [x20]          // FP
-    ldr     x7, [x6, #-32]     // receiver
+    ldr     x7, [x6, #FP_RECEIVER_OFS]     // receiver
     ldr     x8, [x19]          // SP
     sub     x8, x8, #8
     str     x7, [x8]
@@ -165,7 +235,7 @@ _interpret:
     add     x6, x6, #8
     str     x6, [x19]
     ldr     x8, [x20]          // FP
-    ldr     x9, [x8, #-32]     // receiver
+    ldr     x9, [x8, #FP_RECEIVER_OFS]     // receiver
     // If transaction active, write to log instead of object
     cbz     x27, .Lsiv_no_txn
     // txn_log_write(log, obj, field_index, value)
@@ -179,28 +249,28 @@ _interpret:
     b       .Ldispatch
 .Lsiv_no_txn:
     // Write the field
-    add     x10, x9, #24       // skip header (keep x9 = original receiver)
+    add     x10, x9, #OBJ_FIELDS_OFS       // skip header (keep x9 = original receiver)
     str     x7, [x10, x5, lsl #3]
     // Write barrier: check if receiver is tenured and value is young
-    ldr     x10, [x26, #56]     // gc_ctx[7] = tenured_start
+    ldr     x10, [x26, #GCCTX_TENURED_START_OFS]     // gc_ctx[7] = tenured_start
     cbz     x10, .Ldispatch     // no tenured space, skip
     cmp     x9, x10             // receiver >= tenured_start?
     b.lo    .Ldispatch
-    ldr     x10, [x26, #64]     // gc_ctx[8] = tenured_end
+    ldr     x10, [x26, #GCCTX_TENURED_END_OFS]     // gc_ctx[8] = tenured_end
     cmp     x9, x10             // receiver < tenured_end?
     b.hs    .Ldispatch
     // Receiver is tenured. Check if value is young (in from-space)
     tst     x7, #3              // tagged value? skip
     b.ne    .Ldispatch
     cbz     x7, .Ldispatch
-    ldr     x10, [x26, #32]     // gc_ctx[4] = from_start
+    ldr     x10, [x26, #GCCTX_FROM_START_OFS]     // gc_ctx[4] = from_start
     cmp     x7, x10
     b.lo    .Ldispatch
-    ldr     x10, [x26, #8]      // gc_ctx[1] = from_end
+    ldr     x10, [x26, #GCCTX_FROM_END_OFS]      // gc_ctx[1] = from_end
     cmp     x7, x10
     b.hs    .Ldispatch
     // Old-to-young store: record in remembered set
-    ldr     x10, [x26, #72]     // gc_ctx[9] = remembered_set ptr
+    ldr     x10, [x26, #GCCTX_REMEMBERED_SET_OFS]     // gc_ctx[9] = remembered_set ptr
     cbz     x10, .Ldispatch     // no remembered set
     stp     x5, x7, [sp, #-16]!
     mov     x0, x10             // remembered set (same format as txn log)
@@ -218,7 +288,7 @@ _interpret:
     add     x6, x6, #8
     str     x6, [x19]
     ldr     x8, [x20]          // FP
-    add     x9, x5, #5
+    add     x9, x5, #FP_TEMP_BASE_WORDS
     lsl     x9, x9, #3
     sub     x10, x8, x9
     str     x7, [x10]
@@ -233,9 +303,9 @@ _interpret:
 
     // Get selector from current method's literals Array
     ldr     x11, [x20]          // FP
-    ldr     x12, [x11, #-8]    // current method (CompiledMethod)
-    ldr     x13, [x12, #48]    // CM_LITERALS → Array pointer
-    add     x13, x13, #24      // skip Array header
+    ldr     x12, [x11, #FP_METHOD_OFS]    // current method (CompiledMethod)
+    ldr     x13, [x12, #CM_LITERALS_OFS]    // CM_LITERALS → Array pointer
+    add     x13, x13, #OBJ_FIELDS_OFS      // skip Array header
     ldr     x14, [x13, x9, lsl #3]  // selector (tagged SmallInt)
 
     // Get receiver from stack: at SP + arg_count * 8
@@ -261,14 +331,14 @@ _interpret:
     cbz     x0, .Lsend_not_found
 
     // Check for primitive: CM_PRIMITIVE at method + header(24) + field0(0) = offset 24
-    ldr     x3, [x0, #24]      // primitive index (tagged)
+    ldr     x3, [x0, #CM_PRIMITIVE_OFS]      // primitive index (tagged)
     cmp     x3, #1              // tag_smallint(0) = 1 means no primitive
     b.ne    .Lsend_primitive
 
     // x0 = found CompiledMethod, x10 = arg_count, x21 = IP (past SEND operands)
     // Read num_temps from found method
-    ldr     x3, [x0, #40]      // num_temps (tagged) at method + header(24) + field2(16)
-    asr     x3, x3, #2         // untag num_temps
+    ldr     x3, [x0, #CM_NUM_TEMPS_OFS]      // num_temps (tagged)
+    asr     x3, x3, #SMALLINT_SHIFT         // untag num_temps
 
     // Activate: call _activate_method(sp_ptr, fp_ptr, saved_ip, method, num_args, num_temps)
     mov     x5, x3             // num_temps
@@ -281,9 +351,9 @@ _interpret:
 
     // Set IP to new method's bytecodes (CM_BYTECODES = field 4, offset 56)
     ldr     x6, [x20]          // new FP
-    ldr     x7, [x6, #-8]      // new method
-    ldr     x10, [x7, #56]     // CM_BYTECODES → ByteArray pointer
-    add     x23, x10, #24      // skip ByteArray 3-word header → data
+    ldr     x7, [x6, #FP_METHOD_OFS]      // new method
+    ldr     x10, [x7, #CM_BYTECODES_OFS]     // CM_BYTECODES → ByteArray pointer
+    add     x23, x10, #OBJ_FIELDS_OFS      // skip ByteArray header → data
     mov     x21, x23            // IP = start of new method's bytecodes
     b       .Ldispatch
 
@@ -298,7 +368,7 @@ _interpret:
 .Lsend_primitive:
     // x0 = CompiledMethod, x3 = primitive index (tagged), x10 = arg_count
     // Decode primitive index
-    asr     x3, x3, #2         // untag
+    asr     x3, x3, #SMALLINT_SHIFT         // untag
 
     // Dispatch to primitive handler
     // Primitives operate on tagged values already on the stack.
@@ -306,61 +376,61 @@ _interpret:
     // After primitive: pop args and receiver, push result.
 
 .Lcheck_prim_dispatch:
-    cmp     x3, #1              // PRIM_SMALLINT_ADD
+    cmp     x3, #PRIM_SMALLINT_ADD
     b.eq    .Lprim_add
-    cmp     x3, #2              // PRIM_SMALLINT_SUB
+    cmp     x3, #PRIM_SMALLINT_SUB
     b.eq    .Lprim_sub
-    cmp     x3, #3              // PRIM_SMALLINT_LT
+    cmp     x3, #PRIM_SMALLINT_LT
     b.eq    .Lprim_lt
-    cmp     x3, #4              // PRIM_SMALLINT_EQ
+    cmp     x3, #PRIM_SMALLINT_EQ
     b.eq    .Lprim_eq
-    cmp     x3, #5              // PRIM_SMALLINT_MUL
+    cmp     x3, #PRIM_SMALLINT_MUL
     b.eq    .Lprim_mul
-    cmp     x3, #6              // PRIM_AT
+    cmp     x3, #PRIM_AT
     b.eq    .Lprim_at
-    cmp     x3, #7              // PRIM_AT_PUT
+    cmp     x3, #PRIM_AT_PUT
     b.eq    .Lprim_at_put
-    cmp     x3, #8              // PRIM_BASIC_NEW
+    cmp     x3, #PRIM_BASIC_NEW
     b.eq    .Lprim_basic_new
-    cmp     x3, #9              // PRIM_BLOCK_VALUE
+    cmp     x3, #PRIM_BLOCK_VALUE
     b.eq    .Lprim_block_value
-    cmp     x3, #10             // PRIM_BASIC_NEW_SIZE
+    cmp     x3, #PRIM_BASIC_NEW_SIZE
     b.eq    .Lprim_basic_new_size
-    cmp     x3, #11             // PRIM_SIZE
+    cmp     x3, #PRIM_SIZE
     b.eq    .Lprim_size
-    cmp     x3, #12             // PRIM_IDENTITY_EQ
+    cmp     x3, #PRIM_IDENTITY_EQ
     b.eq    .Lprim_identity_eq
-    cmp     x3, #13             // PRIM_BASIC_CLASS
+    cmp     x3, #PRIM_BASIC_CLASS
     b.eq    .Lprim_basic_class
-    cmp     x3, #14             // PRIM_HASH
+    cmp     x3, #PRIM_HASH
     b.eq    .Lprim_hash
-    cmp     x3, #15             // PRIM_PRINT_CHAR
+    cmp     x3, #PRIM_PRINT_CHAR
     b.eq    .Lprim_print_char
-    cmp     x3, #16             // PRIM_BLOCK_VALUE_ARG
+    cmp     x3, #PRIM_BLOCK_VALUE_ARG
     b.eq    .Lprim_block_value_arg
-    cmp     x3, #17             // PRIM_PERFORM
+    cmp     x3, #PRIM_PERFORM
     b.eq    .Lprim_perform
-    cmp     x3, #18             // PRIM_HALT
+    cmp     x3, #PRIM_HALT
     b.eq    .Lprim_halt
-    cmp     x3, #19             // PRIM_CHAR_VALUE
+    cmp     x3, #PRIM_CHAR_VALUE
     b.eq    .Lprim_char_value
-    cmp     x3, #20             // PRIM_AS_CHARACTER
+    cmp     x3, #PRIM_AS_CHARACTER
     b.eq    .Lprim_as_character
-    cmp     x3, #21             // PRIM_CHAR_IS_LETTER
+    cmp     x3, #PRIM_CHAR_IS_LETTER
     b.eq    .Lprim_char_is_letter
-    cmp     x3, #22             // PRIM_CHAR_IS_DIGIT
+    cmp     x3, #PRIM_CHAR_IS_DIGIT
     b.eq    .Lprim_char_is_digit
-    cmp     x3, #23             // PRIM_CHAR_UPPERCASE
+    cmp     x3, #PRIM_CHAR_UPPERCASE
     b.eq    .Lprim_char_uppercase
-    cmp     x3, #24             // PRIM_CHAR_LOWERCASE
+    cmp     x3, #PRIM_CHAR_LOWERCASE
     b.eq    .Lprim_char_lowercase
-    cmp     x3, #25             // PRIM_STRING_EQ
+    cmp     x3, #PRIM_STRING_EQ
     b.eq    .Lprim_string_eq
-    cmp     x3, #26             // PRIM_STRING_HASH_FNV
+    cmp     x3, #PRIM_STRING_HASH_FNV
     b.eq    .Lprim_string_hash_fnv
-    cmp     x3, #27             // PRIM_STRING_AS_SYMBOL
+    cmp     x3, #PRIM_STRING_AS_SYMBOL
     b.eq    .Lprim_string_as_symbol
-    cmp     x3, #28             // PRIM_SYMBOL_EQ
+    cmp     x3, #PRIM_SYMBOL_EQ
     b.eq    .Lprim_symbol_eq
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
@@ -426,8 +496,8 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0 (tagged)
     ldr     x7, [x5, #8]       // receiver (tagged)
-    asr     x6, x6, #2         // untag arg0
-    asr     x7, x7, #2         // untag receiver
+    asr     x6, x6, #SMALLINT_SHIFT         // untag arg0
+    asr     x7, x7, #SMALLINT_SHIFT         // untag receiver
     mul     x8, x7, x6         // result = receiver * arg0
     lsl     x8, x8, #2         // retag
     orr     x8, x8, #1
@@ -442,7 +512,7 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // index (tagged)
     ldr     x7, [x5, #8]       // receiver (object)
-    asr     x6, x6, #2         // untag index -> 1-based
+    asr     x6, x6, #SMALLINT_SHIFT         // untag index -> 1-based
     sub     x6, x6, #1         // convert to 0-based
 
     // Check format
@@ -450,7 +520,7 @@ _interpret:
     cbz     x8, .Lprim_at_fields_err  // FORMAT_FIELDS → error
 
     // Bounds check: 0 <= x6 < size
-    ldr     x9, [x7, #16]      // obj[2] = size
+    ldr     x9, [x7, #OBJ_SIZE_OFS]      // obj[2] = size
     cmp     x6, x9
     b.hs    .Lprim_at_bounds_err
 
@@ -474,16 +544,16 @@ _interpret:
     ldp     x5, x6, [sp], #16
     cbnz    x8, .Lprim_at_got_value  // x0 = value from log
 .Lprim_at_idx_no_txn:
-    add     x7, x7, #24        // skip 3-word header
+    add     x7, x7, #OBJ_FIELDS_OFS        // skip header
     ldr     x0, [x7, x6, lsl #3]   // obj[3 + index]
     b       .Lprim_at_got_value
 
 .Lprim_at_bytes:
     // FORMAT_BYTES — byte access, return tagged SmallInt
-    add     x7, x7, #24        // skip 3-word header
+    add     x7, x7, #OBJ_FIELDS_OFS        // skip header
     ldrb    w0, [x7, x6]       // load single byte
-    lsl     x0, x0, #2
-    orr     x0, x0, #1         // tag as SmallInt
+    lsl     x0, x0, #SMALLINT_SHIFT
+    orr     x0, x0, #TAG_SMALLINT         // tag as SmallInt
 
 .Lprim_at_got_value:
     // x0 = result value
@@ -504,19 +574,19 @@ _interpret:
     ldr     x6, [x5]           // value
     ldr     x7, [x5, #8]       // index (tagged)
     ldr     x8, [x5, #16]      // receiver (object)
-    asr     x7, x7, #2         // untag index -> 1-based
+    asr     x7, x7, #SMALLINT_SHIFT         // untag index -> 1-based
     sub     x7, x7, #1         // convert to 0-based
 
     // Check format
-    ldr     x9, [x8, #8]       // obj[1] = format
+    ldr     x9, [x8, #OBJ_FORMAT_OFS]       // obj[1] = format
     cbz     x9, .Lprim_at_fields_err  // FORMAT_FIELDS → error
 
     // Bounds check
-    ldr     x10, [x8, #16]     // obj[2] = size
+    ldr     x10, [x8, #OBJ_SIZE_OFS]     // obj[2] = size
     cmp     x7, x10
     b.hs    .Lprim_at_bounds_err
 
-    cmp     x9, #2
+    cmp     x9, #FORMAT_BYTES
     b.eq    .Lprim_atput_bytes
 
     // FORMAT_INDEXABLE — word store
@@ -533,14 +603,14 @@ _interpret:
     ldp     x5, x6, [sp], #16
     b       .Lprim_atput_done
 .Lprim_atput_no_txn:
-    add     x9, x8, #24        // skip header
+    add     x9, x8, #OBJ_FIELDS_OFS        // skip header
     str     x6, [x9, x7, lsl #3]   // obj[3 + index] = value
     b       .Lprim_atput_done
 
 .Lprim_atput_bytes:
     // FORMAT_BYTES — byte store, value is tagged SmallInt
-    asr     x6, x6, #2         // untag value → byte
-    add     x9, x8, #24        // skip header
+    asr     x6, x6, #SMALLINT_SHIFT         // untag value → byte
+    add     x9, x8, #OBJ_FIELDS_OFS        // skip header
     strb    w6, [x9, x7]       // store single byte
 
 .Lprim_atput_done:
@@ -557,13 +627,13 @@ _interpret:
     // Initialize all fields to nil.
     ldr     x5, [x19]          // SP
     ldr     x5, [x5]           // receiver = the class
-    ldr     x6, [x5, #40]      // CLASS_INST_SIZE (field 2, offset 24+16=40)
-    asr     x6, x6, #2         // untag SmallInt -> raw size
+    ldr     x6, [x5, #CLASS_INST_SIZE_OFS]      // CLASS_INST_SIZE
+    asr     x6, x6, #SMALLINT_SHIFT         // untag SmallInt -> raw size
 
     // om_alloc(om, class_ptr, format, size)
     mov     x0, x26             // om
     mov     x1, x5              // class ptr = the receiver class
-    mov     x2, #0              // FORMAT_FIELDS
+    mov     x2, #FORMAT_FIELDS
     mov     x3, x6              // size
     stp     x5, x6, [sp, #-16]!
     bl      _om_alloc
@@ -573,11 +643,11 @@ _interpret:
 
     // Initialize fields to nil (0x03)
     mov     x7, #0              // field index
-    mov     x8, #3              // tagged nil
+    mov     x8, #TAGGED_NIL
 .Lbasicnew_init:
     cmp     x7, x6
     b.ge    .Lbasicnew_done
-    add     x9, x7, #3          // slot = 3 + field_index
+    add     x9, x7, #OBJ_HEADER_WORDS          // slot = header + field_index
     str     x8, [x0, x9, lsl #3]
     add     x7, x7, #1
     b       .Lbasicnew_init
@@ -601,11 +671,11 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x8, [x5, #8]       // receiver (below arg) — the class
     ldr     x6, [x5]           // arg = size (tagged SmallInt)
-    asr     x6, x6, #2         // untag size
+    asr     x6, x6, #SMALLINT_SHIFT         // untag size
 
     // Read inst_format from the class
-    ldr     x7, [x8, #48]      // CLASS_INST_FORMAT (field 3, offset 24+24=48)
-    asr     x7, x7, #2         // untag format
+    ldr     x7, [x8, #CLASS_INST_FORMAT_OFS]      // CLASS_INST_FORMAT
+    asr     x7, x7, #SMALLINT_SHIFT         // untag format
 
     // Check format
     cbz     x7, .Lbasicnewsize_err  // FORMAT_FIELDS → error
@@ -623,15 +693,15 @@ _interpret:
     cbz     x0, .Lbasicnew_oom
 
     // Initialize fields to nil for FORMAT_INDEXABLE
-    cmp     x7, #2              // FORMAT_BYTES?
+    cmp     x7, #FORMAT_BYTES
     b.eq    .Lbasicnewsize_done // bytes don't need nil init
 
     mov     x9, #0
-    mov     x10, #3             // tagged nil
+    mov     x10, #TAGGED_NIL
 .Lbasicnewsize_init:
     cmp     x9, x6
     b.ge    .Lbasicnewsize_done
-    add     x11, x9, #3
+    add     x11, x9, #OBJ_HEADER_WORDS
     str     x10, [x0, x11, lsl #3]
     add     x9, x9, #1
     b       .Lbasicnewsize_init
@@ -663,33 +733,33 @@ _interpret:
     tst     x6, #2             // bit 1 set? → special (true/false/nil)
     b.ne    .Lbasicclass_special
     // SmallInt: class_table[0]
-    ldr     x7, [x25, #24]    // class_table field 0 (offset 24 = 3*8 header)
+    ldr     x7, [x25, #CLASS_TABLE_SMALLINT_OFS]    // class_table field 0
     str     x7, [x5]
     b       .Ldispatch
 .Lbasicclass_special:
     // Check Character first (low 4 bits = 0x0F)
-    and     x7, x6, #0x0F
-    cmp     x7, #0x0F
+    and     x7, x6, #CHAR_TAG_MASK
+    cmp     x7, #CHAR_TAG_VALUE
     b.eq    .Lbasicclass_character
     // true (0x07) → class_table[2], false (0x0B) → class_table[3]
-    cmp     x6, #0x07
+    cmp     x6, #TAGGED_TRUE
     b.eq    .Lbasicclass_true
-    cmp     x6, #0x0B
+    cmp     x6, #TAGGED_FALSE
     b.eq    .Lbasicclass_false
     // nil (0x03) — could return UndefinedObject class, but we don't have one yet
     // For now, return nil itself
     str     x6, [x5]
     b       .Ldispatch
 .Lbasicclass_true:
-    ldr     x7, [x25, #40]    // class_table field 2 (true class)
+    ldr     x7, [x25, #CLASS_TABLE_TRUE_OFS]    // class_table field 2 (true class)
     str     x7, [x5]
     b       .Ldispatch
 .Lbasicclass_false:
-    ldr     x7, [x25, #48]    // class_table field 3 (false class)
+    ldr     x7, [x25, #CLASS_TABLE_FALSE_OFS]    // class_table field 3 (false class)
     str     x7, [x5]
     b       .Ldispatch
 .Lbasicclass_character:
-    ldr     x7, [x25, #56]    // class_table field 4 (Character class)
+    ldr     x7, [x25, #CLASS_TABLE_CHARACTER_OFS]    // class_table field 4 (Character class)
     str     x7, [x5]
     b       .Ldispatch
 
@@ -725,9 +795,9 @@ _interpret:
     // Receiver is tagged SmallInt, result is (value << 4) | 0x0F
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // receiver (tagged SmallInt)
-    asr     x6, x6, #2         // untag SmallInt → code point
+    asr     x6, x6, #SMALLINT_SHIFT         // untag SmallInt → code point
     lsl     x6, x6, #4
-    orr     x6, x6, #0x0F      // tag as Character
+    orr     x6, x6, #CHAR_TAG_VALUE      // tag as Character
     str     x6, [x5]           // replace receiver with result
     b       .Ldispatch
 
@@ -773,9 +843,9 @@ _interpret:
     sub     x8, x7, #97        // 'a'
     cmp     x8, #25
     b.hi    .Ldispatch          // not lowercase → return self
-    sub     x7, x7, #32        // to uppercase
+    sub     x7, x7, #ASCII_CASE_DELTA        // to uppercase
     lsl     x7, x7, #4
-    orr     x7, x7, #0x0F
+    orr     x7, x7, #CHAR_TAG_VALUE
     str     x7, [x5]
     b       .Ldispatch
 
@@ -784,12 +854,12 @@ _interpret:
     ldr     x5, [x19]           // SP
     ldr     x6, [x5]            // Character immediate
     lsr     x7, x6, #4          // code point
-    sub     x8, x7, #65         // 'A'
+    sub     x8, x7, #ASCII_A_UPPER
     cmp     x8, #25
     b.hi    .Ldispatch          // not uppercase → return self
-    add     x7, x7, #32         // to lowercase
+    add     x7, x7, #ASCII_CASE_DELTA         // to lowercase
     lsl     x7, x7, #4
-    orr     x7, x7, #0x0F
+    orr     x7, x7, #CHAR_TAG_VALUE
     str     x7, [x5]
     b       .Ldispatch
 
@@ -805,7 +875,7 @@ _interpret:
     lsr     x6, x6, #3
     and     x6, x6, #0x3FFFFFFF // 30 bits
     lsl     x6, x6, #2
-    orr     x6, x6, #1         // tag as SmallInt
+    orr     x6, x6, #TAG_SMALLINT         // tag as SmallInt
 .Lhash_done:
     str     x6, [x5]           // replace receiver with hash
     b       .Ldispatch
@@ -855,8 +925,8 @@ _interpret:
     ldr     x6, [x5]           // arg
     ldr     x7, [x5, #8]       // receiver
     cmp     x6, x7
-    mov     x8, #0x07           // tagged true
-    mov     x9, #0x0B           // tagged false
+    mov     x8, #TAGGED_TRUE
+    mov     x9, #TAGGED_FALSE
     csel    x8, x8, x9, eq
     add     x5, x5, #8         // pop arg
     str     x8, [x5]           // replace receiver with result
@@ -867,9 +937,9 @@ _interpret:
     // size: return the object's size field as a tagged SmallInt
     ldr     x5, [x19]          // SP
     ldr     x5, [x5]           // receiver
-    ldr     x6, [x5, #16]      // obj[2] = size
-    lsl     x6, x6, #2
-    orr     x6, x6, #1         // tag as SmallInt
+    ldr     x6, [x5, #OBJ_SIZE_OFS]      // obj[2] = size
+    lsl     x6, x6, #SMALLINT_SHIFT
+    orr     x6, x6, #TAG_SMALLINT         // tag as SmallInt
     ldr     x5, [x19]          // SP
     str     x6, [x5]           // replace receiver with result
     b       .Ldispatch
@@ -884,12 +954,12 @@ _interpret:
     add     x5, x5, #8         // pop block
     str     x5, [x19]
 
-    ldr     x7, [x6, #24]      // home receiver (block field 0)
-    ldr     x8, [x6, #32]      // CM (block field 1)
+    ldr     x7, [x6, #BLOCK_HOME_RECEIVER_OFS]      // home receiver (block field 0)
+    ldr     x8, [x6, #BLOCK_CM_OFS]      // CM (block field 1)
 
     // Read num_temps from CM
-    ldr     x3, [x8, #40]      // num_temps (tagged)
-    asr     x3, x3, #2         // untag
+    ldr     x3, [x8, #CM_NUM_TEMPS_OFS]      // num_temps (tagged)
+    asr     x3, x3, #SMALLINT_SHIFT         // untag
 
     // Push home receiver as the "receiver" for activation
     ldr     x5, [x19]
@@ -908,9 +978,9 @@ _interpret:
 
     // Set IP to block CM's bytecodes
     ldr     x6, [x20]          // new FP
-    ldr     x7, [x6, #-8]      // method (block's CM)
-    ldr     x10, [x7, #56]     // CM_BYTECODES → ByteArray
-    add     x23, x10, #24      // skip header → data
+    ldr     x7, [x6, #FP_METHOD_OFS]      // method (block's CM)
+    ldr     x10, [x7, #CM_BYTECODES_OFS]     // CM_BYTECODES → ByteArray
+    add     x23, x10, #OBJ_FIELDS_OFS      // skip header → data
     mov     x21, x23
     b       .Ldispatch
 
@@ -921,16 +991,16 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x6, [x5, #8]       // block object
 
-    ldr     x7, [x6, #24]      // home receiver (block field 0)
-    ldr     x8, [x6, #32]      // CM (block field 1)
+    ldr     x7, [x6, #BLOCK_HOME_RECEIVER_OFS]      // home receiver (block field 0)
+    ldr     x8, [x6, #BLOCK_CM_OFS]      // CM (block field 1)
 
     // Replace block with home receiver on stack
     str     x7, [x5, #8]
     // Stack now: [arg, home_rcv, ...]
 
     // Read num_temps from block's CM
-    ldr     x3, [x8, #40]      // num_temps (tagged)
-    asr     x3, x3, #2
+    ldr     x3, [x8, #CM_NUM_TEMPS_OFS]      // num_temps (tagged)
+    asr     x3, x3, #SMALLINT_SHIFT
 
     // Activate: _activate_method(sp_ptr, fp_ptr, saved_ip, method, num_args=1, num_temps)
     mov     x5, x3             // num_temps
@@ -943,14 +1013,14 @@ _interpret:
 
     // Mark frame as block
     ldr     x6, [x20]          // new FP
-    ldr     x10, [x6, #-16]    // flags
-    orr     x10, x10, #(1 << 16) // is_block = 1
-    str     x10, [x6, #-16]
+    ldr     x10, [x6, #FP_FLAGS_OFS]    // flags
+    orr     x10, x10, #(1 << FRAME_FLAGS_IS_BLOCK_SHIFT) // is_block = 1
+    str     x10, [x6, #FP_FLAGS_OFS]
 
     // Set IP to block CM's bytecodes
-    ldr     x7, [x6, #-8]      // method from frame
-    ldr     x10, [x7, #56]     // CM_BYTECODES
-    add     x23, x10, #24      // skip header
+    ldr     x7, [x6, #FP_METHOD_OFS]      // method from frame
+    ldr     x10, [x7, #CM_BYTECODES_OFS]     // CM_BYTECODES
+    add     x23, x10, #OBJ_FIELDS_OFS      // skip header
     mov     x21, x23
     b       .Ldispatch
 
@@ -970,26 +1040,26 @@ _interpret:
 .Lperf_tagged:
     tst     x7, #2
     b.ne    .Lperf_special
-    ldr     x8, [x25, #24]     // SmallInt class = class_table[0]
+    ldr     x8, [x25, #CLASS_TABLE_SMALLINT_OFS]     // SmallInt class = class_table[0]
     b       .Lperf_lookup
 .Lperf_special:
     // Check Character first (low 4 bits = 0x0F)
-    and     x8, x7, #0x0F
-    cmp     x8, #0x0F
+    and     x8, x7, #CHAR_TAG_MASK
+    cmp     x8, #CHAR_TAG_VALUE
     b.eq    .Lperf_character
-    cmp     x7, #0x07
+    cmp     x7, #TAGGED_TRUE
     b.eq    .Lperf_true
-    cmp     x7, #0x0B
+    cmp     x7, #TAGGED_FALSE
     b.eq    .Lperf_false
     brk     #8                  // perform on nil or unknown
 .Lperf_true:
-    ldr     x8, [x25, #40]     // true class
+    ldr     x8, [x25, #CLASS_TABLE_TRUE_OFS]     // true class
     b       .Lperf_lookup
 .Lperf_false:
-    ldr     x8, [x25, #48]     // false class
+    ldr     x8, [x25, #CLASS_TABLE_FALSE_OFS]     // false class
     b       .Lperf_lookup
 .Lperf_character:
-    ldr     x8, [x25, #56]     // Character class
+    ldr     x8, [x25, #CLASS_TABLE_CHARACTER_OFS]     // Character class
 .Lperf_lookup:
     stp     x6, x8, [sp, #-16]!
     mov     x0, x8              // class
@@ -998,8 +1068,8 @@ _interpret:
     ldp     x6, x8, [sp], #16
     cbz     x0, .Lperf_mnu
     mov     x8, x0              // method
-    ldr     x3, [x8, #40]      // CM_NUM_TEMPS (tagged)
-    asr     x3, x3, #2
+    ldr     x3, [x8, #CM_NUM_TEMPS_OFS]      // CM_NUM_TEMPS (tagged)
+    asr     x3, x3, #SMALLINT_SHIFT
     mov     x5, x3             // num_temps
     mov     x4, #0             // 0 args
     mov     x3, x8             // method
@@ -1010,12 +1080,12 @@ _interpret:
     bl      _activate_method
     ldp     x8, xzr, [sp], #16
     // Check if found method has primitive
-    ldr     x3, [x8, #24]     // CM_PRIMITIVE (tagged)
-    asr     x3, x3, #2
+    ldr     x3, [x8, #CM_PRIMITIVE_OFS]     // CM_PRIMITIVE (tagged)
+    asr     x3, x3, #SMALLINT_SHIFT
     cbnz    x3, .Lcheck_prim_dispatch
     // Set IP from method (x8)
-    ldr     x10, [x8, #56]     // CM_BYTECODES
-    add     x23, x10, #24
+    ldr     x10, [x8, #CM_BYTECODES_OFS]     // CM_BYTECODES
+    add     x23, x10, #OBJ_FIELDS_OFS
     mov     x21, x23
     b       .Ldispatch
 .Lperf_mnu:
@@ -1029,14 +1099,14 @@ _interpret:
     ldr     x6, [x19]          // SP
     ldr     x0, [x6]           // return value
     ldr     x7, [x20]          // FP (frame being dismantled)
-    ldr     x9, [x7, #-16]     // flags
-    ubfx    x9, x9, #8, #8     // num_args
-    add     x9, x9, #2
+    ldr     x9, [x7, #FP_FLAGS_OFS]     // flags
+    ubfx    x9, x9, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    add     x9, x9, #FP_ARG_BASE_WORDS
     lsl     x9, x9, #3
     add     x10, x7, x9        // new SP = FP + (2+num_args)*8
     str     x0, [x10]          // store result at new SP (replaces receiver)
     ldr     x11, [x7]          // saved caller FP
-    ldr     x12, [x7, #8]      // saved caller IP
+    ldr     x12, [x7, #FP_SAVED_IP_OFS]      // saved caller IP
     str     x10, [x19]         // write back SP
     str     x11, [x20]         // write back FP
 
@@ -1048,9 +1118,9 @@ _interpret:
     mov     x21, x12            // restore IP from saved caller IP
 
     // Recompute x23 = bytecodes base from caller's method
-    ldr     x13, [x11, #-8]    // caller method at new FP - 1*W
-    ldr     x15, [x13, #56]    // CM_BYTECODES (field 4) → ByteArray pointer
-    add     x23, x15, #24      // skip ByteArray 3-word header → data
+    ldr     x13, [x11, #FP_METHOD_OFS]    // caller method at new FP - 1*W
+    ldr     x15, [x13, #CM_BYTECODES_OFS]    // CM_BYTECODES (field 4) → ByteArray pointer
+    add     x23, x15, #OBJ_FIELDS_OFS      // skip ByteArray header → data
     b       .Ldispatch
 
 .Lbc_jump:
@@ -1112,15 +1182,15 @@ _interpret:
     // allocate Block(2 fields: home_receiver, cm), push Block.
     READ_U32                    // w5 = literal index
     ldr     x6, [x20]          // FP
-    ldr     x7, [x6, #-8]      // current method
-    ldr     x7, [x7, #48]      // CM_LITERALS → Array
-    add     x7, x7, #24        // skip Array header
+    ldr     x7, [x6, #FP_METHOD_OFS]      // current method
+    ldr     x7, [x7, #CM_LITERALS_OFS]      // CM_LITERALS → Array
+    add     x7, x7, #OBJ_FIELDS_OFS        // skip Array header
     ldr     x9, [x7, x5, lsl #3]   // x9 = block CM (from literals)
-    ldr     x10, [x6, #-32]    // x10 = current receiver (home receiver)
+    ldr     x10, [x6, #FP_RECEIVER_OFS]    // x10 = current receiver (home receiver)
     // Allocate Block: om_alloc(om, block_class, FORMAT_FIELDS, 2)
     mov     x0, x26             // om
-    ldr     x1, [x25, #32]     // class_table_obj field[1] = Block class (24 + 8)
-    mov     x2, #0              // FORMAT_FIELDS
+    ldr     x1, [x25, #CLASS_TABLE_BLOCK_OFS]     // class_table_obj field[1] = Block class
+    mov     x2, #FORMAT_FIELDS
     mov     x3, #2              // 2 fields
     // Save volatile state
     stp     x9, x10, [sp, #-16]!
@@ -1158,7 +1228,7 @@ _interpret:
 
     // Also add the current method from the frame
     ldr     x0, [x20]          // FP
-    ldr     x0, [x0, #-8]     // method
+    ldr     x0, [x0, #FP_METHOD_OFS]     // method
     str     x0, [sp, x28, lsl #3]
     add     x28, x28, #1
 
@@ -1167,14 +1237,14 @@ _interpret:
     mov     x1, x28             // num_roots
     mov     x2, x26             // from_space = gc_ctx[0..1]
     add     x3, x26, #16       // to_space = gc_ctx[2..3]
-    ldr     x4, [x26, #32]     // from_start = gc_ctx[4]
-    ldr     x5, [x26, #8]      // from_end = gc_ctx[1]
+    ldr     x4, [x26, #GCCTX_FROM_START_OFS]     // from_start = gc_ctx[4]
+    ldr     x5, [x26, #GCCTX_FROM_END_OFS]      // from_end = gc_ctx[1]
     bl      _gc_collect
 
     // Update stack frame slots to follow forwarding pointers
     ldr     x0, [x20]          // FP
-    ldr     x1, [x26, #32]     // from_start
-    ldr     x2, [x26, #8]      // from_end
+    ldr     x1, [x26, #GCCTX_FROM_START_OFS]     // from_start
+    ldr     x2, [x26, #GCCTX_FROM_END_OFS]      // from_end
     bl      _gc_update_stack
 
     // Read back updated roots
@@ -1191,25 +1261,25 @@ _interpret:
 
     // Swap from/to in GC context
     ldp     x0, x1, [x26]       // from_free, from_end
-    ldp     x2, x3, [x26, #16]  // to_free, to_end
+    ldp     x2, x3, [x26, #GCCTX_TO_FREE_OFS]  // to_free, to_end
     stp     x2, x3, [x26]       // new from = old to
-    stp     x0, x1, [x26, #16]  // new to = old from
-    ldr     x0, [x26, #32]      // from_start
-    ldr     x1, [x26, #40]      // to_start
-    str     x1, [x26, #32]
-    str     x0, [x26, #40]
+    stp     x0, x1, [x26, #GCCTX_TO_FREE_OFS]  // new to = old from
+    ldr     x0, [x26, #GCCTX_FROM_START_OFS]      // from_start
+    ldr     x1, [x26, #GCCTX_TO_START_OFS]      // to_start
+    str     x1, [x26, #GCCTX_FROM_START_OFS]
+    str     x0, [x26, #GCCTX_TO_START_OFS]
 
     // Reset to-space free ptr to its start
-    ldr     x0, [x26, #40]      // new to_start
-    ldr     x1, [x26, #48]      // space_size
-    str     x0, [x26, #16]      // to_free = to_start
+    ldr     x0, [x26, #GCCTX_TO_START_OFS]      // new to_start
+    ldr     x1, [x26, #GCCTX_SPACE_SIZE_OFS]      // space_size
+    str     x0, [x26, #GCCTX_TO_FREE_OFS]      // to_free = to_start
     add     x0, x0, x1
-    str     x0, [x26, #24]      // to_end = to_start + size
+    str     x0, [x26, #GCCTX_TO_END_OFS]      // to_end = to_start + size
 
     // Retry allocation
     mov     x0, x26
-    ldr     x1, [x25, #32]     // Block class
-    mov     x2, #0              // FORMAT_FIELDS
+    ldr     x1, [x25, #CLASS_TABLE_BLOCK_OFS]     // Block class
+    mov     x2, #FORMAT_FIELDS
     mov     x3, #2
     stp     x9, x10, [sp, #-16]!
     bl      _om_alloc
@@ -1219,8 +1289,8 @@ _interpret:
 
 .Lblock_alloc_ok:
     // x0 = new Block object
-    str     x10, [x0, #24]     // field 0 = home receiver (offset 24 = header)
-    str     x9, [x0, #32]      // field 1 = CM (offset 32)
+    str     x10, [x0, #BLOCK_HOME_RECEIVER_OFS]     // field 0 = home receiver
+    str     x9, [x0, #BLOCK_CM_OFS]      // field 1 = CM
     // Push Block onto stack
     ldr     x6, [x19]          // SP
     sub     x6, x6, #8

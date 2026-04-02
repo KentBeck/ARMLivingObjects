@@ -7,6 +7,7 @@
 //   word 3..N = slots (tagged values or raw bytes)
 
 .include "macros.s"
+.include "asm_constants_shared.s"
 
 .global _om_init
 .global _om_alloc
@@ -34,7 +35,7 @@ _om_alloc:
     ldr     x5, [x0, #8]       // x5 = end_ptr
 
     // Calculate total words: 3 (header) + slot_words
-    cmp     x2, #2
+    cmp     x2, #FORMAT_BYTES
     b.eq    .Lalloc_bytes
     mov     x6, x3             // format 0/1: slot_words = size
     b       .Lalloc_calc
@@ -42,7 +43,7 @@ _om_alloc:
     add     x6, x3, #7         // (size + 7)
     lsr     x6, x6, #3         // / 8
 .Lalloc_calc:
-    add     x6, x6, #3         // + 3 header words
+    add     x6, x6, #OBJ_HEADER_WORDS
     lsl     x7, x6, #3         // total bytes
 
     // Check OOM
@@ -52,14 +53,14 @@ _om_alloc:
 
     // Write header
     str     x1, [x4]           // word 0: class pointer
-    str     x2, [x4, #8]       // word 1: format
-    str     x3, [x4, #16]      // word 2: size
+    str     x2, [x4, #OBJ_FORMAT_OFS]       // word 1: format
+    str     x3, [x4, #OBJ_SIZE_OFS]      // word 2: size
 
     // Zero-initialize slots
     mov     x9, x4
-    add     x9, x9, #24        // skip header
+    add     x9, x9, #OBJ_FIELDS_OFS        // skip header
     mov     x10, x6
-    sub     x10, x10, #3       // slot_words
+    sub     x10, x10, #OBJ_HEADER_WORDS       // slot_words
     cbz     x10, .Lalloc_done
 .Lalloc_zero:
     str     xzr, [x9], #8
@@ -74,4 +75,3 @@ _om_alloc:
 .Loom:
     mov     x0, #0              // return NULL on OOM
     ret
-

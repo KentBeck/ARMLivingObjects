@@ -21,81 +21,83 @@
 .global _smallint_less_than
 .global _smallint_equal
 
+.include "asm_constants_shared.s"
+
 .align 2
 
 // tag_smallint(int64_t value) -> uint64_t
 // Encode: (value << 2) | 0b01
 _tag_smallint:
-    lsl     x0, x0, #2
-    orr     x0, x0, #1
+    lsl     x0, x0, #SMALLINT_SHIFT
+    orr     x0, x0, #TAG_SMALLINT
     ret
 
 // untag_smallint(uint64_t tagged) -> int64_t
 // Decode: arithmetic right shift 2
 _untag_smallint:
-    asr     x0, x0, #2
+    asr     x0, x0, #SMALLINT_SHIFT
     ret
 
 // get_tag(uint64_t value) -> uint64_t
 _get_tag:
-    and     x0, x0, #3
+    and     x0, x0, #TAG_MASK
     ret
 
 // is_smallint(uint64_t value) -> uint64_t (1 or 0)
 _is_smallint:
-    and     x0, x0, #3
-    cmp     x0, #1
+    and     x0, x0, #TAG_MASK
+    cmp     x0, #TAG_SMALLINT
     cset    x0, eq
     ret
 
 // is_object_ptr(uint64_t value) -> uint64_t (1 or 0)
 _is_object_ptr:
-    and     x0, x0, #3
-    cmp     x0, #0
+    and     x0, x0, #TAG_MASK
+    cmp     x0, #TAG_OBJECT
     cset    x0, eq
     ret
 
 // is_immediate_float(uint64_t value) -> uint64_t (1 or 0)
 _is_immediate_float:
-    and     x0, x0, #3
-    cmp     x0, #2
+    and     x0, x0, #TAG_MASK
+    cmp     x0, #TAG_FLOAT
     cset    x0, eq
     ret
 
 // is_special(uint64_t value) -> uint64_t (1 or 0)
 _is_special:
-    and     x0, x0, #3
-    cmp     x0, #3
+    and     x0, x0, #TAG_MASK
+    cmp     x0, #TAG_SPECIAL
     cset    x0, eq
     ret
 
 // tagged_nil() -> uint64_t   = 0x03
 _tagged_nil:
-    mov     x0, #3
+    mov     x0, #TAGGED_NIL
     ret
 
 // tagged_true() -> uint64_t  = 0x07
 _tagged_true:
-    mov     x0, #7
+    mov     x0, #TAGGED_TRUE
     ret
 
 // tagged_false() -> uint64_t = 0x0B
 _tagged_false:
-    mov     x0, #11
+    mov     x0, #TAGGED_FALSE
     ret
 
 // is_nil(uint64_t value) -> uint64_t (1 or 0)
 _is_nil:
-    cmp     x0, #3
+    cmp     x0, #TAGGED_NIL
     cset    x0, eq
     ret
 
 // is_boolean(uint64_t value) -> uint64_t (1 or 0)
 // true=0x07, false=0x0B
 _is_boolean:
-    cmp     x0, #7
+    cmp     x0, #TAGGED_TRUE
     cset    x1, eq
-    cmp     x0, #11
+    cmp     x0, #TAGGED_FALSE
     cset    x2, eq
     orr     x0, x1, x2
     ret
@@ -118,16 +120,16 @@ _smallint_sub:
 // Returns tagged true (0x07) or tagged false (0x0B).
 _smallint_less_than:
     cmp     x0, x1
-    mov     x0, #7
-    mov     x1, #11
+    mov     x0, #TAGGED_TRUE
+    mov     x1, #TAGGED_FALSE
     csel    x0, x0, x1, lt
     ret
 
 // smallint_equal(uint64_t a, uint64_t b) -> uint64_t
 _smallint_equal:
     cmp     x0, x1
-    mov     x0, #7
-    mov     x1, #11
+    mov     x0, #TAGGED_TRUE
+    mov     x1, #TAGGED_FALSE
     csel    x0, x0, x1, eq
     ret
 
@@ -135,7 +137,7 @@ _smallint_equal:
 // Encoding: (code_point << 4) | 0x0F
 _tag_character:
     lsl     x0, x0, #4
-    orr     x0, x0, #0x0F
+    orr     x0, x0, #CHAR_TAG_VALUE
     ret
 
 // untag_character(uint64_t tagged) -> uint64_t
@@ -146,8 +148,7 @@ _untag_character:
 // is_character(uint64_t value) -> uint64_t
 // Check low 4 bits == 0x0F
 _is_character:
-    and     x0, x0, #0x0F
-    cmp     x0, #0x0F
+    and     x0, x0, #CHAR_TAG_MASK
+    cmp     x0, #CHAR_TAG_VALUE
     cset    x0, eq
     ret
-

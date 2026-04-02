@@ -6,6 +6,7 @@
 //   and falls within [heap_base, heap_base + size).
 
 .include "macros.s"
+.include "asm_constants_shared.s"
 
 .global _image_pointers_to_offsets
 .global _image_offsets_to_pointers
@@ -32,11 +33,11 @@ _image_pointers_to_offsets:
     bl      .Lp2o_convert_slot
 
     // Read format and size
-    ldr     x24, [x23, #8]      // format
-    ldr     x25, [x23, #16]     // size
+    ldr     x24, [x23, #OBJ_FORMAT_OFS]      // format
+    ldr     x25, [x23, #OBJ_SIZE_OFS]     // size
 
     // Skip field conversion for FORMAT_BYTES
-    cmp     x24, #2
+    cmp     x24, #FORMAT_BYTES
     b.eq    .Lp2o_advance
 
     // Convert fields: obj[3] through obj[3+size-1]
@@ -44,7 +45,7 @@ _image_pointers_to_offsets:
 .Lp2o_fields:
     cmp     x26, x25
     b.ge    .Lp2o_advance
-    add     x27, x26, #3
+    add     x27, x26, #OBJ_HEADER_WORDS
     add     x0, x23, x27, lsl #3   // &obj[3 + i]
     bl      .Lp2o_convert_slot
     add     x26, x26, #1
@@ -52,12 +53,12 @@ _image_pointers_to_offsets:
 
 .Lp2o_advance:
     // Advance to next object
-    cmp     x24, #2
+    cmp     x24, #FORMAT_BYTES
     b.ne    .Lp2o_adv_words
     add     x25, x25, #7
     lsr     x25, x25, #3        // ceil(bytes/8)
 .Lp2o_adv_words:
-    add     x25, x25, #3        // + header
+    add     x25, x25, #OBJ_HEADER_WORDS        // + header
     add     x23, x23, x25, lsl #3
     b       .Lp2o_obj_loop
 
@@ -103,29 +104,29 @@ _image_offsets_to_pointers:
     mov     x0, x23
     bl      .Lo2p_convert_slot
 
-    ldr     x24, [x23, #8]      // format
-    ldr     x25, [x23, #16]     // size
+    ldr     x24, [x23, #OBJ_FORMAT_OFS]      // format
+    ldr     x25, [x23, #OBJ_SIZE_OFS]     // size
 
-    cmp     x24, #2
+    cmp     x24, #FORMAT_BYTES
     b.eq    .Lo2p_advance
 
     mov     x26, #0
 .Lo2p_fields:
     cmp     x26, x25
     b.ge    .Lo2p_advance
-    add     x27, x26, #3
+    add     x27, x26, #OBJ_HEADER_WORDS
     add     x0, x23, x27, lsl #3
     bl      .Lo2p_convert_slot
     add     x26, x26, #1
     b       .Lo2p_fields
 
 .Lo2p_advance:
-    cmp     x24, #2
+    cmp     x24, #FORMAT_BYTES
     b.ne    .Lo2p_adv_words
     add     x25, x25, #7
     lsr     x25, x25, #3
 .Lo2p_adv_words:
-    add     x25, x25, #3
+    add     x25, x25, #OBJ_HEADER_WORDS
     add     x23, x23, x25, lsl #3
     b       .Lo2p_obj_loop
 
@@ -154,4 +155,3 @@ _image_offsets_to_pointers:
     str     x3, [x0]
 .Lo2p_slot_done:
     ret
-

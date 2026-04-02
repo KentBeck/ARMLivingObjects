@@ -1,6 +1,8 @@
 // bytecode.s — Bytecode implementations
 // All bytecodes take (sp_ptr, fp_ptr) as first two args.
 
+.include "asm_constants_shared.s"
+
 .global _bc_push_self
 .global _bc_push_temp
 .global _bc_push_inst_var
@@ -43,7 +45,7 @@ _bc_push_temp:
 _bc_push_inst_var:
     ldr     x3, [x1]           // FP
     ldr     x4, [x3, #-32]     // receiver pointer
-    add     x4, x4, #24        // skip 3-word header
+    add     x4, x4, #OBJ_FIELDS_OFS        // skip header
     lsl     x5, x2, #3
     add     x6, x4, x5
     ldr     x7, [x6]
@@ -60,8 +62,8 @@ _bc_push_inst_var:
 _bc_push_literal:
     ldr     x3, [x1]           // FP
     ldr     x4, [x3, #-8]      // method (CompiledMethod object pointer)
-    ldr     x4, [x4, #48]      // literals Array pointer
-    add     x4, x4, #24        // skip Array's 3-word header
+    ldr     x4, [x4, #CM_LITERALS_OFS]      // literals Array pointer
+    add     x4, x4, #OBJ_FIELDS_OFS        // skip header
     ldr     x7, [x4, x2, lsl #3]  // literal value
     ldr     x8, [x0]           // SP
     sub     x8, x8, #8
@@ -93,7 +95,7 @@ _bc_store_inst_var:
     str     x3, [x0]
     ldr     x5, [x1]           // FP
     ldr     x6, [x5, #-32]     // receiver pointer
-    add     x6, x6, #24        // skip 3-word header
+    add     x6, x6, #OBJ_FIELDS_OFS        // skip header
     lsl     x7, x2, #3
     add     x8, x6, x7
     str     x4, [x8]
@@ -133,4 +135,3 @@ _bc_pop:
     add     x1, x1, #8
     str     x1, [x0]
     ret
-
