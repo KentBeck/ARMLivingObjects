@@ -16,6 +16,13 @@ static int is_binary_selector_char(char character)
            character == ',' || character == '?';
 }
 
+typedef struct
+{
+    BTokenizer tokenizer;
+    int has_buffered;
+    BToken buffered;
+} BParser;
+
 static char advance(BTokenizer *tokenizer)
 {
     char character = tokenizer->source[tokenizer->index];
@@ -159,10 +166,237 @@ BToken bt_next(BTokenizer *tokenizer)
 
     {
         BToken token = make_token(BTOK_SPECIAL);
+        if (character == ':' && tokenizer->source[tokenizer->index + 1] == '=')
+        {
+            advance(tokenizer);
+            advance(tokenizer);
+            token.text[0] = ':';
+            token.text[1] = '=';
+            token.text[2] = '\0';
+            return token;
+        }
         token.text[0] = advance(tokenizer);
         token.text[1] = '\0';
         return token;
     }
+}
+
+static void bp_init(BParser *parser, const char *source)
+{
+    bt_init(&parser->tokenizer, source);
+    parser->has_buffered = 0;
+}
+
+static BToken bp_next(BParser *parser)
+{
+    if (parser->has_buffered)
+    {
+        parser->has_buffered = 0;
+        return parser->buffered;
+    }
+    return bt_next(&parser->tokenizer);
+}
+
+static void bp_unread(BParser *parser, BToken token)
+{
+    parser->buffered = token;
+    parser->has_buffered = 1;
+}
+
+static void count_literal(BMethodBody *body, BToken token)
+{
+    if (token.type == BTOK_INTEGER)
+    {
+        body->literal_integer_count++;
+    }
+    else if (token.type == BTOK_STRING)
+    {
+        body->literal_string_count++;
+    }
+    else if (token.type == BTOK_SYMBOL)
+    {
+        body->literal_symbol_count++;
+    }
+}
+
+static int parse_primary(BParser *parser, BMethodBody *body)
+{
+    BToken token = bp_next(parser);
+    if (token.type == BTOK_EOF)
+    {
+        return 0;
+    }
+    if (token.type == BTOK_SPECIAL && (strcmp(token.text, ".") == 0 || strcmp(token.text, ")") == 0 ||
+                                        strcmp(token.text, "]") == 0))
+    {
+        bp_unread(parser, token);
+        return 0;
+    }
+
+    count_literal(body, token);
+
+    if (token.type == BTOK_SPECIAL && strcmp(token.text, "(") == 0)
+    {
+        if (!parse_primary(parser, body))
+        {
+            return 0;
+        }
+        BToken close = bp_next(parser);
+        if (close.type != BTOK_SPECIAL || strcmp(close.text, ")") != 0)
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int parse_expression_from_first(BParser *parser, BMethodBody *body, BToken first)
+{
+    count_literal(body, first);
+
+    while (1)
+    {
+        BToken token = bp_next(parser);
+
+        if (token.type == BTOK_EOF)
+        {
+            return 1;
+        }
+        if (token.type == BTOK_SPECIAL &&
+            (strcmp(token.text, ".") == 0 || strcmp(token.text, ")") == 0 || strcmp(token.text, "]") == 0))
+        {
+            bp_unread(parser, token);
+            return 1;
+        }
+
+        if (token.type == BTOK_IDENTIFIER)
+        {
+            body->message_send_count++;
+            continue;
+        }
+
+        if (token.type == BTOK_SPECIAL && is_binary_selector_char(token.text[0]) && token.text[1] == '\0')
+        {
+            body->message_send_count++;
+            if (!parse_primary(parser, body))
+            {
+                return 0;
+            }
+            continue;
+        }
+
+        if (token.type == BTOK_KEYWORD)
+        {
+            body->message_send_count++;
+            if (!parse_primary(parser, body))
+            {
+                return 0;
+            }
+
+            while (1)
+            {
+                BToken maybe_next_keyword = bp_next(parser);
+                if (maybe_next_keyword.type != BTOK_KEYWORD)
+                {
+                    bp_unread(parser, maybe_next_keyword);
+                    break;
+                }
+                if (!parse_primary(parser, body))
+                {
+                    return 0;
+                }
+            }
+            continue;
+        }
+
+        return 0;
+    }
+}
+
+int bc_parse_method_body(const char *source, BMethodBody *body)
+{
+    BParser parser;
+    memset(body, 0, sizeof(*body));
+    bp_init(&parser, source);
+
+    BToken token = bp_next(&parser);
+
+    if (token.type == BTOK_SPECIAL && strcmp(token.text, "|") == 0)
+    {
+        while (1)
+        {
+            BToken temp = bp_next(&parser);
+            if (temp.type == BTOK_SPECIAL && strcmp(temp.text, "|") == 0)
+            {
+                token = bp_next(&parser);
+                break;
+            }
+            if (temp.type != BTOK_IDENTIFIER || body->temp_count >= 16)
+            {
+                return 0;
+            }
+
+            strncpy(body->temp_names[body->temp_count], temp.text,
+                    sizeof(body->temp_names[body->temp_count]) - 1);
+            body->temp_count++;
+        }
+    }
+
+    while (token.type != BTOK_EOF)
+    {
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ".") == 0)
+        {
+            token = bp_next(&parser);
+            continue;
+        }
+
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "^") == 0)
+        {
+            body->return_count++;
+            token = bp_next(&parser);
+            if (token.type == BTOK_EOF)
+            {
+                return 0;
+            }
+        }
+
+        if (token.type == BTOK_IDENTIFIER)
+        {
+            BToken maybe_assign = bp_next(&parser);
+            if (maybe_assign.type == BTOK_SPECIAL && strcmp(maybe_assign.text, ":=") == 0)
+            {
+                body->assignment_count++;
+                BToken assigned_value_start = bp_next(&parser);
+                if (assigned_value_start.type == BTOK_EOF)
+                {
+                    return 0;
+                }
+                if (!parse_expression_from_first(&parser, body, assigned_value_start))
+                {
+                    return 0;
+                }
+            }
+            else
+            {
+                bp_unread(&parser, maybe_assign);
+                if (!parse_expression_from_first(&parser, body, token))
+                {
+                    return 0;
+                }
+            }
+        }
+        else
+        {
+            if (!parse_expression_from_first(&parser, body, token))
+            {
+                return 0;
+            }
+        }
+
+        token = bp_next(&parser);
+    }
+
+    return 1;
 }
 
 int bc_parse_method_header(const char *source, BMethodHeader *header)

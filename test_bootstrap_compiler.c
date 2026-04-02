@@ -46,6 +46,18 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
+        BTokenizer tokenizer;
+        bt_init(&tokenizer, "x := 1");
+
+        assert_tok(ctx, &tokenizer, BTOK_IDENTIFIER, "x");
+        assert_tok(ctx, &tokenizer, BTOK_SPECIAL, ":=");
+        assert_tok(ctx, &tokenizer, BTOK_INTEGER, "1");
+
+        BToken eof = bt_next(&tokenizer);
+        ASSERT_EQ(ctx, eof.type, BTOK_EOF, "tokenizer EOF after assignment");
+    }
+
+    {
         BMethodHeader header;
         ASSERT_EQ(ctx, bc_parse_method_header("size", &header), 1,
                   "parse unary method header");
@@ -91,5 +103,42 @@ void test_bootstrap_compiler(TestContext *ctx)
         BMethodHeader header;
         ASSERT_EQ(ctx, bc_parse_method_header("at: put:", &header), 0,
                   "reject invalid keyword method header");
+    }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("| x y | x := 1. y := x + 2. ^ y", &body), 1,
+                  "parse method body with temps and assignments");
+        ASSERT_EQ(ctx, body.temp_count, 2, "temp count");
+        ASSERT_EQ(ctx, strcmp(body.temp_names[0], "x"), 0, "first temp");
+        ASSERT_EQ(ctx, strcmp(body.temp_names[1], "y"), 0, "second temp");
+        ASSERT_EQ(ctx, body.assignment_count, 2, "assignment count");
+        ASSERT_EQ(ctx, body.return_count, 1, "return count");
+        ASSERT_EQ(ctx, body.literal_integer_count, 2, "integer literal count");
+        ASSERT_EQ(ctx, body.literal_string_count, 0, "string literal count");
+        ASSERT_EQ(ctx, body.literal_symbol_count, 0, "symbol literal count");
+        ASSERT_EQ(ctx, body.message_send_count, 1, "message send count");
+    }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ self at: 1 put: 'a'", &body), 1,
+                  "parse method body with keyword message");
+        ASSERT_EQ(ctx, body.temp_count, 0, "no temps");
+        ASSERT_EQ(ctx, body.assignment_count, 0, "no assignments");
+        ASSERT_EQ(ctx, body.return_count, 1, "single return");
+        ASSERT_EQ(ctx, body.literal_integer_count, 1, "integer literal in keyword arg");
+        ASSERT_EQ(ctx, body.literal_string_count, 1, "string literal in keyword arg");
+        ASSERT_EQ(ctx, body.literal_symbol_count, 0, "no symbol literals");
+        ASSERT_EQ(ctx, body.message_send_count, 1, "single keyword send");
+    }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ #foo", &body), 1,
+                  "parse method body with symbol return");
+        ASSERT_EQ(ctx, body.return_count, 1, "single return for symbol");
+        ASSERT_EQ(ctx, body.literal_symbol_count, 1, "symbol literal count");
+        ASSERT_EQ(ctx, body.message_send_count, 0, "no message sends");
     }
 }

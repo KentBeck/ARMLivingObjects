@@ -47,4 +47,18 @@ typedef struct
 
 int bc_parse_method_header(const char *source, BMethodHeader *header);
 
+typedef struct
+{
+    int temp_count;
+    char temp_names[16][32];
+    int assignment_count;
+    int return_count;
+    int literal_integer_count;
+    int literal_string_count;
+    int literal_symbol_count;
+    int message_send_count;
+} BMethodBody;
+
+int bc_parse_method_body(const char *source, BMethodBody *body);
+
 #endif
