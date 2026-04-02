@@ -27,7 +27,7 @@ LSP Server
 - [x] Finish minimal `Array` protocol needed by compiler
 - [x] Build minimal `Dictionary` + global `Smalltalk` namespace
 - [x] Build minimal `ReadStream`/`WriteStream`
-- [ ] Start C bootstrap compiler (scanner/parser/codegen)
+- [x] Start C bootstrap compiler (scanner/parser/codegen)
 - [ ] Defer `OrderedCollection` until needed by compiler ergonomics/perf
 
 ### 17. Primitive Infrastructure
@@ -71,7 +71,7 @@ The class table entry for Character is at index 4 (after SmallInteger, BlockClos
 - [x] `isLetter`, `isDigit` as Character primitives (21, 22)
 - [x] `asUppercase`, `asLowercase` as Character primitives (23, 24)
 - [x] `printChar` on Character (not SmallInteger) — write byte to stdout
-- [ ] character literal `$A` in the bootstrap compiler
+- [x] character literal `$A` in the bootstrap compiler
 - [x] `=` on Character — identity comparison via `==` (same encoding → same bits)
 
 ### 19. String (ByteArray subclass)
@@ -149,12 +149,12 @@ into the heap. Just enough to compile the class library and the
 Smalltalk compiler itself.
 
 - [x] Tokenizer: identifiers, keywords, integers, strings, symbols, special chars
-- [ ] Parser: method syntax — unary, binary, keyword messages
-- [ ] Parser: temporaries `| x y |`, assignments `:=`
+- [x] Parser: method syntax — unary, binary, keyword messages
+- [x] Parser: temporaries `| x y |`, assignments `:=`
 - [ ] Parser: blocks `[ :arg | body ]`
 - [ ] Parser: cascades `;`, parentheses
 - [ ] Parser: literals (integers, strings, symbols, arrays)
-- [ ] Parser: return `^`
+- [x] Parser: return `^`
 - [ ] Code gen: emit PUSH_LITERAL, PUSH_INST_VAR, PUSH_TEMP, PUSH_SELF
 - [ ] Code gen: emit STORE_INST_VAR, STORE_TEMP
 - [ ] Code gen: emit SEND_MESSAGE (unary, binary, keyword)

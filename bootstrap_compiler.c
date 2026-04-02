@@ -91,6 +91,21 @@ BToken bt_next(BTokenizer *tokenizer)
         return token;
     }
 
+    if (character == '$')
+    {
+        BToken token = make_token(BTOK_CHARACTER);
+        advance(tokenizer); // '$'
+        char value = advance(tokenizer);
+        if (value == '\0')
+        {
+            return make_token(BTOK_EOF);
+        }
+        token.text[0] = value;
+        token.text[1] = '\0';
+        token.int_value = (unsigned char)value;
+        return token;
+    }
+
     if (isalpha((unsigned char)character) || character == '_')
     {
         BToken token = make_token(BTOK_IDENTIFIER);
@@ -208,6 +223,10 @@ static void count_literal(BMethodBody *body, BToken token)
     if (token.type == BTOK_INTEGER)
     {
         body->literal_integer_count++;
+    }
+    else if (token.type == BTOK_CHARACTER)
+    {
+        body->literal_character_count++;
     }
     else if (token.type == BTOK_STRING)
     {

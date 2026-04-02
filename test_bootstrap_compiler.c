@@ -47,6 +47,19 @@ void test_bootstrap_compiler(TestContext *ctx)
 
     {
         BTokenizer tokenizer;
+        bt_init(&tokenizer, "$A");
+
+        BToken token = bt_next(&tokenizer);
+        ASSERT_EQ(ctx, token.type, BTOK_CHARACTER, "character token type");
+        ASSERT_EQ(ctx, token.int_value, 65, "character token value");
+        ASSERT_EQ(ctx, strcmp(token.text, "A"), 0, "character token text");
+
+        BToken eof = bt_next(&tokenizer);
+        ASSERT_EQ(ctx, eof.type, BTOK_EOF, "tokenizer EOF after character");
+    }
+
+    {
+        BTokenizer tokenizer;
         bt_init(&tokenizer, "x := 1");
 
         assert_tok(ctx, &tokenizer, BTOK_IDENTIFIER, "x");
@@ -115,6 +128,7 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, body.assignment_count, 2, "assignment count");
         ASSERT_EQ(ctx, body.return_count, 1, "return count");
         ASSERT_EQ(ctx, body.literal_integer_count, 2, "integer literal count");
+        ASSERT_EQ(ctx, body.literal_character_count, 0, "character literal count");
         ASSERT_EQ(ctx, body.literal_string_count, 0, "string literal count");
         ASSERT_EQ(ctx, body.literal_symbol_count, 0, "symbol literal count");
         ASSERT_EQ(ctx, body.message_send_count, 1, "message send count");
@@ -128,6 +142,7 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, body.assignment_count, 0, "no assignments");
         ASSERT_EQ(ctx, body.return_count, 1, "single return");
         ASSERT_EQ(ctx, body.literal_integer_count, 1, "integer literal in keyword arg");
+        ASSERT_EQ(ctx, body.literal_character_count, 0, "no character literals");
         ASSERT_EQ(ctx, body.literal_string_count, 1, "string literal in keyword arg");
         ASSERT_EQ(ctx, body.literal_symbol_count, 0, "no symbol literals");
         ASSERT_EQ(ctx, body.message_send_count, 1, "single keyword send");
@@ -138,7 +153,16 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, bc_parse_method_body("^ #foo", &body), 1,
                   "parse method body with symbol return");
         ASSERT_EQ(ctx, body.return_count, 1, "single return for symbol");
+        ASSERT_EQ(ctx, body.literal_character_count, 0, "no character literals");
         ASSERT_EQ(ctx, body.literal_symbol_count, 1, "symbol literal count");
         ASSERT_EQ(ctx, body.message_send_count, 0, "no message sends");
+    }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ $A", &body), 1,
+                  "parse method body with character return");
+        ASSERT_EQ(ctx, body.return_count, 1, "single return for character");
+        ASSERT_EQ(ctx, body.literal_character_count, 1, "character literal count");
     }
 }

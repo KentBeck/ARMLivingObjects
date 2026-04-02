@@ -9,6 +9,7 @@ typedef enum
     BTOK_IDENTIFIER,
     BTOK_KEYWORD,
     BTOK_INTEGER,
+    BTOK_CHARACTER,
     BTOK_STRING,
     BTOK_SYMBOL,
     BTOK_SPECIAL
@@ -54,6 +55,7 @@ typedef struct
     int assignment_count;
     int return_count;
     int literal_integer_count;
+    int literal_character_count;
     int literal_string_count;
     int literal_symbol_count;
     int message_send_count;
