@@ -7,6 +7,12 @@ See completed.md for all finished work (282 tests).
 A self-hosting Smalltalk: the Smalltalk compiler is written in Smalltalk,
 running on our VM, compiling itself. Then LSP server in Smalltalk.
 
+## Design Philosophy
+
+- Prefer the fewest possible VM primitives for now.
+- Implement behavior in Smalltalk first; do not add new primitives unless required for correctness.
+- Revisit primitive additions only after profiling post-JIT to target proven performance bottlenecks.
+
 ## Dependency Chain
 
 Characters → Strings/Symbols → Collections → Streams →
@@ -15,6 +21,15 @@ LSP Server
 
 ## Plan
 
+### Next (Critical Path)
+
+- [ ] Finish `String>>printString` (Smalltalk)
+- [ ] Finish minimal `Array` protocol needed by compiler
+- [ ] Build minimal `Dictionary` + global `Smalltalk` namespace
+- [ ] Build minimal `ReadStream`/`WriteStream`
+- [ ] Start C bootstrap compiler (scanner/parser/codegen)
+- [ ] Defer `OrderedCollection` until needed by compiler ergonomics/perf
+
 ### 17. Primitive Infrastructure
 
 New primitives needed by the class library. Each is a VM primitive
@@ -22,7 +37,7 @@ dispatched by the interpreter's primitive handler.
 
 - [x] `basicNew` — primitive on Class: allocate fixed-size instance (reads instSize from receiver)
 - [x] `basicNew:` — primitive on Class: allocate indexable/byte instance (reads instFormat from receiver)
-- [ ] `new` / `new:` — Smalltalk methods on Class: `^ self basicNew initialize`
+- [x] `new` / `new:` — Smalltalk methods on Class: `^ self basicNew` / `^ self basicNew: size`
 - [x] `size` — return object size (inst var count or indexable size)
 - [x] `==` — identity comparison (same pointer), returns tagged true/false
 - [x] `basicClass` — primitive: return class of receiver (handles tagged values)
@@ -66,7 +81,7 @@ Selectors (Symbols) are interned Strings — identity comparison suffices.
 
 - [x] String class with `size`, `at:`, `at:put:` (wired to primitives)
 - [x] `=` — byte-by-byte comparison
-- [ ] `,` (comma) — concatenation (allocate new string, copy bytes) — in Smalltalk
+- [x] `,` (comma) — concatenation (allocate new string, copy bytes) — in Smalltalk
 - [x] `hash` — string hash (FNV-1a or similar)
 - [x] `asSymbol` — intern a string (look up in symbol table, add if absent)
 - [x] Symbol table — a global Array of interned strings
@@ -86,6 +101,9 @@ Array is a FORMAT_INDEXABLE object. Already have `at:` and `at:put:` prims.
 ### 21. OrderedCollection
 
 Variable-size collection backed by an Array with first/last indices.
+
+Deferred for now: not on the shortest self-hosting path. Re-enable when
+the compiler/class library needs dynamic growth convenience.
 
 - [ ] `add:` — append, grow if needed
 - [ ] `at:`, `size`
@@ -145,7 +163,7 @@ Smalltalk compiler itself.
 - [ ] Code gen: literal frame — collect literals, intern symbols
 - [ ] Class builder: parse class definition, create Class object with methods
 - [ ] File loader: read .st file, compile all methods, install in classes
-- [ ] Bootstrap: compile String, Array, OrderedCollection, Dictionary, Stream
+- [ ] Bootstrap: compile String, Array, Dictionary, Stream (OrderedCollection later)
 
 ### 25. Class Library (in Smalltalk, compiled by bootstrap compiler)
 
