@@ -361,7 +361,12 @@ static int parse_primary(BParser *parser, BMethodBody *body)
 
     if (token.type == BTOK_SPECIAL && strcmp(token.text, "(") == 0)
     {
-        if (!parse_primary(parser, body))
+        BToken first = bp_next(parser);
+        if (first.type == BTOK_EOF)
+        {
+            return 0;
+        }
+        if (!parse_expression_from_first(parser, body, first))
         {
             return 0;
         }
@@ -414,6 +419,11 @@ static int parse_expression_from_first(BParser *parser, BMethodBody *body, BToke
         {
             bp_unread(parser, token);
             return 1;
+        }
+
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ";") == 0)
+        {
+            continue;
         }
 
         if (token.type == BTOK_IDENTIFIER)

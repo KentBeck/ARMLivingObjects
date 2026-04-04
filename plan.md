@@ -152,7 +152,7 @@ Smalltalk compiler itself.
 - [x] Parser: method syntax — unary, binary, keyword messages
 - [x] Parser: temporaries `| x y |`, assignments `:=`
 - [x] Parser: blocks `[ :arg | body ]`
-- [ ] Parser: cascades `;`, parentheses
+- [x] Parser: cascades `;`, parentheses
 - [ ] Parser: literals (integers, strings, symbols, arrays)
 - [x] Parser: return `^`
 - [ ] Code gen: emit PUSH_LITERAL, PUSH_INST_VAR, PUSH_TEMP, PUSH_SELF

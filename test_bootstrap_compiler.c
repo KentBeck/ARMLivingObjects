@@ -181,4 +181,22 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, bc_parse_method_body("^ [ :x | x + 1", &body), 0,
                   "reject unterminated block body");
     }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ (1 + 2) = 3", &body), 1,
+                  "parse parenthesized expression");
+        ASSERT_EQ(ctx, body.return_count, 1, "parenthesized return count");
+        ASSERT_EQ(ctx, body.literal_integer_count, 3, "parenthesized integer literals");
+        ASSERT_EQ(ctx, body.message_send_count, 2, "parenthesized message sends");
+    }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ stream nextPut: $A; nextPut: $B; contents", &body), 1,
+                  "parse cascade expression");
+        ASSERT_EQ(ctx, body.return_count, 1, "cascade return count");
+        ASSERT_EQ(ctx, body.literal_character_count, 2, "cascade character literals");
+        ASSERT_EQ(ctx, body.message_send_count, 3, "cascade message sends");
+    }
 }
