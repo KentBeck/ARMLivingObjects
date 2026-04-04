@@ -63,4 +63,14 @@ typedef struct
 
 int bc_parse_method_body(const char *source, BMethodBody *body);
 
+typedef struct
+{
+    uint8_t bytecodes[256];
+    int bytecode_count;
+    int literal_count;
+    BToken literals[16];
+} BCompiledBody;
+
+int bc_codegen_method_body(const char *source, BCompiledBody *compiled);
+
 #endif

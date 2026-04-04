@@ -559,6 +559,53 @@ int bc_parse_method_body(const char *source, BMethodBody *body)
     return parse_statements_until(&parser, body, NULL);
 }
 
+int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
+{
+    enum
+    {
+        BC_PUSH_LITERAL = 0,
+        BC_PUSH_SELF = 3,
+        BC_RETURN = 7
+    };
+
+    BTokenizer tokenizer;
+    memset(compiled, 0, sizeof(*compiled));
+    bt_init(&tokenizer, source);
+
+    BToken ret = bt_next(&tokenizer);
+    if (ret.type != BTOK_SPECIAL || strcmp(ret.text, "^") != 0)
+    {
+        return 0;
+    }
+
+    BToken value = bt_next(&tokenizer);
+    BToken eof = bt_next(&tokenizer);
+    if (eof.type != BTOK_EOF)
+    {
+        return 0;
+    }
+
+    if (value.type == BTOK_IDENTIFIER && strcmp(value.text, "self") == 0)
+    {
+        compiled->bytecodes[compiled->bytecode_count++] = BC_PUSH_SELF;
+        compiled->bytecodes[compiled->bytecode_count++] = BC_RETURN;
+        return 1;
+    }
+
+    if (value.type == BTOK_INTEGER || value.type == BTOK_CHARACTER || value.type == BTOK_STRING ||
+        value.type == BTOK_SYMBOL)
+    {
+        compiled->literals[0] = value;
+        compiled->literal_count = 1;
+        compiled->bytecodes[compiled->bytecode_count++] = BC_PUSH_LITERAL;
+        compiled->bytecodes[compiled->bytecode_count++] = 0;
+        compiled->bytecodes[compiled->bytecode_count++] = BC_RETURN;
+        return 1;
+    }
+
+    return 0;
+}
+
 int bc_parse_method_header(const char *source, BMethodHeader *header)
 {
     BTokenizer tokenizer;

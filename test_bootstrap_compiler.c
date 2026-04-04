@@ -229,4 +229,33 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, bc_parse_method_body("^ #(1 #foo", &body), 0,
                   "reject unterminated literal array");
     }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ self", &compiled), 1,
+                  "codegen return self");
+        ASSERT_EQ(ctx, compiled.literal_count, 0, "return self has no literals");
+        ASSERT_EQ(ctx, compiled.bytecode_count, 2, "return self bytecode count");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], 3, "return self push opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[1], 7, "return self return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ #foo", &compiled), 1,
+                  "codegen return literal");
+        ASSERT_EQ(ctx, compiled.literal_count, 1, "return literal count");
+        ASSERT_EQ(ctx, compiled.literals[0].type, BTOK_SYMBOL, "return literal token type");
+        ASSERT_EQ(ctx, strcmp(compiled.literals[0].text, "foo"), 0, "return literal token value");
+        ASSERT_EQ(ctx, compiled.bytecode_count, 3, "return literal bytecode count");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], 0, "return literal push opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[1], 0, "return literal index");
+        ASSERT_EQ(ctx, compiled.bytecodes[2], 7, "return literal return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 0,
+                  "reject codegen without return");
+    }
 }
