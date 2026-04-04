@@ -562,8 +562,10 @@ int bc_parse_method_body(const char *source, BMethodBody *body)
 enum
 {
     BC_CG_PUSH_LITERAL = 0,
+    BC_CG_PUSH_INST_VAR = 1,
     BC_CG_PUSH_TEMP = 2,
     BC_CG_PUSH_SELF = 3,
+    BC_CG_STORE_INST_VAR = 4,
     BC_CG_STORE_TEMP = 5,
     BC_CG_SEND_MESSAGE = 6,
     BC_CG_RETURN = 7,
@@ -632,6 +634,28 @@ static int cg_temp_index(BMethodBody *body, const char *name)
     return -1;
 }
 
+static int cg_inst_var_index(CgState *state, const char *name)
+{
+    for (int index = 0; index < state->compiled->inst_var_count; index++)
+    {
+        if (strcmp(state->compiled->inst_var_names[index], name) == 0)
+        {
+            return index;
+        }
+    }
+
+    if (state->compiled->inst_var_count >= 16)
+    {
+        return -1;
+    }
+
+    int index = state->compiled->inst_var_count;
+    strncpy(state->compiled->inst_var_names[index], name,
+            sizeof(state->compiled->inst_var_names[index]) - 1);
+    state->compiled->inst_var_count++;
+    return index;
+}
+
 static int cg_parse_expression(CgState *state);
 
 static int cg_parse_primary(CgState *state)
@@ -653,6 +677,15 @@ static int cg_parse_primary(CgState *state)
             cg_emit_u32(state, (uint32_t)index);
             return 1;
         }
+
+        index = cg_inst_var_index(state, token.text);
+        if (index >= 0)
+        {
+            cg_emit_byte(state, BC_CG_PUSH_INST_VAR);
+            cg_emit_u32(state, (uint32_t)index);
+            return 1;
+        }
+
         return 0;
     }
 
@@ -821,16 +854,29 @@ static int cg_parse_statements(CgState *state)
             if (maybe_assign.type == BTOK_SPECIAL && strcmp(maybe_assign.text, ":=") == 0)
             {
                 int index = cg_temp_index(&state->body, token.text);
-                if (index < 0)
+                if (index >= 0)
                 {
-                    return 0;
+                    if (!cg_parse_expression(state))
+                    {
+                        return 0;
+                    }
+                    cg_emit_byte(state, BC_CG_STORE_TEMP);
+                    cg_emit_u32(state, (uint32_t)index);
                 }
-                if (!cg_parse_expression(state))
+                else
                 {
-                    return 0;
+                    index = cg_inst_var_index(state, token.text);
+                    if (index < 0)
+                    {
+                        return 0;
+                    }
+                    if (!cg_parse_expression(state))
+                    {
+                        return 0;
+                    }
+                    cg_emit_byte(state, BC_CG_STORE_INST_VAR);
+                    cg_emit_u32(state, (uint32_t)index);
                 }
-                cg_emit_byte(state, BC_CG_STORE_TEMP);
-                cg_emit_u32(state, (uint32_t)index);
 
                 BToken separator = bp_next(&state->parser);
                 if (separator.type == BTOK_EOF)

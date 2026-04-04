@@ -156,9 +156,9 @@ Smalltalk compiler itself.
 - [x] Parser: literals (integers, strings, symbols, arrays)
 - [x] Parser: return `^`
 - [x] Code gen: emit PUSH_LITERAL, PUSH_TEMP, PUSH_SELF
-- [ ] Code gen: emit PUSH_INST_VAR
+- [x] Code gen: emit PUSH_INST_VAR
 - [x] Code gen: emit STORE_TEMP
-- [ ] Code gen: emit STORE_INST_VAR
+- [x] Code gen: emit STORE_INST_VAR
 - [x] Code gen: emit SEND_MESSAGE (unary, binary, keyword)
 - [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE
 - [ ] Code gen: emit PUSH_CLOSURE, DUP

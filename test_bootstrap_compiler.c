@@ -311,6 +311,40 @@ void test_bootstrap_compiler(TestContext *ctx)
 
     {
         BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ foo", &compiled), 1,
+                  "codegen ivar read return");
+        ASSERT_EQ(ctx, compiled.inst_var_count, 1, "ivar count after read");
+        ASSERT_EQ(ctx, strcmp(compiled.inst_var_names[0], "foo"), 0, "ivar name after read");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], 1, "ivar read opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 1), 0, "ivar read index");
+        ASSERT_EQ(ctx, compiled.bytecodes[5], 7, "ivar read return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("foo := 1. ^ foo", &compiled), 1,
+                  "codegen ivar write then read");
+        ASSERT_EQ(ctx, compiled.inst_var_count, 1, "ivar count after write/read");
+        ASSERT_EQ(ctx, strcmp(compiled.inst_var_names[0], "foo"), 0, "ivar name after write/read");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], 0, "ivar write push literal opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[5], 4, "ivar write store opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 6), 0, "ivar write index");
+        ASSERT_EQ(ctx, compiled.bytecodes[10], 1, "ivar read opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 11), 0, "ivar read index reused");
+        ASSERT_EQ(ctx, compiled.bytecodes[15], 7, "ivar write/read return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("foo := 1. bar := 2. ^ bar", &compiled), 1,
+                  "codegen multiple ivars deterministic slots");
+        ASSERT_EQ(ctx, compiled.inst_var_count, 2, "multiple ivar count");
+        ASSERT_EQ(ctx, strcmp(compiled.inst_var_names[0], "foo"), 0, "first ivar name");
+        ASSERT_EQ(ctx, strcmp(compiled.inst_var_names[1], "bar"), 0, "second ivar name");
+    }
+
+    {
+        BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 0,
                   "reject codegen without return");
     }
