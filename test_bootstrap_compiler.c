@@ -8,6 +8,14 @@ static void assert_tok(TestContext *ctx, BTokenizer *tokenizer, BTokenType type,
     ASSERT_EQ(ctx, strcmp(token.text, text), 0, "token text matches");
 }
 
+static uint32_t read_u32(const uint8_t *bytes, int index)
+{
+    return ((uint32_t)bytes[index]) |
+           (((uint32_t)bytes[index + 1]) << 8) |
+           (((uint32_t)bytes[index + 2]) << 16) |
+           (((uint32_t)bytes[index + 3]) << 24);
+}
+
 void test_bootstrap_compiler(TestContext *ctx)
 {
     {
@@ -247,10 +255,58 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, compiled.literal_count, 1, "return literal count");
         ASSERT_EQ(ctx, compiled.literals[0].type, BTOK_SYMBOL, "return literal token type");
         ASSERT_EQ(ctx, strcmp(compiled.literals[0].text, "foo"), 0, "return literal token value");
-        ASSERT_EQ(ctx, compiled.bytecode_count, 3, "return literal bytecode count");
+        ASSERT_EQ(ctx, compiled.bytecode_count, 6, "return literal bytecode count");
         ASSERT_EQ(ctx, compiled.bytecodes[0], 0, "return literal push opcode");
-        ASSERT_EQ(ctx, compiled.bytecodes[1], 0, "return literal index");
-        ASSERT_EQ(ctx, compiled.bytecodes[2], 7, "return literal return opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 1), 0, "return literal index");
+        ASSERT_EQ(ctx, compiled.bytecodes[5], 7, "return literal return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("| x | x := 1. ^ x", &compiled), 1,
+                  "codegen temp assign and return");
+        ASSERT_EQ(ctx, compiled.literal_count, 1, "assignment literal count");
+        ASSERT_EQ(ctx, compiled.literals[0].type, BTOK_INTEGER, "assignment literal type");
+        ASSERT_EQ(ctx, compiled.literals[0].int_value, 1, "assignment literal value");
+        ASSERT_EQ(ctx, compiled.bytecode_count, 16, "assignment bytecode count");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], 0, "assignment push literal opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 1), 0, "assignment push literal index");
+        ASSERT_EQ(ctx, compiled.bytecodes[5], 5, "assignment store temp opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 6), 0, "assignment store temp index");
+        ASSERT_EQ(ctx, compiled.bytecodes[10], 2, "assignment push temp opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 11), 0, "assignment push temp index");
+        ASSERT_EQ(ctx, compiled.bytecodes[15], 7, "assignment return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ 1 + 2", &compiled), 1,
+                  "codegen binary send return");
+        ASSERT_EQ(ctx, compiled.literal_count, 3, "binary send literal count");
+        ASSERT_EQ(ctx, compiled.literals[2].type, BTOK_SYMBOL, "binary selector literal type");
+        ASSERT_EQ(ctx, strcmp(compiled.literals[2].text, "+"), 0, "binary selector literal value");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], 0, "binary push receiver literal");
+        ASSERT_EQ(ctx, compiled.bytecodes[5], 0, "binary push arg literal");
+        ASSERT_EQ(ctx, compiled.bytecodes[10], 6, "binary send opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 11), 2, "binary selector literal index");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 15), 1, "binary arg count");
+        ASSERT_EQ(ctx, compiled.bytecodes[19], 7, "binary return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ self at: 1 put: 2", &compiled), 1,
+                  "codegen keyword send return");
+        ASSERT_EQ(ctx, compiled.literal_count, 3, "keyword send literal count");
+        ASSERT_EQ(ctx, compiled.literals[2].type, BTOK_SYMBOL, "keyword selector literal type");
+        ASSERT_EQ(ctx, strcmp(compiled.literals[2].text, "at:put:"), 0, "keyword selector literal value");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], 3, "keyword push self opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[1], 0, "keyword push first arg literal opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[6], 0, "keyword push second arg literal opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[11], 6, "keyword send opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 12), 2, "keyword selector index");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 16), 2, "keyword arg count");
+        ASSERT_EQ(ctx, compiled.bytecodes[20], 7, "keyword return opcode");
     }
 
     {

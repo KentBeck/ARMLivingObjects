@@ -559,51 +559,331 @@ int bc_parse_method_body(const char *source, BMethodBody *body)
     return parse_statements_until(&parser, body, NULL);
 }
 
-int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
+enum
 {
-    enum
-    {
-        BC_PUSH_LITERAL = 0,
-        BC_PUSH_SELF = 3,
-        BC_RETURN = 7
-    };
+    BC_CG_PUSH_LITERAL = 0,
+    BC_CG_PUSH_TEMP = 2,
+    BC_CG_PUSH_SELF = 3,
+    BC_CG_STORE_TEMP = 5,
+    BC_CG_SEND_MESSAGE = 6,
+    BC_CG_RETURN = 7,
+    BC_CG_POP = 11
+};
 
-    BTokenizer tokenizer;
-    memset(compiled, 0, sizeof(*compiled));
-    bt_init(&tokenizer, source);
+typedef struct
+{
+    BParser parser;
+    BMethodBody body;
+    BCompiledBody *compiled;
+    int saw_return;
+} CgState;
 
-    BToken ret = bt_next(&tokenizer);
-    if (ret.type != BTOK_SPECIAL || strcmp(ret.text, "^") != 0)
+static void cg_emit_byte(CgState *state, uint8_t value)
+{
+    state->compiled->bytecodes[state->compiled->bytecode_count++] = value;
+}
+
+static void cg_emit_u32(CgState *state, uint32_t value)
+{
+    cg_emit_byte(state, (uint8_t)(value & 0xFF));
+    cg_emit_byte(state, (uint8_t)((value >> 8) & 0xFF));
+    cg_emit_byte(state, (uint8_t)((value >> 16) & 0xFF));
+    cg_emit_byte(state, (uint8_t)((value >> 24) & 0xFF));
+}
+
+static int cg_literal_index(CgState *state, BToken literal)
+{
+    for (int index = 0; index < state->compiled->literal_count; index++)
     {
+        BToken existing = state->compiled->literals[index];
+        if (existing.type == literal.type && existing.int_value == literal.int_value &&
+            strcmp(existing.text, literal.text) == 0)
+        {
+            return index;
+        }
+    }
+
+    int index = state->compiled->literal_count;
+    state->compiled->literals[index] = literal;
+    state->compiled->literal_count++;
+    return index;
+}
+
+static int cg_emit_selector_send(CgState *state, const char *selector, uint32_t argc)
+{
+    BToken selector_token = make_token(BTOK_SYMBOL);
+    strncpy(selector_token.text, selector, sizeof(selector_token.text) - 1);
+    int selector_index = cg_literal_index(state, selector_token);
+    cg_emit_byte(state, BC_CG_SEND_MESSAGE);
+    cg_emit_u32(state, (uint32_t)selector_index);
+    cg_emit_u32(state, argc);
+    return 1;
+}
+
+static int cg_temp_index(BMethodBody *body, const char *name)
+{
+    for (int index = 0; index < body->temp_count; index++)
+    {
+        if (strcmp(body->temp_names[index], name) == 0)
+        {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static int cg_parse_expression(CgState *state);
+
+static int cg_parse_primary(CgState *state)
+{
+    BToken token = bp_next(&state->parser);
+
+    if (token.type == BTOK_IDENTIFIER)
+    {
+        if (strcmp(token.text, "self") == 0)
+        {
+            cg_emit_byte(state, BC_CG_PUSH_SELF);
+            return 1;
+        }
+
+        int index = cg_temp_index(&state->body, token.text);
+        if (index >= 0)
+        {
+            cg_emit_byte(state, BC_CG_PUSH_TEMP);
+            cg_emit_u32(state, (uint32_t)index);
+            return 1;
+        }
         return 0;
     }
 
-    BToken value = bt_next(&tokenizer);
-    BToken eof = bt_next(&tokenizer);
-    if (eof.type != BTOK_EOF)
+    if (token.type == BTOK_INTEGER || token.type == BTOK_CHARACTER || token.type == BTOK_STRING ||
+        token.type == BTOK_SYMBOL)
     {
-        return 0;
-    }
-
-    if (value.type == BTOK_IDENTIFIER && strcmp(value.text, "self") == 0)
-    {
-        compiled->bytecodes[compiled->bytecode_count++] = BC_PUSH_SELF;
-        compiled->bytecodes[compiled->bytecode_count++] = BC_RETURN;
+        int index = cg_literal_index(state, token);
+        cg_emit_byte(state, BC_CG_PUSH_LITERAL);
+        cg_emit_u32(state, (uint32_t)index);
         return 1;
     }
 
-    if (value.type == BTOK_INTEGER || value.type == BTOK_CHARACTER || value.type == BTOK_STRING ||
-        value.type == BTOK_SYMBOL)
+    if (token.type == BTOK_SPECIAL && strcmp(token.text, "(") == 0)
     {
-        compiled->literals[0] = value;
-        compiled->literal_count = 1;
-        compiled->bytecodes[compiled->bytecode_count++] = BC_PUSH_LITERAL;
-        compiled->bytecodes[compiled->bytecode_count++] = 0;
-        compiled->bytecodes[compiled->bytecode_count++] = BC_RETURN;
-        return 1;
+        if (!cg_parse_expression(state))
+        {
+            return 0;
+        }
+        BToken close = bp_next(&state->parser);
+        return close.type == BTOK_SPECIAL && strcmp(close.text, ")") == 0;
     }
 
     return 0;
+}
+
+static int cg_parse_expression(CgState *state)
+{
+    if (!cg_parse_primary(state))
+    {
+        return 0;
+    }
+
+    while (1)
+    {
+        BToken token = bp_next(&state->parser);
+        if (token.type == BTOK_EOF)
+        {
+            bp_unread(&state->parser, token);
+            return 1;
+        }
+
+        if (token.type == BTOK_SPECIAL &&
+            (strcmp(token.text, ".") == 0 || strcmp(token.text, ")") == 0 || strcmp(token.text, "]") == 0))
+        {
+            bp_unread(&state->parser, token);
+            return 1;
+        }
+
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ";") == 0)
+        {
+            continue;
+        }
+
+        if (token.type == BTOK_IDENTIFIER)
+        {
+            if (!cg_emit_selector_send(state, token.text, 0))
+            {
+                return 0;
+            }
+            continue;
+        }
+
+        if (token.type == BTOK_SPECIAL && is_binary_selector_char(token.text[0]) && token.text[1] == '\0')
+        {
+            if (!cg_parse_primary(state))
+            {
+                return 0;
+            }
+            if (!cg_emit_selector_send(state, token.text, 1))
+            {
+                return 0;
+            }
+            continue;
+        }
+
+        if (token.type == BTOK_KEYWORD)
+        {
+            char selector[128];
+            selector[0] = '\0';
+            uint32_t argc = 0;
+            BToken current = token;
+
+            while (1)
+            {
+                strncat(selector, current.text, sizeof(selector) - strlen(selector) - 1);
+                if (!cg_parse_primary(state))
+                {
+                    return 0;
+                }
+                argc++;
+                BToken maybe_next = bp_next(&state->parser);
+                if (maybe_next.type != BTOK_KEYWORD)
+                {
+                    bp_unread(&state->parser, maybe_next);
+                    break;
+                }
+                current = maybe_next;
+            }
+
+            if (!cg_emit_selector_send(state, selector, argc))
+            {
+                return 0;
+            }
+            continue;
+        }
+
+        return 0;
+    }
+}
+
+static int cg_parse_temp_decls(CgState *state)
+{
+    BToken token = bp_next(&state->parser);
+    if (token.type == BTOK_SPECIAL && strcmp(token.text, "|") == 0)
+    {
+        while (1)
+        {
+            BToken temp = bp_next(&state->parser);
+            if (temp.type == BTOK_SPECIAL && strcmp(temp.text, "|") == 0)
+            {
+                return 1;
+            }
+            if (temp.type != BTOK_IDENTIFIER || state->body.temp_count >= 16)
+            {
+                return 0;
+            }
+            strncpy(state->body.temp_names[state->body.temp_count], temp.text,
+                    sizeof(state->body.temp_names[state->body.temp_count]) - 1);
+            state->body.temp_count++;
+        }
+    }
+
+    bp_unread(&state->parser, token);
+    return 1;
+}
+
+static int cg_parse_statements(CgState *state)
+{
+    while (1)
+    {
+        BToken token = bp_next(&state->parser);
+        if (token.type == BTOK_EOF)
+        {
+            return 1;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ".") == 0)
+        {
+            continue;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "^") == 0)
+        {
+            if (!cg_parse_expression(state))
+            {
+                return 0;
+            }
+            cg_emit_byte(state, BC_CG_RETURN);
+            state->saw_return = 1;
+
+            BToken eof = bp_next(&state->parser);
+            return eof.type == BTOK_EOF;
+        }
+
+        if (token.type == BTOK_IDENTIFIER)
+        {
+            BToken maybe_assign = bp_next(&state->parser);
+            if (maybe_assign.type == BTOK_SPECIAL && strcmp(maybe_assign.text, ":=") == 0)
+            {
+                int index = cg_temp_index(&state->body, token.text);
+                if (index < 0)
+                {
+                    return 0;
+                }
+                if (!cg_parse_expression(state))
+                {
+                    return 0;
+                }
+                cg_emit_byte(state, BC_CG_STORE_TEMP);
+                cg_emit_u32(state, (uint32_t)index);
+
+                BToken separator = bp_next(&state->parser);
+                if (separator.type == BTOK_EOF)
+                {
+                    return 1;
+                }
+                if (separator.type != BTOK_SPECIAL || strcmp(separator.text, ".") != 0)
+                {
+                    return 0;
+                }
+                continue;
+            }
+            bp_unread(&state->parser, maybe_assign);
+        }
+
+        bp_unread(&state->parser, token);
+        if (!cg_parse_expression(state))
+        {
+            return 0;
+        }
+        cg_emit_byte(state, BC_CG_POP);
+
+        BToken separator = bp_next(&state->parser);
+        if (separator.type == BTOK_EOF)
+        {
+            return 1;
+        }
+        if (separator.type != BTOK_SPECIAL || strcmp(separator.text, ".") != 0)
+        {
+            return 0;
+        }
+    }
+}
+
+int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
+{
+    CgState state;
+    memset(compiled, 0, sizeof(*compiled));
+    memset(&state, 0, sizeof(state));
+    state.compiled = compiled;
+    bp_init(&state.parser, source);
+
+    if (!cg_parse_temp_decls(&state))
+    {
+        return 0;
+    }
+
+    if (!cg_parse_statements(&state))
+    {
+        return 0;
+    }
+
+    return state.saw_return;
 }
 
 int bc_parse_method_header(const char *source, BMethodHeader *header)

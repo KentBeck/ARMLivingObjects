@@ -155,12 +155,15 @@ Smalltalk compiler itself.
 - [x] Parser: cascades `;`, parentheses
 - [x] Parser: literals (integers, strings, symbols, arrays)
 - [x] Parser: return `^`
-- [ ] Code gen: emit PUSH_LITERAL, PUSH_INST_VAR, PUSH_TEMP, PUSH_SELF
-- [ ] Code gen: emit STORE_INST_VAR, STORE_TEMP
-- [ ] Code gen: emit SEND_MESSAGE (unary, binary, keyword)
+- [x] Code gen: emit PUSH_LITERAL, PUSH_TEMP, PUSH_SELF
+- [ ] Code gen: emit PUSH_INST_VAR
+- [x] Code gen: emit STORE_TEMP
+- [ ] Code gen: emit STORE_INST_VAR
+- [x] Code gen: emit SEND_MESSAGE (unary, binary, keyword)
 - [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE
-- [ ] Code gen: emit PUSH_CLOSURE, RETURN, POP, DUP
-- [ ] Code gen: literal frame — collect literals, intern symbols
+- [ ] Code gen: emit PUSH_CLOSURE, DUP
+- [x] Code gen: emit RETURN, POP
+- [ ] Code gen: literal frame — collect literals, intern symbols (interning pending)
 - [ ] Class builder: parse class definition, create Class object with methods
 - [ ] File loader: read .st file, compile all methods, install in classes
 - [ ] Bootstrap: compile String, Array, Dictionary, Stream (OrderedCollection later)
