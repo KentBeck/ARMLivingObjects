@@ -165,4 +165,20 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, body.return_count, 1, "single return for character");
         ASSERT_EQ(ctx, body.literal_character_count, 1, "character literal count");
     }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ [ :x | x + 1 ] value: 2", &body), 1,
+                  "parse method body with block and keyword send");
+        ASSERT_EQ(ctx, body.return_count, 1, "block body return count");
+        ASSERT_EQ(ctx, body.assignment_count, 0, "block body assignment count");
+        ASSERT_EQ(ctx, body.literal_integer_count, 2, "block literal integers");
+        ASSERT_EQ(ctx, body.message_send_count, 2, "block and outer message sends");
+    }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ [ :x | x + 1", &body), 0,
+                  "reject unterminated block body");
+    }
 }

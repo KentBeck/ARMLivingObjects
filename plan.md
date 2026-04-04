@@ -151,7 +151,7 @@ Smalltalk compiler itself.
 - [x] Tokenizer: identifiers, keywords, integers, strings, symbols, special chars
 - [x] Parser: method syntax — unary, binary, keyword messages
 - [x] Parser: temporaries `| x y |`, assignments `:=`
-- [ ] Parser: blocks `[ :arg | body ]`
+- [x] Parser: blocks `[ :arg | body ]`
 - [ ] Parser: cascades `;`, parentheses
 - [ ] Parser: literals (integers, strings, symbols, arrays)
 - [x] Parser: return `^`

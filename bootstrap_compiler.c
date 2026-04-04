@@ -238,6 +238,111 @@ static void count_literal(BMethodBody *body, BToken token)
     }
 }
 
+static int parse_expression_from_first(BParser *parser, BMethodBody *body, BToken first);
+
+static int parse_statements_until(BParser *parser, BMethodBody *body, const char *terminator)
+{
+    BToken token = bp_next(parser);
+
+    while (1)
+    {
+        if (token.type == BTOK_EOF)
+        {
+            return terminator == NULL;
+        }
+
+        if (terminator != NULL && token.type == BTOK_SPECIAL && strcmp(token.text, terminator) == 0)
+        {
+            return 1;
+        }
+
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ".") == 0)
+        {
+            token = bp_next(parser);
+            continue;
+        }
+
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "^") == 0)
+        {
+            body->return_count++;
+            token = bp_next(parser);
+            if (token.type == BTOK_EOF)
+            {
+                return 0;
+            }
+        }
+
+        if (token.type == BTOK_IDENTIFIER)
+        {
+            BToken maybe_assign = bp_next(parser);
+            if (maybe_assign.type == BTOK_SPECIAL && strcmp(maybe_assign.text, ":=") == 0)
+            {
+                body->assignment_count++;
+                BToken assigned_value_start = bp_next(parser);
+                if (assigned_value_start.type == BTOK_EOF)
+                {
+                    return 0;
+                }
+                if (!parse_expression_from_first(parser, body, assigned_value_start))
+                {
+                    return 0;
+                }
+            }
+            else
+            {
+                bp_unread(parser, maybe_assign);
+                if (!parse_expression_from_first(parser, body, token))
+                {
+                    return 0;
+                }
+            }
+        }
+        else
+        {
+            if (!parse_expression_from_first(parser, body, token))
+            {
+                return 0;
+            }
+        }
+
+        token = bp_next(parser);
+    }
+}
+
+static int parse_block(BParser *parser, BMethodBody *body)
+{
+    BToken token = bp_next(parser);
+
+    if (token.type == BTOK_SPECIAL && strcmp(token.text, ":") == 0)
+    {
+        while (1)
+        {
+            BToken arg = bp_next(parser);
+            if (arg.type != BTOK_IDENTIFIER)
+            {
+                return 0;
+            }
+
+            BToken next = bp_next(parser);
+            if (next.type == BTOK_SPECIAL && strcmp(next.text, ":") == 0)
+            {
+                continue;
+            }
+            if (next.type == BTOK_SPECIAL && strcmp(next.text, "|") == 0)
+            {
+                break;
+            }
+            return 0;
+        }
+    }
+    else
+    {
+        bp_unread(parser, token);
+    }
+
+    return parse_statements_until(parser, body, "]");
+}
+
 static int parse_primary(BParser *parser, BMethodBody *body)
 {
     BToken token = bp_next(parser);
@@ -266,11 +371,34 @@ static int parse_primary(BParser *parser, BMethodBody *body)
             return 0;
         }
     }
+    else if (token.type == BTOK_SPECIAL && strcmp(token.text, "[") == 0)
+    {
+        if (!parse_block(parser, body))
+        {
+            return 0;
+        }
+    }
     return 1;
 }
 
 static int parse_expression_from_first(BParser *parser, BMethodBody *body, BToken first)
 {
+    if (first.type == BTOK_SPECIAL && strcmp(first.text, "[") == 0)
+    {
+        if (!parse_block(parser, body))
+        {
+            return 0;
+        }
+    }
+    else if (first.type == BTOK_SPECIAL && strcmp(first.text, "(") == 0)
+    {
+        bp_unread(parser, first);
+        if (!parse_primary(parser, body))
+        {
+            return 0;
+        }
+    }
+
     count_literal(body, first);
 
     while (1)
@@ -361,61 +489,8 @@ int bc_parse_method_body(const char *source, BMethodBody *body)
         }
     }
 
-    while (token.type != BTOK_EOF)
-    {
-        if (token.type == BTOK_SPECIAL && strcmp(token.text, ".") == 0)
-        {
-            token = bp_next(&parser);
-            continue;
-        }
-
-        if (token.type == BTOK_SPECIAL && strcmp(token.text, "^") == 0)
-        {
-            body->return_count++;
-            token = bp_next(&parser);
-            if (token.type == BTOK_EOF)
-            {
-                return 0;
-            }
-        }
-
-        if (token.type == BTOK_IDENTIFIER)
-        {
-            BToken maybe_assign = bp_next(&parser);
-            if (maybe_assign.type == BTOK_SPECIAL && strcmp(maybe_assign.text, ":=") == 0)
-            {
-                body->assignment_count++;
-                BToken assigned_value_start = bp_next(&parser);
-                if (assigned_value_start.type == BTOK_EOF)
-                {
-                    return 0;
-                }
-                if (!parse_expression_from_first(&parser, body, assigned_value_start))
-                {
-                    return 0;
-                }
-            }
-            else
-            {
-                bp_unread(&parser, maybe_assign);
-                if (!parse_expression_from_first(&parser, body, token))
-                {
-                    return 0;
-                }
-            }
-        }
-        else
-        {
-            if (!parse_expression_from_first(&parser, body, token))
-            {
-                return 0;
-            }
-        }
-
-        token = bp_next(&parser);
-    }
-
-    return 1;
+    bp_unread(&parser, token);
+    return parse_statements_until(&parser, body, NULL);
 }
 
 int bc_parse_method_header(const char *source, BMethodHeader *header)
