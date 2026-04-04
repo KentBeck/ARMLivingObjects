@@ -153,7 +153,7 @@ Smalltalk compiler itself.
 - [x] Parser: temporaries `| x y |`, assignments `:=`
 - [x] Parser: blocks `[ :arg | body ]`
 - [x] Parser: cascades `;`, parentheses
-- [ ] Parser: literals (integers, strings, symbols, arrays)
+- [x] Parser: literals (integers, strings, symbols, arrays)
 - [x] Parser: return `^`
 - [ ] Code gen: emit PUSH_LITERAL, PUSH_INST_VAR, PUSH_TEMP, PUSH_SELF
 - [ ] Code gen: emit STORE_INST_VAR, STORE_TEMP

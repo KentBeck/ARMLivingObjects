@@ -164,6 +164,17 @@ BToken bt_next(BTokenizer *tokenizer)
 
     if (character == '#')
     {
+        if (tokenizer->source[tokenizer->index + 1] == '(')
+        {
+            BToken token = make_token(BTOK_SPECIAL);
+            advance(tokenizer); // '#'
+            advance(tokenizer); // '('
+            token.text[0] = '#';
+            token.text[1] = '(';
+            token.text[2] = '\0';
+            return token;
+        }
+
         BToken token = make_token(BTOK_SYMBOL);
         int text_index = 0;
         advance(tokenizer); // '#'
@@ -239,6 +250,37 @@ static void count_literal(BMethodBody *body, BToken token)
 }
 
 static int parse_expression_from_first(BParser *parser, BMethodBody *body, BToken first);
+
+static int parse_literal_array(BParser *parser, BMethodBody *body)
+{
+    while (1)
+    {
+        BToken token = bp_next(parser);
+        if (token.type == BTOK_EOF)
+        {
+            return 0;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ")") == 0)
+        {
+            return 1;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "#(") == 0)
+        {
+            if (!parse_literal_array(parser, body))
+            {
+                return 0;
+            }
+            continue;
+        }
+        if (token.type == BTOK_INTEGER || token.type == BTOK_CHARACTER || token.type == BTOK_STRING ||
+            token.type == BTOK_SYMBOL)
+        {
+            count_literal(body, token);
+            continue;
+        }
+        return 0;
+    }
+}
 
 static int parse_statements_until(BParser *parser, BMethodBody *body, const char *terminator)
 {
@@ -383,6 +425,13 @@ static int parse_primary(BParser *parser, BMethodBody *body)
             return 0;
         }
     }
+    else if (token.type == BTOK_SPECIAL && strcmp(token.text, "#(") == 0)
+    {
+        if (!parse_literal_array(parser, body))
+        {
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -391,6 +440,13 @@ static int parse_expression_from_first(BParser *parser, BMethodBody *body, BToke
     if (first.type == BTOK_SPECIAL && strcmp(first.text, "[") == 0)
     {
         if (!parse_block(parser, body))
+        {
+            return 0;
+        }
+    }
+    else if (first.type == BTOK_SPECIAL && strcmp(first.text, "#(") == 0)
+    {
+        if (!parse_literal_array(parser, body))
         {
             return 0;
         }

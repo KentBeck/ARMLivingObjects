@@ -60,6 +60,19 @@ void test_bootstrap_compiler(TestContext *ctx)
 
     {
         BTokenizer tokenizer;
+        bt_init(&tokenizer, "#(1 #foo)");
+
+        assert_tok(ctx, &tokenizer, BTOK_SPECIAL, "#(");
+        assert_tok(ctx, &tokenizer, BTOK_INTEGER, "1");
+        assert_tok(ctx, &tokenizer, BTOK_SYMBOL, "foo");
+        assert_tok(ctx, &tokenizer, BTOK_SPECIAL, ")");
+
+        BToken eof = bt_next(&tokenizer);
+        ASSERT_EQ(ctx, eof.type, BTOK_EOF, "tokenizer EOF after literal array");
+    }
+
+    {
+        BTokenizer tokenizer;
         bt_init(&tokenizer, "x := 1");
 
         assert_tok(ctx, &tokenizer, BTOK_IDENTIFIER, "x");
@@ -198,5 +211,22 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, body.return_count, 1, "cascade return count");
         ASSERT_EQ(ctx, body.literal_character_count, 2, "cascade character literals");
         ASSERT_EQ(ctx, body.message_send_count, 3, "cascade message sends");
+    }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ #(1 'a' #foo $B)", &body), 1,
+                  "parse literal array expression");
+        ASSERT_EQ(ctx, body.return_count, 1, "literal array return count");
+        ASSERT_EQ(ctx, body.literal_integer_count, 1, "literal array integer count");
+        ASSERT_EQ(ctx, body.literal_string_count, 1, "literal array string count");
+        ASSERT_EQ(ctx, body.literal_symbol_count, 1, "literal array symbol count");
+        ASSERT_EQ(ctx, body.literal_character_count, 1, "literal array character count");
+    }
+
+    {
+        BMethodBody body;
+        ASSERT_EQ(ctx, bc_parse_method_body("^ #(1 #foo", &body), 0,
+                  "reject unterminated literal array");
     }
 }
