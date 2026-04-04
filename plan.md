@@ -160,7 +160,7 @@ Smalltalk compiler itself.
 - [x] Code gen: emit STORE_TEMP
 - [x] Code gen: emit STORE_INST_VAR
 - [x] Code gen: emit SEND_MESSAGE (unary, binary, keyword)
-- [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE
+- [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE (defer: keep conditionals/loops as message sends for now)
 - [ ] Code gen: emit PUSH_CLOSURE, DUP
 - [x] Code gen: emit RETURN, POP
 - [ ] Code gen: literal frame — collect literals, intern symbols (interning pending)
