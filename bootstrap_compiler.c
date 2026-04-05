@@ -844,8 +844,9 @@ static int cg_parse_primary(CgState *state)
         }
         state->compiled->block_count++;
 
-        BToken block_literal = make_token(BTOK_SYMBOL);
-        snprintf(block_literal.text, sizeof(block_literal.text), "__block%d", block_index);
+        BToken block_literal = make_token(BTOK_BLOCK_LITERAL);
+        block_literal.int_value = block_index;
+        snprintf(block_literal.text, sizeof(block_literal.text), "block:%d", block_index);
         int index = cg_literal_index(state, block_literal);
         cg_emit_byte(state, BC_CG_PUSH_CLOSURE);
         cg_emit_u32(state, (uint32_t)index);

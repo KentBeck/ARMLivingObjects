@@ -355,7 +355,8 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 10), 0, "block value arg count");
         ASSERT_EQ(ctx, compiled.bytecodes[14], BC_RETURN, "block expression return opcode");
         ASSERT_EQ(ctx, compiled.literal_count, 2, "block expression literal count");
-        ASSERT_EQ(ctx, strcmp(compiled.literals[0].text, "__block0"), 0, "block placeholder literal");
+        ASSERT_EQ(ctx, compiled.literals[0].type, BTOK_BLOCK_LITERAL, "block literal token type");
+        ASSERT_EQ(ctx, compiled.literals[0].int_value, 0, "block literal block index");
         ASSERT_EQ(ctx, strcmp(compiled.literals[1].text, "value"), 0, "block value selector literal");
         ASSERT_EQ(ctx, compiled.blocks[0].bytecodes[0], BC_PUSH_LITERAL, "compiled block pushes literal");
         ASSERT_EQ(ctx, read_u32(compiled.blocks[0].bytecodes, 1), 0, "compiled block literal index");
