@@ -660,6 +660,53 @@ static int cg_inst_var_index(CgState *state, const char *name)
 
 static int cg_parse_expression(CgState *state);
 
+static int cg_trim_bounds(const char *text, uint64_t *start, uint64_t *end)
+{
+    while (*start < *end && isspace((unsigned char)text[*start]))
+    {
+        (*start)++;
+    }
+    while (*end > *start && isspace((unsigned char)text[*end - 1]))
+    {
+        (*end)--;
+    }
+    return *end >= *start;
+}
+
+static int cg_build_implicit_return_source(const char *raw, char *out, size_t cap)
+{
+    uint64_t start = 0;
+    uint64_t end = (uint64_t)strlen(raw);
+    if (!cg_trim_bounds(raw, &start, &end))
+    {
+        return 0;
+    }
+    if (start == end)
+    {
+        return 0;
+    }
+
+    uint64_t insertion = start;
+    if (raw[insertion] == '|')
+    {
+        uint64_t index = insertion + 1;
+        while (index < end && raw[index] != '|')
+        {
+            index++;
+        }
+        if (index >= end)
+        {
+            return 0;
+        }
+        insertion = index + 1;
+    }
+
+    int written = snprintf(out, cap, "%.*s ^ %.*s",
+                           (int)insertion, raw,
+                           (int)(end - insertion), raw + insertion);
+    return written > 0 && (size_t)written < cap;
+}
+
 static int cg_skip_block_literal(BParser *parser)
 {
     int depth = 1;
@@ -681,6 +728,33 @@ static int cg_skip_block_literal(BParser *parser)
             continue;
         }
     }
+    return 1;
+}
+
+static int cg_compile_and_store_block(CgState *state, const char *raw_source, int block_index)
+{
+    BCompiledBody compiled_block;
+    char implicit_source[1024];
+
+    if (!bc_codegen_method_body(raw_source, &compiled_block))
+    {
+        if (!cg_build_implicit_return_source(raw_source, implicit_source, sizeof(implicit_source)))
+        {
+            return 0;
+        }
+        if (!bc_codegen_method_body(implicit_source, &compiled_block))
+        {
+            return 0;
+        }
+    }
+
+    state->compiled->blocks[block_index].bytecode_count = compiled_block.bytecode_count;
+    memcpy(state->compiled->blocks[block_index].bytecodes, compiled_block.bytecodes,
+           sizeof(state->compiled->blocks[block_index].bytecodes));
+    state->compiled->blocks[block_index].literal_count = compiled_block.literal_count;
+    memcpy(state->compiled->blocks[block_index].literals, compiled_block.literals,
+           sizeof(state->compiled->blocks[block_index].literals));
+
     return 1;
 }
 
@@ -736,12 +810,46 @@ static int cg_parse_primary(CgState *state)
 
     if (token.type == BTOK_SPECIAL && strcmp(token.text, "[") == 0)
     {
+        char block_source[1024];
+        uint64_t start = state->parser.tokenizer.index;
+
+        if (!cg_skip_block_literal(&state->parser))
+        {
+            return 0;
+        }
+
+        if (state->compiled->block_count >= 16)
+        {
+            return 0;
+        }
+
+        uint64_t end = state->parser.tokenizer.index;
+        if (end == 0 || end <= start)
+        {
+            return 0;
+        }
+        uint64_t close = end - 1;
+        uint64_t length = close - start;
+        if (length >= sizeof(block_source))
+        {
+            return 0;
+        }
+        memcpy(block_source, state->parser.tokenizer.source + start, (size_t)length);
+        block_source[length] = '\0';
+
+        int block_index = state->compiled->block_count;
+        if (!cg_compile_and_store_block(state, block_source, block_index))
+        {
+            return 0;
+        }
+        state->compiled->block_count++;
+
         BToken block_literal = make_token(BTOK_SYMBOL);
-        snprintf(block_literal.text, sizeof(block_literal.text), "__block%d", state->compiled->literal_count);
+        snprintf(block_literal.text, sizeof(block_literal.text), "__block%d", block_index);
         int index = cg_literal_index(state, block_literal);
         cg_emit_byte(state, BC_CG_PUSH_CLOSURE);
         cg_emit_u32(state, (uint32_t)index);
-        return cg_skip_block_literal(&state->parser);
+        return 1;
     }
 
     return 0;

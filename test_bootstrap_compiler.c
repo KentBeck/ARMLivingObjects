@@ -347,6 +347,7 @@ void test_bootstrap_compiler(TestContext *ctx)
         BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ [ 1 ] value", &compiled), 1,
                   "codegen block literal with unary send");
+        ASSERT_EQ(ctx, compiled.block_count, 1, "block literal compiles one block body");
         ASSERT_EQ(ctx, compiled.bytecodes[0], BC_PUSH_CLOSURE, "block push closure opcode");
         ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 1), 0, "block literal index");
         ASSERT_EQ(ctx, compiled.bytecodes[5], BC_SEND_MESSAGE, "block send value opcode");
@@ -356,12 +357,19 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, compiled.literal_count, 2, "block expression literal count");
         ASSERT_EQ(ctx, strcmp(compiled.literals[0].text, "__block0"), 0, "block placeholder literal");
         ASSERT_EQ(ctx, strcmp(compiled.literals[1].text, "value"), 0, "block value selector literal");
+        ASSERT_EQ(ctx, compiled.blocks[0].bytecodes[0], BC_PUSH_LITERAL, "compiled block pushes literal");
+        ASSERT_EQ(ctx, read_u32(compiled.blocks[0].bytecodes, 1), 0, "compiled block literal index");
+        ASSERT_EQ(ctx, compiled.blocks[0].bytecodes[5], BC_RETURN, "compiled block returns top");
+        ASSERT_EQ(ctx, compiled.blocks[0].literal_count, 1, "compiled block literal count");
+        ASSERT_EQ(ctx, compiled.blocks[0].literals[0].type, BTOK_INTEGER, "compiled block literal type");
+        ASSERT_EQ(ctx, compiled.blocks[0].literals[0].int_value, 1, "compiled block literal value");
     }
 
     {
         BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ [ [ 1 ] value ] value", &compiled), 1,
                   "codegen nested block literal balancing");
+        ASSERT_EQ(ctx, compiled.block_count >= 1, 1, "nested block creates at least outer block body");
     }
 
     {

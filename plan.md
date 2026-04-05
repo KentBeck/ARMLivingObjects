@@ -153,7 +153,8 @@ Smalltalk compiler itself.
 
 - [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE (defer: keep conditionals/loops as message sends for now)
 - [x] Code gen: emit PUSH_CLOSURE (block literal placeholder + balanced parsing)
-- [ ] Code gen: compile block bodies to CompiledMethod literals (replace placeholder)
+- [x] Code gen: compile block bodies into nested codegen block tables
+- [ ] Code gen/class builder: materialize block CompiledMethod objects and replace `__blockN` placeholders
 - [ ] Code gen: emit DUP
 - [ ] Code gen: literal frame — collect literals, intern symbols (interning pending)
 - [ ] Class builder: parse class definition, create Class object with methods

@@ -69,8 +69,18 @@ typedef struct
     int bytecode_count;
     int literal_count;
     BToken literals[16];
+} BCompiledBlock;
+
+typedef struct
+{
+    uint8_t bytecodes[256];
+    int bytecode_count;
+    int literal_count;
+    BToken literals[16];
     int inst_var_count;
     char inst_var_names[16][32];
+    int block_count;
+    BCompiledBlock blocks[16];
 } BCompiledBody;
 
 int bc_codegen_method_body(const char *source, BCompiledBody *compiled);
