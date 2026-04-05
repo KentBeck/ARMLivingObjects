@@ -1,7 +1,9 @@
 "Dictionary — array of Associations with linear search"
 
+!Dictionary methodsFor: 'accessing'!
 size
     ^ tally
+!
 
 at: aKey
     | index |
@@ -9,6 +11,7 @@ at: aKey
     ^ (index = 0)
         ifTrue: [nil]
         ifFalse: [(associations at: index) value]
+!
 
 at: aKey ifAbsent: aBlock
     | index |
@@ -16,11 +19,13 @@ at: aKey ifAbsent: aBlock
     ^ (index = 0)
         ifTrue: [aBlock value]
         ifFalse: [(associations at: index) value]
+!
 
 includesKey: aKey
     ^ (self indexOfKey: aKey startingAt: 1) = 0
         ifTrue: [false]
         ifFalse: [true]
+!
 
 at: aKey put: aValue
     | index assoc |
@@ -38,7 +43,9 @@ at: aKey put: aValue
             (associations at: index) value: aValue.
             aValue
         ]
+!
 
+!Dictionary methodsFor: 'private'!
 ensureStorage
     (associations == nil)
         ifTrue: [
@@ -50,6 +57,7 @@ ensureStorage
     (tally < associations size)
         ifTrue: [^ self]
         ifFalse: [self growStorage]
+!
 
 growStorage
     | old newStorage newSize |
@@ -59,6 +67,7 @@ growStorage
     self copyAssociationsFrom: old to: newStorage startingAt: 1.
     associations := newStorage.
     ^ self
+!
 
 copyAssociationsFrom: oldStorage to: newStorage startingAt: index
     ^ (index < (tally + 1))
@@ -67,6 +76,7 @@ copyAssociationsFrom: oldStorage to: newStorage startingAt: index
             self copyAssociationsFrom: oldStorage to: newStorage startingAt: index + 1
         ]
         ifFalse: [self]
+!
 
 indexOfKey: aKey startingAt: index
     ^ (associations == nil)
@@ -80,4 +90,4 @@ indexOfKey: aKey startingAt: index
                 ]
                 ifFalse: [0]
         ]
-
+!

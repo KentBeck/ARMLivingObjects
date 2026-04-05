@@ -1,25 +1,33 @@
 "ReadStream — sequential read over a collection"
 
+!ReadStream class methodsFor: 'instance creation'!
 on: aCollection
     ^ self new initializeOn: aCollection
+!
 
+!ReadStream methodsFor: 'initialization'!
 initializeOn: aCollection
     collection := aCollection.
     position := 1.
     ^ self
+!
 
+!ReadStream methodsFor: 'accessing'!
 position
     ^ position
+!
 
 atEnd
     ^ (position < (collection size + 1))
         ifTrue: [false]
         ifFalse: [true]
+!
 
 peek
     ^ self atEnd
         ifTrue: [nil]
         ifFalse: [collection at: position]
+!
 
 next
     | value |
@@ -30,6 +38,7 @@ next
             position := position + 1.
             value
         ]
+!
 
 upToEnd
     | result |
@@ -37,7 +46,9 @@ upToEnd
     self copyTo: result sourceIndex: position destIndex: 1.
     position := collection size + 1.
     ^ result
+!
 
+!ReadStream methodsFor: 'private'!
 copyTo: aString sourceIndex: sourceIndex destIndex: destIndex
     ^ (sourceIndex < (collection size + 1))
         ifTrue: [
@@ -45,4 +56,4 @@ copyTo: aString sourceIndex: sourceIndex destIndex: destIndex
             self copyTo: aString sourceIndex: sourceIndex + 1 destIndex: destIndex + 1
         ]
         ifFalse: [aString]
-
+!

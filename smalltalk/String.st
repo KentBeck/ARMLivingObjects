@@ -1,23 +1,33 @@
 "String — byte-indexable sequence of characters"
 
+!String methodsFor: 'accessing'!
 size
     <primitive: 11>
+!
 
 at: index
     <primitive: 7>
+!
 
 at: index put: value
     <primitive: 9>
+!
 
+!String methodsFor: 'comparing'!
 = aString
     <primitive: 25>
+!
 
 hash
     <primitive: 26>
+!
 
+!String methodsFor: 'converting'!
 asSymbol
     <primitive: 27>
+!
 
+!String methodsFor: 'printing'!
 printString
     | i |
     i := 1.
@@ -26,7 +36,9 @@ printString
         i := i + 1
     ].
     ^ self
+!
 
+!String methodsFor: 'concatenation'!
 , aString
     | result i offset |
     result := String new: self size + aString size.
@@ -45,3 +57,4 @@ printString
     ].
 
     ^ result
+!
