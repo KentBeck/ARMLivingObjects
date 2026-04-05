@@ -1,6 +1,6 @@
 # ARM Living Objects — Road to Self-Hosting Smalltalk
 
-See completed.md for all finished work (282 tests).
+See completed.md for all finished work (594 tests).
 
 ## Goal
 
@@ -23,12 +23,13 @@ LSP Server
 
 ### Next (Critical Path)
 
-- [x] Finish `String>>printString` (Smalltalk)
-- [x] Finish minimal `Array` protocol needed by compiler
-- [x] Build minimal `Dictionary` + global `Smalltalk` namespace
-- [x] Build minimal `ReadStream`/`WriteStream`
-- [x] Start C bootstrap compiler (scanner/parser/codegen)
-- [ ] Defer `OrderedCollection` until needed by compiler ergonomics/perf
+- [ ] Add `PUSH_CLOSURE` codegen for block literals
+- [ ] Implement class builder (`Class` + method install from parsed source)
+- [ ] Implement `.st` file loader (compile/install methods into classes)
+- [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
+- [ ] Start minimal Smalltalk compiler in Smalltalk and compile with C bootstrap
+- [ ] Run first self-hosting check (Smalltalk compiler recompiles itself)
+- [ ] Keep `OrderedCollection` deferred unless compiler ergonomics demand it
 
 ### 17. Primitive Infrastructure
 
@@ -148,21 +149,10 @@ Reads `.st` source files, emits bytecoded CompiledMethod objects
 into the heap. Just enough to compile the class library and the
 Smalltalk compiler itself.
 
-- [x] Tokenizer: identifiers, keywords, integers, strings, symbols, special chars
-- [x] Parser: method syntax — unary, binary, keyword messages
-- [x] Parser: temporaries `| x y |`, assignments `:=`
-- [x] Parser: blocks `[ :arg | body ]`
-- [x] Parser: cascades `;`, parentheses
-- [x] Parser: literals (integers, strings, symbols, arrays)
-- [x] Parser: return `^`
-- [x] Code gen: emit PUSH_LITERAL, PUSH_TEMP, PUSH_SELF
-- [x] Code gen: emit PUSH_INST_VAR
-- [x] Code gen: emit STORE_TEMP
-- [x] Code gen: emit STORE_INST_VAR
-- [x] Code gen: emit SEND_MESSAGE (unary, binary, keyword)
+- Completed items moved to `completed.md`.
+
 - [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE (defer: keep conditionals/loops as message sends for now)
 - [ ] Code gen: emit PUSH_CLOSURE, DUP
-- [x] Code gen: emit RETURN, POP
 - [ ] Code gen: literal frame — collect literals, intern symbols (interning pending)
 - [ ] Class builder: parse class definition, create Class object with methods
 - [ ] File loader: read .st file, compile all methods, install in classes

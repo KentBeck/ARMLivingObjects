@@ -64,5 +64,27 @@ Word size (W) = 8 bytes on ARM64.
 ### 15. Generational Garbage Collection ✅
 ### 16. Persistence ✅
 
-282 tests, all passing.
+## Recent Milestones
 
+### 17. Primitive Infrastructure ✅
+
+- `basicNew` / `basicNew:` primitives and `Class>>new` / `Class>>new:`
+- `size`, `==`, `basicClass`, `class`, `hash`, `printChar`, `value:`, `perform:`, `halt`
+- `at:` / `at:put:` behavior unified across indexable/byte layouts
+
+### 18–23. Core Library Path ✅
+
+- Character immediates and character primitives, including `$A` tokenizer support in bootstrap compiler
+- String, Symbol interning/equality primitives, Array, Association, Dictionary (linear search)
+- Global `Smalltalk` namespace bootstrap (`SystemDictionary`)
+- ReadStream / WriteStream minimal protocols for scanner and codegen pipeline
+
+### 24. Bootstrap Compiler (C) — Implemented So Far ✅
+
+- Tokenizer: identifiers, keywords, integers, strings, symbols, assignment `:=`, character literals, literal arrays
+- Parser coverage: method headers, temps, assignments, returns, blocks, cascades, parentheses, literals
+- Codegen coverage: `PUSH_LITERAL`, `PUSH_SELF`, `PUSH_TEMP`, `PUSH_INST_VAR`, `STORE_TEMP`, `STORE_INST_VAR`, `SEND_MESSAGE`, `RETURN`, `POP`
+- Deterministic temp/ivar slot resolution and literal table collection
+- Symbol equality verified at both runtime dispatch and Smalltalk source level (`Symbol>>= ^ self == aSymbol`)
+
+594 tests, all passing.
