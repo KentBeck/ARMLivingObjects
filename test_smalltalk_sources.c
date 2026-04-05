@@ -17,6 +17,7 @@ void test_smalltalk_sources(TestContext *ctx)
 {
     char class_src[4096];
     char string_src[8192];
+    char symbol_src[2048];
     char array_src[4096];
     char association_src[4096];
     char dictionary_src[12288];
@@ -45,6 +46,13 @@ void test_smalltalk_sources(TestContext *ctx)
               "String>>printString exists");
     ASSERT_EQ(ctx, strstr(string_src, "(self at: i) asCharacter printChar.") != NULL, 1,
               "String>>printString prints chars via asCharacter printChar");
+
+    ASSERT_EQ(ctx, read_file("smalltalk/Symbol.st", symbol_src, sizeof(symbol_src)), 1,
+              "smalltalk/Symbol.st exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "= aSymbol") != NULL, 1,
+              "Symbol>>= method exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "^ self == aSymbol") != NULL, 1,
+              "Symbol>>= uses identity equality");
 
     ASSERT_EQ(ctx, read_file("smalltalk/Array.st", array_src, sizeof(array_src)), 1,
               "smalltalk/Array.st exists");
