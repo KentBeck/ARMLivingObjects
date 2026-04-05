@@ -345,6 +345,27 @@ void test_bootstrap_compiler(TestContext *ctx)
 
     {
         BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ [ 1 ] value", &compiled), 1,
+                  "codegen block literal with unary send");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], BC_PUSH_CLOSURE, "block push closure opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 1), 0, "block literal index");
+        ASSERT_EQ(ctx, compiled.bytecodes[5], BC_SEND_MESSAGE, "block send value opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 6), 1, "block selector index");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 10), 0, "block value arg count");
+        ASSERT_EQ(ctx, compiled.bytecodes[14], BC_RETURN, "block expression return opcode");
+        ASSERT_EQ(ctx, compiled.literal_count, 2, "block expression literal count");
+        ASSERT_EQ(ctx, strcmp(compiled.literals[0].text, "__block0"), 0, "block placeholder literal");
+        ASSERT_EQ(ctx, strcmp(compiled.literals[1].text, "value"), 0, "block value selector literal");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ [ [ 1 ] value ] value", &compiled), 1,
+                  "codegen nested block literal balancing");
+    }
+
+    {
+        BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 0,
                   "reject codegen without return");
     }

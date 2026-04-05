@@ -152,7 +152,9 @@ Smalltalk compiler itself.
 - Completed items moved to `completed.md`.
 
 - [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE (defer: keep conditionals/loops as message sends for now)
-- [ ] Code gen: emit PUSH_CLOSURE, DUP
+- [x] Code gen: emit PUSH_CLOSURE (block literal placeholder + balanced parsing)
+- [ ] Code gen: compile block bodies to CompiledMethod literals (replace placeholder)
+- [ ] Code gen: emit DUP
 - [ ] Code gen: literal frame — collect literals, intern symbols (interning pending)
 - [ ] Class builder: parse class definition, create Class object with methods
 - [ ] File loader: read .st file, compile all methods, install in classes

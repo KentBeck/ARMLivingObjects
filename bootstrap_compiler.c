@@ -1,6 +1,7 @@
 #include "bootstrap_compiler.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <string.h>
 
 static char peek(BTokenizer *tokenizer)
@@ -569,6 +570,7 @@ enum
     BC_CG_STORE_TEMP = 5,
     BC_CG_SEND_MESSAGE = 6,
     BC_CG_RETURN = 7,
+    BC_CG_PUSH_CLOSURE = 14,
     BC_CG_POP = 11
 };
 
@@ -658,6 +660,30 @@ static int cg_inst_var_index(CgState *state, const char *name)
 
 static int cg_parse_expression(CgState *state);
 
+static int cg_skip_block_literal(BParser *parser)
+{
+    int depth = 1;
+    while (depth > 0)
+    {
+        BToken token = bp_next(parser);
+        if (token.type == BTOK_EOF)
+        {
+            return 0;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "[") == 0)
+        {
+            depth++;
+            continue;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "]") == 0)
+        {
+            depth--;
+            continue;
+        }
+    }
+    return 1;
+}
+
 static int cg_parse_primary(CgState *state)
 {
     BToken token = bp_next(&state->parser);
@@ -706,6 +732,16 @@ static int cg_parse_primary(CgState *state)
         }
         BToken close = bp_next(&state->parser);
         return close.type == BTOK_SPECIAL && strcmp(close.text, ")") == 0;
+    }
+
+    if (token.type == BTOK_SPECIAL && strcmp(token.text, "[") == 0)
+    {
+        BToken block_literal = make_token(BTOK_SYMBOL);
+        snprintf(block_literal.text, sizeof(block_literal.text), "__block%d", state->compiled->literal_count);
+        int index = cg_literal_index(state, block_literal);
+        cg_emit_byte(state, BC_CG_PUSH_CLOSURE);
+        cg_emit_u32(state, (uint32_t)index);
+        return cg_skip_block_literal(&state->parser);
     }
 
     return 0;
