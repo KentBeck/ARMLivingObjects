@@ -378,4 +378,33 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 0,
                   "reject codegen without return");
     }
+
+    {
+        const char *source =
+            "!Object methodsFor: 'comparing'!\n"
+            "== anObject\n"
+            "    <primitive: 12>\n"
+            "!\n"
+            "\n"
+            "!ReadStream class methodsFor: 'instance creation'!\n"
+            "on: aCollection\n"
+            "    ^ self new initializeOn: aCollection\n"
+            "!\n";
+        BMethodChunk chunks[8];
+        int count = 0;
+        ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 8, &count), 1,
+                  "parse chunk methods source");
+        ASSERT_EQ(ctx, count, 2, "chunk method count");
+        ASSERT_EQ(ctx, strcmp(chunks[0].class_name, "Object"), 0, "chunk class name");
+        ASSERT_EQ(ctx, chunks[0].class_side, 0, "chunk class-side false");
+        ASSERT_EQ(ctx, strcmp(chunks[0].category, "comparing"), 0, "chunk category");
+        ASSERT_EQ(ctx, strstr(chunks[0].method_source, "== anObject") != NULL, 1,
+                  "chunk method source content");
+        ASSERT_EQ(ctx, strcmp(chunks[1].class_name, "ReadStream"), 0, "chunk class-side class name");
+        ASSERT_EQ(ctx, chunks[1].class_side, 1, "chunk class-side true");
+        ASSERT_EQ(ctx, strcmp(chunks[1].category, "instance creation"), 0,
+                  "chunk class-side category");
+        ASSERT_EQ(ctx, strstr(chunks[1].method_source, "on: aCollection") != NULL, 1,
+                  "chunk class-side method content");
+    }
 }

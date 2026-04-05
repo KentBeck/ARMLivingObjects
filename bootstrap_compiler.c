@@ -1162,3 +1162,182 @@ int bc_parse_method_header(const char *source, BMethodHeader *header)
 
     return 0;
 }
+
+static int starts_with(const char *text, uint64_t index, const char *prefix)
+{
+    uint64_t offset = 0;
+    while (prefix[offset] != '\0')
+    {
+        if (text[index + offset] != prefix[offset])
+        {
+            return 0;
+        }
+        offset++;
+    }
+    return 1;
+}
+
+int bc_parse_method_chunks(const char *source, BMethodChunk *chunks, int max_chunks, int *out_count)
+{
+    uint64_t index = 0;
+    char current_class[64] = {0};
+    int current_class_side = 0;
+    char current_category[64] = {0};
+    *out_count = 0;
+
+    while (source[index] != '\0')
+    {
+        if (source[index] == '!')
+        {
+            uint64_t segment_start = ++index;
+            while (source[index] != '\0' && source[index] != '!')
+            {
+                index++;
+            }
+            if (source[index] != '!')
+            {
+                return 0;
+            }
+            uint64_t segment_end = index++;
+
+            while (segment_start < segment_end &&
+                   (source[segment_start] == ' ' || source[segment_start] == '\t' ||
+                    source[segment_start] == '\n' || source[segment_start] == '\r'))
+            {
+                segment_start++;
+            }
+            while (segment_end > segment_start &&
+                   (source[segment_end - 1] == ' ' || source[segment_end - 1] == '\t' ||
+                    source[segment_end - 1] == '\n' || source[segment_end - 1] == '\r'))
+            {
+                segment_end--;
+            }
+            if (segment_end <= segment_start)
+            {
+                continue;
+            }
+
+            char segment[1200];
+            uint64_t segment_len = segment_end - segment_start;
+            if (segment_len >= sizeof(segment))
+            {
+                return 0;
+            }
+            memcpy(segment, source + segment_start, (size_t)segment_len);
+            segment[segment_len] = '\0';
+
+            if (strstr(segment, "methodsFor:") != NULL)
+            {
+                uint64_t pos = 0;
+                int class_len = 0;
+                while ((isalnum((unsigned char)segment[pos]) || segment[pos] == '_') &&
+                       class_len < (int)sizeof(current_class) - 1)
+                {
+                    current_class[class_len++] = segment[pos++];
+                }
+                current_class[class_len] = '\0';
+                while (segment[pos] == ' ' || segment[pos] == '\t')
+                {
+                    pos++;
+                }
+
+                current_class_side = 0;
+                if (starts_with(segment, pos, "class"))
+                {
+                    current_class_side = 1;
+                    pos += 5;
+                    while (segment[pos] == ' ' || segment[pos] == '\t')
+                    {
+                        pos++;
+                    }
+                }
+                if (!starts_with(segment, pos, "methodsFor:"))
+                {
+                    return 0;
+                }
+                pos += 11;
+                while (segment[pos] == ' ' || segment[pos] == '\t')
+                {
+                    pos++;
+                }
+                if (segment[pos] != '\'')
+                {
+                    return 0;
+                }
+                pos++;
+
+                int category_len = 0;
+                while (segment[pos] != '\0' && segment[pos] != '\'' &&
+                       category_len < (int)sizeof(current_category) - 1)
+                {
+                    current_category[category_len++] = segment[pos++];
+                }
+                current_category[category_len] = '\0';
+                if (segment[pos] != '\'')
+                {
+                    return 0;
+                }
+            }
+
+            continue;
+        }
+
+        if (current_class[0] == '\0')
+        {
+            index++;
+            continue;
+        }
+
+        uint64_t method_start = index;
+        while (source[index] != '\0' && source[index] != '!')
+        {
+            index++;
+        }
+        if (source[index] != '!')
+        {
+            break;
+        }
+        uint64_t method_end = index;
+
+        while (method_start < method_end &&
+               (source[method_start] == ' ' || source[method_start] == '\t' ||
+                source[method_start] == '\n' || source[method_start] == '\r'))
+        {
+            method_start++;
+        }
+        while (method_end > method_start &&
+               (source[method_end - 1] == ' ' || source[method_end - 1] == '\t' ||
+                source[method_end - 1] == '\n' || source[method_end - 1] == '\r'))
+        {
+            method_end--;
+        }
+        if (method_end <= method_start)
+        {
+            // Preserve '!' so the next iteration can parse a header chunk.
+            continue;
+        }
+
+        // Consume method terminator '!'.
+        index++;
+
+        if (*out_count >= max_chunks)
+        {
+            return 0;
+        }
+        BMethodChunk *chunk = &chunks[*out_count];
+        memset(chunk, 0, sizeof(*chunk));
+        strncpy(chunk->class_name, current_class, sizeof(chunk->class_name) - 1);
+        chunk->class_side = current_class_side;
+        strncpy(chunk->category, current_category, sizeof(chunk->category) - 1);
+        uint64_t method_len = method_end - method_start;
+        if (method_len >= sizeof(chunk->method_source))
+        {
+            return 0;
+        }
+        memcpy(chunk->method_source, source + method_start, (size_t)method_len);
+        chunk->method_source[method_len] = '\0';
+        (*out_count)++;
+    }
+
+    return 1;
+}
