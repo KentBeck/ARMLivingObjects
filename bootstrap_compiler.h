@@ -108,4 +108,7 @@ typedef struct
 int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,
                              BCompiledMethodDef *methods, int max_methods, int *out_count);
 
+int bc_compile_source_methods(const char *source,
+                              BCompiledMethodDef *methods, int max_methods, int *out_count);
+
 #endif

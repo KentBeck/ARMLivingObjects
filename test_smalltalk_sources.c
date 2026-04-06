@@ -1,4 +1,5 @@
 #include "test_defs.h"
+#include "bootstrap_compiler.h"
 
 static int read_file(const char *path, char *buf, size_t cap)
 {
@@ -24,6 +25,8 @@ void test_smalltalk_sources(TestContext *ctx)
     char system_dictionary_src[4096];
     char read_stream_src[8192];
     char write_stream_src[8192];
+    BCompiledMethodDef methods[64];
+    int method_count = 0;
 
     ASSERT_EQ(ctx, read_file("smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "smalltalk/Class.st exists");
@@ -31,6 +34,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "Class>>new delegates to basicNew");
     ASSERT_EQ(ctx, strstr(class_src, "new: size\n    ^ self basicNew: size") != NULL, 1,
               "Class>>new: delegates to basicNew:");
+    ASSERT_EQ(ctx, bc_compile_source_methods(class_src, methods, 64, &method_count), 1,
+              "Class.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 4, "Class.st method count");
+    ASSERT_EQ(ctx, strcmp(methods[0].class_name, "Class"), 0, "Class.st compiled class name");
 
     ASSERT_EQ(ctx, read_file("smalltalk/String.st", string_src, sizeof(string_src)), 1,
               "smalltalk/String.st exists");
@@ -53,6 +60,9 @@ void test_smalltalk_sources(TestContext *ctx)
               "Symbol>>= method exists");
     ASSERT_EQ(ctx, strstr(symbol_src, "^ self == aSymbol") != NULL, 1,
               "Symbol>>= uses identity equality");
+    ASSERT_EQ(ctx, bc_compile_source_methods(symbol_src, methods, 64, &method_count), 1,
+              "Symbol.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 1, "Symbol.st method count");
 
     ASSERT_EQ(ctx, read_file("smalltalk/Array.st", array_src, sizeof(array_src)), 1,
               "smalltalk/Array.st exists");
@@ -62,6 +72,9 @@ void test_smalltalk_sources(TestContext *ctx)
               "Array>>at: uses primitive 7");
     ASSERT_EQ(ctx, strstr(array_src, "at: index put: value\n    <primitive: 9>") != NULL, 1,
               "Array>>at:put: uses primitive 9");
+    ASSERT_EQ(ctx, bc_compile_source_methods(array_src, methods, 64, &method_count), 1,
+              "Array.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 3, "Array.st method count");
 
     ASSERT_EQ(ctx, read_file("smalltalk/Association.st", association_src, sizeof(association_src)), 1,
               "smalltalk/Association.st exists");
@@ -69,6 +82,9 @@ void test_smalltalk_sources(TestContext *ctx)
               "Association has key:value: initializer");
     ASSERT_EQ(ctx, strstr(association_src, "value: anObject") != NULL, 1,
               "Association has value: mutator");
+    ASSERT_EQ(ctx, bc_compile_source_methods(association_src, methods, 64, &method_count), 1,
+              "Association.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 5, "Association.st method count");
 
     ASSERT_EQ(ctx, read_file("smalltalk/Dictionary.st", dictionary_src, sizeof(dictionary_src)), 1,
               "smalltalk/Dictionary.st exists");

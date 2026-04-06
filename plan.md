@@ -24,7 +24,7 @@ LSP Server
 
 ### Next (Critical Path)
 
-- [ ] Add `PUSH_CLOSURE` codegen for block literals
+- [x] Add `PUSH_CLOSURE` codegen for block literals
 - [ ] Implement class builder (`Class` + method install from parsed source)
 - [ ] Implement `.st` file loader (compile/install methods into classes)
 - [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
@@ -155,6 +155,7 @@ Smalltalk compiler itself.
 - [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE (defer: keep conditionals/loops as message sends for now)
 - [x] Code gen: emit PUSH_CLOSURE (block literal placeholder + balanced parsing)
 - [x] Code gen: compile block bodies into nested codegen block tables
+- [x] Loader: compile chunked `.st` source text into method definitions (`bc_compile_source_methods`)
 - [ ] Code gen/class builder: materialize block CompiledMethod objects and replace `__blockN` placeholders
 - [ ] Code gen: emit DUP
 - [ ] Code gen: literal frame — collect literals, intern symbols (interning pending)

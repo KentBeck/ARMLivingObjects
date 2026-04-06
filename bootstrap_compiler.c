@@ -895,11 +895,27 @@ static int cg_parse_expression(CgState *state)
 
         if (token.type == BTOK_SPECIAL && is_binary_selector_char(token.text[0]) && token.text[1] == '\0')
         {
+            char selector[4];
+            selector[0] = token.text[0];
+            selector[1] = '\0';
+
+            BToken maybe_second = bp_next(&state->parser);
+            if (maybe_second.type == BTOK_SPECIAL && is_binary_selector_char(maybe_second.text[0]) &&
+                maybe_second.text[1] == '\0')
+            {
+                selector[1] = maybe_second.text[0];
+                selector[2] = '\0';
+            }
+            else
+            {
+                bp_unread(&state->parser, maybe_second);
+            }
+
             if (!cg_parse_primary(state))
             {
                 return 0;
             }
-            if (!cg_emit_selector_send(state, token.text, 1))
+            if (!cg_emit_selector_send(state, selector, 1))
             {
                 return 0;
             }
@@ -1420,4 +1436,23 @@ int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,
     }
 
     return 1;
+}
+
+int bc_compile_source_methods(const char *source,
+                              BCompiledMethodDef *methods, int max_methods, int *out_count)
+{
+    BMethodChunk chunks[128];
+    int chunk_count = 0;
+
+    if (max_methods <= 0 || max_methods > (int)(sizeof(chunks) / sizeof(chunks[0])))
+    {
+        return 0;
+    }
+
+    if (!bc_parse_method_chunks(source, chunks, max_methods, &chunk_count))
+    {
+        return 0;
+    }
+
+    return bc_compile_method_chunks(chunks, chunk_count, methods, max_methods, out_count);
 }
