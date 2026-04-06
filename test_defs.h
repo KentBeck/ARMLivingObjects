@@ -291,5 +291,6 @@ void test_string_dispatch(TestContext *ctx);
 void test_array_dispatch(TestContext *ctx);
 void test_symbol_dispatch(TestContext *ctx);
 void test_bootstrap_compiler(TestContext *ctx);
+void test_smalltalk_expressions(TestContext *ctx);
 
 #endif

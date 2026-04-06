@@ -178,6 +178,7 @@ int main()
     test_array_dispatch(&ctx);
     test_symbol_dispatch(&ctx);
     test_bootstrap_compiler(&ctx);
+    test_smalltalk_expressions(&ctx);
 
     printf("\n%d passed, %d failed\n", ctx.passes, ctx.failures);
     return ctx.failures > 0 ? 1 : 0;

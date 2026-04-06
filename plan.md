@@ -32,6 +32,12 @@ LSP Server
 - [ ] Run first self-hosting check (Smalltalk compiler recompiles itself)
 - [ ] Keep `OrderedCollection` deferred unless compiler ergonomics demand it
 
+### Expression-Driven Development
+
+- [x] Add executable expression specs (`expression -> expected result`) in C test harness
+- [ ] Keep adding expression specs as capabilities land (booleans, collections, blocks, streams)
+- [ ] Add loader-backed spec files so expressions can live outside C source
+
 ### 17. Primitive Infrastructure
 
 New primitives needed by the class library. Each is a VM primitive
