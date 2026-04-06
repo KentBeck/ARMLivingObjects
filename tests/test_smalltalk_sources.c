@@ -131,8 +131,8 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(write_stream_src, "contents") != NULL, 1,
               "WriteStream has contents");
 
-    ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
-              "src/smalltalk/ExpressionSpecs.txt exists");
+    ASSERT_EQ(ctx, read_file("tests/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
+              "tests/ExpressionSpecs.txt exists");
     ASSERT_EQ(ctx, strstr(expr_specs_src, "simple add | 1 + 2 | 3") != NULL, 1,
               "Expression specs include arithmetic baseline");
     ASSERT_EQ(ctx, strstr(expr_specs_src, "nested send helper | self bar | 7") != NULL, 1,

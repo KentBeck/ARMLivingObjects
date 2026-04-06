@@ -1,7 +1,7 @@
 # Expression Test Coverage Matrix
 
 This tracks which existing C test suites are currently covered by
-`src/smalltalk/ExpressionSpecs.txt`-style expression tests.
+`tests/ExpressionSpecs.txt`-style expression tests.
 
 Legend:
 - **Covered**: already represented by expression specs.
