@@ -25,6 +25,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char system_dictionary_src[4096];
     char read_stream_src[8192];
     char write_stream_src[8192];
+    char expr_specs_src[4096];
     BCompiledMethodDef methods[64];
     int method_count = 0;
 
@@ -129,4 +130,9 @@ void test_smalltalk_sources(TestContext *ctx)
               "WriteStream has nextPutAll:");
     ASSERT_EQ(ctx, strstr(write_stream_src, "contents") != NULL, 1,
               "WriteStream has contents");
+
+    ASSERT_EQ(ctx, read_file("smalltalk/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
+              "smalltalk/ExpressionSpecs.txt exists");
+    ASSERT_EQ(ctx, strstr(expr_specs_src, "simple add | 1 + 2 | 3") != NULL, 1,
+              "Expression specs include arithmetic baseline");
 }

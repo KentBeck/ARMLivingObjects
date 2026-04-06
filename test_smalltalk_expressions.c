@@ -1,5 +1,6 @@
 #include "test_defs.h"
 #include "bootstrap_compiler.h"
+#include <ctype.h>
 
 typedef enum
 {
@@ -10,11 +11,125 @@ typedef enum
 
 typedef struct
 {
-    const char *name;
-    const char *expression;
+    char name[64];
+    char expression[256];
     ExprExpectedKind expected_kind;
     int64_t expected_smallint;
 } ExpressionSpec;
+
+static void trim_in_place(char *text)
+{
+    size_t len = strlen(text);
+    size_t start = 0;
+    while (start < len && isspace((unsigned char)text[start]))
+    {
+        start++;
+    }
+    size_t end = len;
+    while (end > start && isspace((unsigned char)text[end - 1]))
+    {
+        end--;
+    }
+    if (start > 0)
+    {
+        memmove(text, text + start, end - start);
+    }
+    text[end - start] = '\0';
+}
+
+static int parse_expected_value(const char *text, ExprExpectedKind *kind, int64_t *smallint_value)
+{
+    if (strcmp(text, "true") == 0)
+    {
+        *kind = EXPR_EXPECT_TRUE;
+        *smallint_value = 0;
+        return 1;
+    }
+    if (strcmp(text, "false") == 0)
+    {
+        *kind = EXPR_EXPECT_FALSE;
+        *smallint_value = 0;
+        return 1;
+    }
+
+    char *end = NULL;
+    long long parsed = strtoll(text, &end, 10);
+    if (end == text || *end != '\0')
+    {
+        return 0;
+    }
+    *kind = EXPR_EXPECT_SMALLINT;
+    *smallint_value = (int64_t)parsed;
+    return 1;
+}
+
+static int load_expression_specs(const char *path, ExpressionSpec *specs, int max_specs, int *out_count)
+{
+    FILE *file = fopen(path, "rb");
+    if (!file)
+    {
+        return 0;
+    }
+
+    char line[1024];
+    int count = 0;
+    while (fgets(line, sizeof(line), file) != NULL)
+    {
+        trim_in_place(line);
+        if (line[0] == '\0' || line[0] == '#')
+        {
+            continue;
+        }
+
+        char *first_sep = strstr(line, "|");
+        if (!first_sep)
+        {
+            fclose(file);
+            return 0;
+        }
+        *first_sep = '\0';
+
+        char *second_field = first_sep + 1;
+        char *second_sep = strstr(second_field, "|");
+        if (!second_sep)
+        {
+            fclose(file);
+            return 0;
+        }
+        *second_sep = '\0';
+        char *third_field = second_sep + 1;
+
+        trim_in_place(line);
+        trim_in_place(second_field);
+        trim_in_place(third_field);
+
+        if (line[0] == '\0' || second_field[0] == '\0' || third_field[0] == '\0' || count >= max_specs)
+        {
+            fclose(file);
+            return 0;
+        }
+
+        ExpressionSpec *spec = &specs[count];
+        memset(spec, 0, sizeof(*spec));
+        strncpy(spec->name, line, sizeof(spec->name) - 1);
+        strncpy(spec->expression, second_field, sizeof(spec->expression) - 1);
+        if (!parse_expected_value(third_field, &spec->expected_kind, &spec->expected_smallint))
+        {
+            fclose(file);
+            return 0;
+        }
+
+        count++;
+    }
+
+    fclose(file);
+    if (count == 0)
+    {
+        return 0;
+    }
+    *out_count = count;
+    return 1;
+}
 
 static uint64_t selector_token(const char *selector)
 {
@@ -86,17 +201,14 @@ void test_smalltalk_expressions(TestContext *ctx)
         {"ExprSpec", expr_class},
     };
 
-    const ExpressionSpec specs[] = {
-        {"simple add", "1 + 2", EXPR_EXPECT_SMALLINT, 3},
-        {"paren precedence", "(1 + 2) * 3", EXPR_EXPECT_SMALLINT, 9},
-        {"chained send", "1 + 2 + 3", EXPR_EXPECT_SMALLINT, 6},
-        {"less than true", "2 < 3", EXPR_EXPECT_TRUE, 0},
-        {"less than false", "5 < 1", EXPR_EXPECT_FALSE, 0},
-        {"equality true", "7 = 7", EXPR_EXPECT_TRUE, 0},
-        {"equality false", "7 = 8", EXPR_EXPECT_FALSE, 0},
-    };
+    ExpressionSpec specs[128];
+    int spec_count = 0;
+    ASSERT_EQ(ctx,
+              load_expression_specs("smalltalk/ExpressionSpecs.txt", specs, 128, &spec_count),
+              1,
+              "expression specs file loads");
 
-    for (int index = 0; index < (int)(sizeof(specs) / sizeof(specs[0])); index++)
+    for (int index = 0; index < spec_count; index++)
     {
         char selector[32];
         char source[1024];

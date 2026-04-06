@@ -1,0 +1,10 @@
+# Format: name | expression | expected
+# expected can be: integer, true, false
+
+simple add | 1 + 2 | 3
+paren precedence | (1 + 2) * 3 | 9
+chained send | 1 + 2 + 3 | 6
+less than true | 2 < 3 | true
+less than false | 5 < 1 | false
+equality true | 7 = 7 | true
+equality false | 7 = 8 | false

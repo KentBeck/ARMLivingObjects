@@ -36,7 +36,7 @@ LSP Server
 
 - [x] Add executable expression specs (`expression -> expected result`) in C test harness
 - [ ] Keep adding expression specs as capabilities land (booleans, collections, blocks, streams)
-- [ ] Add loader-backed spec files so expressions can live outside C source
+- [x] Add loader-backed spec files so expressions can live outside C source
 
 ### 17. Primitive Infrastructure
 
