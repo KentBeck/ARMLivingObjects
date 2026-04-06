@@ -12,6 +12,7 @@ running on our VM, compiling itself. Then LSP server in Smalltalk.
 - Prefer the fewest possible VM primitives for now.
 - Implement behavior in Smalltalk first; do not add new primitives unless required for correctness.
 - Revisit primitive additions only after profiling post-JIT to target proven performance bottlenecks.
+- Ignore chunk method categories for bootstrap correctness; later we will explore deriving categories automatically via an LLM pass.
 
 ## Dependency Chain
 

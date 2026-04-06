@@ -1104,7 +1104,17 @@ int bc_parse_method_header(const char *source, BMethodHeader *header)
 
     if (first.type == BTOK_SPECIAL && is_binary_selector_char(first.text[0]))
     {
-        BToken arg = bt_next(&tokenizer);
+        char selector[3] = {0};
+        selector[0] = first.text[0];
+
+        BToken second = bt_next(&tokenizer);
+        BToken arg = second;
+        if (second.type == BTOK_SPECIAL && is_binary_selector_char(second.text[0]))
+        {
+            selector[1] = second.text[0];
+            arg = bt_next(&tokenizer);
+        }
+
         if (arg.type != BTOK_IDENTIFIER)
         {
             return 0;
@@ -1115,7 +1125,7 @@ int bc_parse_method_header(const char *source, BMethodHeader *header)
             return 0;
         }
         header->kind = BMETHOD_BINARY;
-        strncpy(header->selector, first.text, sizeof(header->selector) - 1);
+        strncpy(header->selector, selector, sizeof(header->selector) - 1);
         header->arg_count = 1;
         strncpy(header->arg_names[0], arg.text, sizeof(header->arg_names[0]) - 1);
         return 1;
@@ -1336,6 +1346,76 @@ int bc_parse_method_chunks(const char *source, BMethodChunk *chunks, int max_chu
         }
         memcpy(chunk->method_source, source + method_start, (size_t)method_len);
         chunk->method_source[method_len] = '\0';
+        (*out_count)++;
+    }
+
+    return 1;
+}
+
+int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,
+                             BCompiledMethodDef *methods, int max_methods, int *out_count)
+{
+    *out_count = 0;
+
+    for (int index = 0; index < chunk_count; index++)
+    {
+        if (*out_count >= max_methods)
+        {
+            return 0;
+        }
+
+        const char *method_source = chunks[index].method_source;
+        const char *newline = strchr(method_source, '\n');
+        char header_source[256];
+        const char *body_source = "";
+
+        if (newline != NULL)
+        {
+            uint64_t header_len = (uint64_t)(newline - method_source);
+            if (header_len >= sizeof(header_source))
+            {
+                return 0;
+            }
+            memcpy(header_source, method_source, (size_t)header_len);
+            header_source[header_len] = '\0';
+            body_source = newline + 1;
+        }
+        else
+        {
+            uint64_t header_len = strlen(method_source);
+            if (header_len >= sizeof(header_source))
+            {
+                return 0;
+            }
+            memcpy(header_source, method_source, (size_t)header_len + 1);
+        }
+
+        BCompiledMethodDef *method = &methods[*out_count];
+        memset(method, 0, sizeof(*method));
+        strncpy(method->class_name, chunks[index].class_name, sizeof(method->class_name) - 1);
+        method->class_side = chunks[index].class_side;
+        method->primitive_index = -1;
+
+        if (!bc_parse_method_header(header_source, &method->header))
+        {
+            return 0;
+        }
+
+        while (*body_source == ' ' || *body_source == '\t' || *body_source == '\n' || *body_source == '\r')
+        {
+            body_source++;
+        }
+
+        int primitive_index = -1;
+        if (sscanf(body_source, "<primitive: %d>", &primitive_index) == 1)
+        {
+            method->primitive_index = primitive_index;
+        }
+        else if (!bc_codegen_method_body(body_source, &method->body))
+        {
+            return 0;
+        }
+
         (*out_count)++;
     }
 

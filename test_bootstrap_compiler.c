@@ -407,4 +407,41 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, strstr(chunks[1].method_source, "on: aCollection") != NULL, 1,
                   "chunk class-side method content");
     }
+
+    {
+        const char *source =
+            "!Object methodsFor: 'comparing'!\n"
+            "== anObject\n"
+            "    <primitive: 12>\n"
+            "!\n"
+            "\n"
+            "!Class methodsFor: 'instance creation'!\n"
+            "new\n"
+            "    ^ self basicNew\n"
+            "!\n";
+        BMethodChunk chunks[8];
+        int chunk_count = 0;
+        BCompiledMethodDef methods[8];
+        int method_count = 0;
+
+        ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 8, &chunk_count), 1,
+                  "parse chunks before compile");
+        ASSERT_EQ(ctx, bc_compile_method_chunks(chunks, chunk_count, methods, 8, &method_count), 1,
+                  "compile chunk methods");
+        ASSERT_EQ(ctx, method_count, 2, "compiled method count");
+
+        ASSERT_EQ(ctx, strcmp(methods[0].class_name, "Object"), 0, "compiled method class name");
+        ASSERT_EQ(ctx, methods[0].class_side, 0, "compiled method class_side");
+        ASSERT_EQ(ctx, strcmp(methods[0].header.selector, "=="), 0, "compiled binary selector");
+        ASSERT_EQ(ctx, methods[0].header.arg_count, 1, "compiled binary arg count");
+        ASSERT_EQ(ctx, methods[0].primitive_index, 12, "compiled primitive index");
+
+        ASSERT_EQ(ctx, strcmp(methods[1].class_name, "Class"), 0, "compiled unary class name");
+        ASSERT_EQ(ctx, strcmp(methods[1].header.selector, "new"), 0, "compiled unary selector");
+        ASSERT_EQ(ctx, methods[1].primitive_index, -1, "compiled unary non-primitive");
+        ASSERT_EQ(ctx, methods[1].body.bytecode_count, 11, "compiled unary body bytecode count");
+        ASSERT_EQ(ctx, methods[1].body.bytecodes[0], BC_PUSH_SELF, "compiled unary body push self");
+        ASSERT_EQ(ctx, methods[1].body.bytecodes[1], BC_SEND_MESSAGE, "compiled unary body send");
+        ASSERT_EQ(ctx, methods[1].body.bytecodes[10], BC_RETURN, "compiled unary body return");
+    }
 }

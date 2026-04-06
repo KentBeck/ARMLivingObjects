@@ -96,4 +96,16 @@ typedef struct
 
 int bc_parse_method_chunks(const char *source, BMethodChunk *chunks, int max_chunks, int *out_count);
 
+typedef struct
+{
+    char class_name[64];
+    int class_side;
+    BMethodHeader header;
+    int primitive_index;
+    BCompiledBody body;
+} BCompiledMethodDef;
+
+int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,
+                             BCompiledMethodDef *methods, int max_methods, int *out_count);
+
 #endif
