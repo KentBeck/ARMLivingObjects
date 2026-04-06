@@ -4,6 +4,27 @@
 #include <stdio.h>
 #include <string.h>
 
+extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
+extern uint64_t tag_smallint(int64_t value);
+extern uint64_t tag_character(uint64_t code_point);
+extern uint64_t tagged_nil(void);
+
+enum
+{
+    BC_FORMAT_INDEXABLE = 1,
+    BC_FORMAT_BYTES = 2,
+    BC_CLASS_METHOD_DICT = 1,
+    BC_CM_PRIMITIVE = 0,
+    BC_CM_NUM_ARGS = 1,
+    BC_CM_NUM_TEMPS = 2,
+    BC_CM_LITERALS = 3,
+    BC_CM_BYTECODES = 4
+};
+
+#define BC_OBJ_FIELD(obj, n) ((obj)[3 + (n)])
+#define BC_OBJ_SIZE(obj) ((obj)[2])
+#define BC_OBJ_CLASS(obj) ((obj)[0])
+
 static char peek(BTokenizer *tokenizer)
 {
     return tokenizer->source[tokenizer->index];
@@ -1090,6 +1111,8 @@ int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
         return 0;
     }
 
+    compiled->temp_count = state.body.temp_count;
+
     return state.saw_return;
 }
 
@@ -1455,4 +1478,180 @@ int bc_compile_source_methods(const char *source,
     }
 
     return bc_compile_method_chunks(chunks, chunk_count, methods, max_methods, out_count);
+}
+
+static const BClassBinding *bc_find_class_binding(const BClassBinding *classes, int class_count,
+                                                  const char *class_name)
+{
+    for (int index = 0; index < class_count; index++)
+    {
+        if (classes[index].class_name != NULL && classes[index].klass != NULL &&
+            strcmp(classes[index].class_name, class_name) == 0)
+        {
+            return &classes[index];
+        }
+    }
+    return NULL;
+}
+
+static uint64_t bc_selector_token(const char *selector)
+{
+    uint32_t hash = 2166136261u;
+    for (const unsigned char *current = (const unsigned char *)selector; *current != '\0'; current++)
+    {
+        hash ^= (uint32_t)(*current);
+        hash *= 16777619u;
+    }
+    return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
+}
+
+static int bc_literal_token_to_oop(const BToken *token, uint64_t *out_oop)
+{
+    if (token->type == BTOK_INTEGER)
+    {
+        *out_oop = tag_smallint(token->int_value);
+        return 1;
+    }
+    if (token->type == BTOK_CHARACTER)
+    {
+        *out_oop = tag_character((uint64_t)token->int_value);
+        return 1;
+    }
+    if (token->type == BTOK_SYMBOL)
+    {
+        *out_oop = bc_selector_token(token->text);
+        return 1;
+    }
+    return 0;
+}
+
+static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, const BCompiledBody *body)
+{
+    if (body->literal_count == 0)
+    {
+        return NULL;
+    }
+
+    uint64_t *literals = om_alloc(om, (uint64_t)class_class, BC_FORMAT_INDEXABLE, (uint64_t)body->literal_count);
+    for (int index = 0; index < body->literal_count; index++)
+    {
+        uint64_t literal_oop = 0;
+        if (!bc_literal_token_to_oop(&body->literals[index], &literal_oop))
+        {
+            return NULL;
+        }
+        BC_OBJ_FIELD(literals, index) = literal_oop;
+    }
+    return literals;
+}
+
+static uint64_t *bc_append_method_dict(uint64_t *om, uint64_t *class_class, uint64_t *klass,
+                                       uint64_t selector_oop, uint64_t method_oop)
+{
+    uint64_t md_value = BC_OBJ_FIELD(klass, BC_CLASS_METHOD_DICT);
+    uint64_t *old_md = (md_value != tagged_nil() && (md_value & 3) == 0) ? (uint64_t *)md_value : NULL;
+    uint64_t old_size = old_md ? BC_OBJ_SIZE(old_md) : 0;
+    uint64_t *new_md = om_alloc(om, (uint64_t)class_class, BC_FORMAT_INDEXABLE, old_size + 2);
+
+    for (uint64_t index = 0; index < old_size; index++)
+    {
+        BC_OBJ_FIELD(new_md, index) = BC_OBJ_FIELD(old_md, index);
+    }
+    BC_OBJ_FIELD(new_md, old_size) = selector_oop;
+    BC_OBJ_FIELD(new_md, old_size + 1) = method_oop;
+    BC_OBJ_FIELD(klass, BC_CLASS_METHOD_DICT) = (uint64_t)new_md;
+    return new_md;
+}
+
+static uint64_t *bc_target_class_for_method(const BClassBinding *binding, const BCompiledMethodDef *method)
+{
+    if (!method->class_side)
+    {
+        return binding->klass;
+    }
+    if (((uint64_t)binding->klass & 3) != 0)
+    {
+        return NULL;
+    }
+    return (uint64_t *)BC_OBJ_CLASS(binding->klass);
+}
+
+static uint64_t *bc_materialize_compiled_method(uint64_t *om, uint64_t *class_class,
+                                                const BCompiledMethodDef *method)
+{
+    uint64_t *literals = bc_build_literal_array(om, class_class, &method->body);
+    if (method->body.literal_count > 0 && literals == NULL)
+    {
+        return NULL;
+    }
+
+    uint64_t bytecode_size = method->body.bytecode_count > 0 ? (uint64_t)method->body.bytecode_count : 1;
+    uint64_t *bytecodes = om_alloc(om, (uint64_t)class_class, BC_FORMAT_BYTES, bytecode_size);
+    if (method->body.bytecode_count > 0)
+    {
+        memcpy(&BC_OBJ_FIELD(bytecodes, 0), method->body.bytecodes, (size_t)method->body.bytecode_count);
+    }
+    else
+    {
+        ((uint8_t *)&BC_OBJ_FIELD(bytecodes, 0))[0] = 0;
+    }
+
+    uint64_t *compiled_method = om_alloc(om, (uint64_t)class_class, 0, 5);
+    BC_OBJ_FIELD(compiled_method, BC_CM_PRIMITIVE) =
+        tag_smallint(method->primitive_index >= 0 ? method->primitive_index : 0);
+    BC_OBJ_FIELD(compiled_method, BC_CM_NUM_ARGS) = tag_smallint(method->header.arg_count);
+    BC_OBJ_FIELD(compiled_method, BC_CM_NUM_TEMPS) = tag_smallint(method->body.temp_count);
+    BC_OBJ_FIELD(compiled_method, BC_CM_LITERALS) = literals ? (uint64_t)literals : tagged_nil();
+    BC_OBJ_FIELD(compiled_method, BC_CM_BYTECODES) = (uint64_t)bytecodes;
+    return compiled_method;
+}
+
+int bc_install_compiled_methods(uint64_t *om, uint64_t *class_class,
+                                const BClassBinding *classes, int class_count,
+                                const BCompiledMethodDef *methods, int method_count)
+{
+    for (int index = 0; index < method_count; index++)
+    {
+        const BCompiledMethodDef *method = &methods[index];
+        const BClassBinding *binding = bc_find_class_binding(classes, class_count, method->class_name);
+        if (binding == NULL)
+        {
+            return 0;
+        }
+
+        uint64_t *target_class = bc_target_class_for_method(binding, method);
+        if (target_class == NULL)
+        {
+            return 0;
+        }
+
+        uint64_t selector_oop = bc_selector_token(method->header.selector);
+        uint64_t *compiled_method = bc_materialize_compiled_method(om, class_class, method);
+        if (compiled_method == NULL)
+        {
+            return 0;
+        }
+
+        if (bc_append_method_dict(om, class_class, target_class, selector_oop, (uint64_t)compiled_method) == NULL)
+        {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
+                                          const BClassBinding *classes, int class_count,
+                                          const char *source)
+{
+    BCompiledMethodDef methods[128];
+    int method_count = 0;
+
+    if (!bc_compile_source_methods(source, methods, 128, &method_count))
+    {
+        return 0;
+    }
+
+    return bc_install_compiled_methods(om, class_class, classes, class_count, methods, method_count);
 }

@@ -76,6 +76,7 @@ typedef struct
 {
     uint8_t bytecodes[256];
     int bytecode_count;
+    int temp_count;
     int literal_count;
     BToken literals[16];
     int inst_var_count;
@@ -110,5 +111,19 @@ int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,
 
 int bc_compile_source_methods(const char *source,
                               BCompiledMethodDef *methods, int max_methods, int *out_count);
+
+typedef struct
+{
+    const char *class_name;
+    uint64_t *klass;
+} BClassBinding;
+
+int bc_install_compiled_methods(uint64_t *om, uint64_t *class_class,
+                                const BClassBinding *classes, int class_count,
+                                const BCompiledMethodDef *methods, int method_count);
+
+int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
+                                          const BClassBinding *classes, int class_count,
+                                          const char *source);
 
 #endif

@@ -160,6 +160,7 @@ Smalltalk compiler itself.
 - [ ] Code gen: emit DUP
 - [ ] Code gen: literal frame — collect literals, intern symbols (interning pending)
 - [ ] Class builder: parse class definition, create Class object with methods
+- [x] Class builder (partial): install compiled methods into bound classes/metaclasses
 - [ ] File loader: read .st file, compile all methods, install in classes
 - [ ] Bootstrap: compile String, Array, Dictionary, Stream (OrderedCollection later)
 

@@ -86,5 +86,6 @@ Word size (W) = 8 bytes on ARM64.
 - Codegen coverage: `PUSH_LITERAL`, `PUSH_SELF`, `PUSH_TEMP`, `PUSH_INST_VAR`, `STORE_TEMP`, `STORE_INST_VAR`, `SEND_MESSAGE`, `RETURN`, `POP`
 - Deterministic temp/ivar slot resolution and literal table collection
 - Symbol equality verified at both runtime dispatch and Smalltalk source level (`Symbol>>= ^ self == aSymbol`)
+- Source pipeline: compile chunked `.st` method sources to compiled method definitions and install into class/metaclass method dictionaries (bound classes)
 
-594 tests, all passing.
+655 tests, all passing.

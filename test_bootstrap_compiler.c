@@ -444,4 +444,72 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, methods[1].body.bytecodes[1], BC_SEND_MESSAGE, "compiled unary body send");
         ASSERT_EQ(ctx, methods[1].body.bytecodes[10], BC_RETURN, "compiled unary body return");
     }
+
+    {
+        uint64_t *sample_meta = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(sample_meta, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(sample_meta, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(sample_meta, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(sample_meta, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *sample_class = om_alloc(ctx->om, (uint64_t)sample_meta, FORMAT_FIELDS, 4);
+        OBJ_FIELD(sample_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(sample_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(sample_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(sample_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        BClassBinding bindings[1] = {
+            {"Sample", sample_class},
+        };
+
+        const char *source =
+            "!Sample methodsFor: 'testing'!\n"
+            "foo\n"
+            "    ^ 7\n"
+            "!\n"
+            "bar\n"
+            "    ^ self foo\n"
+            "!\n"
+            "!Sample class methodsFor: 'instance creation'!\n"
+            "answer\n"
+            "    ^ 42\n"
+            "!\n";
+
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, bindings, 1, source),
+                  1,
+                  "compile and install source methods");
+
+        uint64_t *instance_md = (uint64_t *)OBJ_FIELD(sample_class, CLASS_METHOD_DICT);
+        uint64_t *class_md = (uint64_t *)OBJ_FIELD(sample_meta, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, instance_md != NULL, 1, "instance-side method dictionary installed");
+        ASSERT_EQ(ctx, class_md != NULL, 1, "class-side method dictionary installed");
+        ASSERT_EQ(ctx, OBJ_SIZE(instance_md), 4, "instance-side has two methods");
+        ASSERT_EQ(ctx, OBJ_SIZE(class_md), 2, "class-side has one method");
+
+        uint64_t *bar_cm = NULL;
+        for (uint64_t index = 1; index < OBJ_SIZE(instance_md); index += 2)
+        {
+            uint64_t *cm = (uint64_t *)OBJ_FIELD(instance_md, index);
+            uint64_t *bc = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
+            uint8_t *bytes = (uint8_t *)&OBJ_FIELD(bc, 0);
+            if (bytes[0] == BC_PUSH_SELF && bytes[1] == BC_SEND_MESSAGE)
+            {
+                bar_cm = cm;
+                break;
+            }
+        }
+        ASSERT_EQ(ctx, bar_cm != NULL, 1, "bar compiled method found");
+
+        uint64_t *sample_instance = om_alloc(ctx->om, (uint64_t)sample_class, FORMAT_FIELDS, 0);
+        uint64_t *bar_bc = (uint64_t *)OBJ_FIELD(bar_cm, CM_BYTECODES);
+
+        uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, ctx->stack, (uint64_t)sample_instance);
+        activate_method(&sp, &fp, 0, (uint64_t)bar_cm, 0, 0);
+
+        uint64_t result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bar_bc, 0), ctx->class_table, ctx->om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(7), "installed methods execute via send lookup");
+    }
 }
