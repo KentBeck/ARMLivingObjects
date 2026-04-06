@@ -213,7 +213,7 @@ void test_smalltalk_expressions(TestContext *ctx)
     ExpressionSpec specs[128];
     int spec_count = 0;
     ASSERT_EQ(ctx,
-              load_expression_specs("smalltalk/ExpressionSpecs.txt", specs, 128, &spec_count),
+              load_expression_specs("src/smalltalk/ExpressionSpecs.txt", specs, 128, &spec_count),
               1,
               "expression specs file loads");
 

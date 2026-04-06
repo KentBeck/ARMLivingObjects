@@ -29,8 +29,8 @@ void test_smalltalk_sources(TestContext *ctx)
     BCompiledMethodDef methods[64];
     int method_count = 0;
 
-    ASSERT_EQ(ctx, read_file("smalltalk/Class.st", class_src, sizeof(class_src)), 1,
-              "smalltalk/Class.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Class.st", class_src, sizeof(class_src)), 1,
+              "src/smalltalk/Class.st exists");
     ASSERT_EQ(ctx, strstr(class_src, "new\n    ^ self basicNew") != NULL, 1,
               "Class>>new delegates to basicNew");
     ASSERT_EQ(ctx, strstr(class_src, "new: size\n    ^ self basicNew: size") != NULL, 1,
@@ -40,8 +40,8 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, method_count, 4, "Class.st method count");
     ASSERT_EQ(ctx, strcmp(methods[0].class_name, "Class"), 0, "Class.st compiled class name");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/String.st", string_src, sizeof(string_src)), 1,
-              "smalltalk/String.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/String.st", string_src, sizeof(string_src)), 1,
+              "src/smalltalk/String.st exists");
     ASSERT_EQ(ctx, strstr(string_src, ", aString") != NULL, 1,
               "String>>, method exists");
     ASSERT_EQ(ctx, strstr(string_src, "result := String new: self size + aString size.") != NULL, 1,
@@ -55,8 +55,8 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(string_src, "(self at: i) asCharacter printChar.") != NULL, 1,
               "String>>printString prints chars via asCharacter printChar");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/Symbol.st", symbol_src, sizeof(symbol_src)), 1,
-              "smalltalk/Symbol.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Symbol.st", symbol_src, sizeof(symbol_src)), 1,
+              "src/smalltalk/Symbol.st exists");
     ASSERT_EQ(ctx, strstr(symbol_src, "= aSymbol") != NULL, 1,
               "Symbol>>= method exists");
     ASSERT_EQ(ctx, strstr(symbol_src, "^ self == aSymbol") != NULL, 1,
@@ -65,8 +65,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Symbol.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 1, "Symbol.st method count");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/Array.st", array_src, sizeof(array_src)), 1,
-              "smalltalk/Array.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Array.st", array_src, sizeof(array_src)), 1,
+              "src/smalltalk/Array.st exists");
     ASSERT_EQ(ctx, strstr(array_src, "size\n    <primitive: 11>") != NULL, 1,
               "Array>>size uses primitive 11");
     ASSERT_EQ(ctx, strstr(array_src, "at: index\n    <primitive: 7>") != NULL, 1,
@@ -77,8 +77,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Array.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 3, "Array.st method count");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/Association.st", association_src, sizeof(association_src)), 1,
-              "smalltalk/Association.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Association.st", association_src, sizeof(association_src)), 1,
+              "src/smalltalk/Association.st exists");
     ASSERT_EQ(ctx, strstr(association_src, "key: aKey value: aValue") != NULL, 1,
               "Association has key:value: initializer");
     ASSERT_EQ(ctx, strstr(association_src, "value: anObject") != NULL, 1,
@@ -87,8 +87,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Association.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 5, "Association.st method count");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/Dictionary.st", dictionary_src, sizeof(dictionary_src)), 1,
-              "smalltalk/Dictionary.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Dictionary.st", dictionary_src, sizeof(dictionary_src)), 1,
+              "src/smalltalk/Dictionary.st exists");
     ASSERT_EQ(ctx, strstr(dictionary_src, "indexOfKey: aKey startingAt: index") != NULL, 1,
               "Dictionary has linear-search helper");
     ASSERT_EQ(ctx, strstr(dictionary_src, "self indexOfKey: aKey startingAt: index + 1") != NULL, 1,
@@ -100,8 +100,8 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(dictionary_src, "at: aKey ifAbsent: aBlock") != NULL, 1,
               "Dictionary supports at:ifAbsent:");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/SystemDictionary.st", system_dictionary_src, sizeof(system_dictionary_src)), 1,
-              "smalltalk/SystemDictionary.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/SystemDictionary.st", system_dictionary_src, sizeof(system_dictionary_src)), 1,
+              "src/smalltalk/SystemDictionary.st exists");
     ASSERT_EQ(ctx, strstr(system_dictionary_src, "initializeSmalltalkNamespace") != NULL, 1,
               "SystemDictionary has namespace initializer");
     ASSERT_EQ(ctx, strstr(system_dictionary_src, "globals := Dictionary new.") != NULL, 1,
@@ -109,8 +109,8 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(system_dictionary_src, "globals at: #Smalltalk put: globals.") != NULL, 1,
               "Namespace initializer stores #Smalltalk self-binding");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/ReadStream.st", read_stream_src, sizeof(read_stream_src)), 1,
-              "smalltalk/ReadStream.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/ReadStream.st", read_stream_src, sizeof(read_stream_src)), 1,
+              "src/smalltalk/ReadStream.st exists");
     ASSERT_EQ(ctx, strstr(read_stream_src, "on: aCollection") != NULL, 1,
               "ReadStream has class-side constructor protocol");
     ASSERT_EQ(ctx, strstr(read_stream_src, "next") != NULL, 1,
@@ -122,8 +122,8 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(read_stream_src, "upToEnd") != NULL, 1,
               "ReadStream has upToEnd");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/WriteStream.st", write_stream_src, sizeof(write_stream_src)), 1,
-              "smalltalk/WriteStream.st exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/WriteStream.st", write_stream_src, sizeof(write_stream_src)), 1,
+              "src/smalltalk/WriteStream.st exists");
     ASSERT_EQ(ctx, strstr(write_stream_src, "nextPut: aByte") != NULL, 1,
               "WriteStream has nextPut:");
     ASSERT_EQ(ctx, strstr(write_stream_src, "nextPutAll: aCollection") != NULL, 1,
@@ -131,8 +131,8 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(write_stream_src, "contents") != NULL, 1,
               "WriteStream has contents");
 
-    ASSERT_EQ(ctx, read_file("smalltalk/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
-              "smalltalk/ExpressionSpecs.txt exists");
+    ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
+              "src/smalltalk/ExpressionSpecs.txt exists");
     ASSERT_EQ(ctx, strstr(expr_specs_src, "simple add | 1 + 2 | 3") != NULL, 1,
               "Expression specs include arithmetic baseline");
     ASSERT_EQ(ctx, strstr(expr_specs_src, "nested send helper | self bar | 7") != NULL, 1,

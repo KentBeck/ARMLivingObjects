@@ -1,7 +1,7 @@
 # Expression Test Coverage Matrix
 
 This tracks which existing C test suites are currently covered by
-`smalltalk/ExpressionSpecs.txt`-style expression tests.
+`src/smalltalk/ExpressionSpecs.txt`-style expression tests.
 
 Legend:
 - **Covered**: already represented by expression specs.
@@ -43,4 +43,3 @@ The current expression runner compiles methods from expression specs and install
 2. Add block-literal materialization for expression-runner installed methods.
 3. Add lightweight expression-fixture prelude support (define helper classes/methods once per file).
 4. Add optional expected forms beyond scalar (`smallint/true/false`) as needed (`nil`, string, symbol identity).
-
