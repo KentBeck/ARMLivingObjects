@@ -88,4 +88,4 @@ Word size (W) = 8 bytes on ARM64.
 - Symbol equality verified at both runtime dispatch and Smalltalk source level (`Symbol>>= ^ self == aSymbol`)
 - Source pipeline: compile chunked `.st` method sources to compiled method definitions and install into class/metaclass method dictionaries (bound classes)
 
-679 tests, all passing.
+696 tests, all passing.

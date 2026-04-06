@@ -184,6 +184,15 @@ void test_smalltalk_expressions(TestContext *ctx)
               (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_LT, 1));
     md_append(ctx->om, ctx->class_class, ctx->smallint_class, "=",
               (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_EQ, 1));
+    md_append(ctx->om, ctx->class_class, ctx->smallint_class, "asCharacter",
+              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_AS_CHARACTER, 0));
+
+    md_append(ctx->om, ctx->class_class, ctx->character_class, "value",
+              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_VALUE, 0));
+    md_append(ctx->om, ctx->class_class, ctx->character_class, "isLetter",
+              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_IS_LETTER, 0));
+    md_append(ctx->om, ctx->class_class, ctx->character_class, "isDigit",
+              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_IS_DIGIT, 0));
 
     uint64_t *expr_meta = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(expr_meta, CLASS_SUPERCLASS) = tagged_nil();
@@ -207,6 +216,21 @@ void test_smalltalk_expressions(TestContext *ctx)
               load_expression_specs("smalltalk/ExpressionSpecs.txt", specs, 128, &spec_count),
               1,
               "expression specs file loads");
+
+    {
+        const char *helpers =
+            "!ExprSpec methodsFor: 'expression helper methods'!\n"
+            "foo\n"
+            "    ^ 7\n"
+            "!\n"
+            "bar\n"
+            "    ^ self foo\n"
+            "!\n";
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, bindings, 1, helpers),
+                  1,
+                  "expression helper methods install");
+    }
 
     for (int index = 0; index < spec_count; index++)
     {

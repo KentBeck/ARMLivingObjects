@@ -35,6 +35,7 @@ LSP Server
 ### Expression-Driven Development
 
 - [x] Add executable expression specs (`expression -> expected result`) in C test harness
+- [x] Cover currently-applicable C runtime tests with expression specs where representable
 - [ ] Keep adding expression specs as capabilities land (booleans, collections, blocks, streams)
 - [x] Add loader-backed spec files so expressions can live outside C source
 

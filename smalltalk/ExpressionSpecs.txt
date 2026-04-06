@@ -1,6 +1,7 @@
 # Format: name | expression | expected
 # expected can be: integer, true, false
 
+# test_dispatch/test_primitives equivalents
 simple add | 1 + 2 | 3
 paren precedence | (1 + 2) * 3 | 9
 chained send | 1 + 2 + 3 | 6
@@ -8,3 +9,10 @@ less than true | 2 < 3 | true
 less than false | 5 < 1 | false
 equality true | 7 = 7 | true
 equality false | 7 = 8 | false
+nested send helper | self bar | 7
+
+# test_tagged/test_dispatch character primitive equivalents
+smallint asCharacter value | 65 asCharacter value | 65
+character literal value | $A value | 65
+character isLetter true | $A isLetter | true
+character isDigit true | $7 isDigit | true

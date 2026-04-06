@@ -135,4 +135,6 @@ void test_smalltalk_sources(TestContext *ctx)
               "smalltalk/ExpressionSpecs.txt exists");
     ASSERT_EQ(ctx, strstr(expr_specs_src, "simple add | 1 + 2 | 3") != NULL, 1,
               "Expression specs include arithmetic baseline");
+    ASSERT_EQ(ctx, strstr(expr_specs_src, "nested send helper | self bar | 7") != NULL, 1,
+              "Expression specs include nested send baseline");
 }
