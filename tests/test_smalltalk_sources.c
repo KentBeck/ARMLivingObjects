@@ -25,6 +25,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char system_dictionary_src[4096];
     char read_stream_src[8192];
     char write_stream_src[8192];
+    char undefined_object_src[2048];
     char expr_specs_src[4096];
     BCompiledMethodDef methods[64];
     int method_count = 0;
@@ -130,6 +131,16 @@ void test_smalltalk_sources(TestContext *ctx)
               "WriteStream has nextPutAll:");
     ASSERT_EQ(ctx, strstr(write_stream_src, "contents") != NULL, 1,
               "WriteStream has contents");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/UndefinedObject.st", undefined_object_src, sizeof(undefined_object_src)), 1,
+              "src/smalltalk/UndefinedObject.st exists");
+    ASSERT_EQ(ctx, strstr(undefined_object_src, "printString") != NULL, 1,
+              "UndefinedObject has printString");
+    ASSERT_EQ(ctx, strstr(undefined_object_src, "^ 'nil'") != NULL, 1,
+              "UndefinedObject>>printString returns 'nil'");
+    ASSERT_EQ(ctx, bc_compile_source_methods(undefined_object_src, methods, 64, &method_count), 1,
+              "UndefinedObject.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 1, "UndefinedObject.st method count");
 
     ASSERT_EQ(ctx, read_file("tests/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
               "tests/ExpressionSpecs.txt exists");

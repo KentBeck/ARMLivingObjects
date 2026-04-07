@@ -40,6 +40,12 @@ int main()
     OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(2);
     OBJ_FIELD(block_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
+    uint64_t *undefined_object_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(undefined_object_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(undefined_object_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(undefined_object_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(undefined_object_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
     uint64_t *string_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(string_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(string_class, CLASS_METHOD_DICT) = tagged_nil();
@@ -145,6 +151,7 @@ int main()
     ctx.class_class = class_class;
     ctx.smallint_class = smallint_class;
     ctx.block_class = block_class;
+    ctx.undefined_object_class = undefined_object_class;
     ctx.character_class = character_class;
     ctx.string_class = string_class;
     ctx.symbol_class = symbol_class;
@@ -153,12 +160,13 @@ int main()
     ctx.test_class = test_class;
     ctx.receiver = (uint64_t)recv_obj;
     ctx.method = (uint64_t)test_cm;
-    uint64_t *class_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 5);
+    uint64_t *class_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
     OBJ_FIELD(class_table_obj, 0) = (uint64_t)smallint_class;
     OBJ_FIELD(class_table_obj, 1) = (uint64_t)block_class;
     OBJ_FIELD(class_table_obj, 2) = 0; // True class (not yet)
     OBJ_FIELD(class_table_obj, 3) = 0; // False class (not yet)
     OBJ_FIELD(class_table_obj, 4) = (uint64_t)character_class;
+    OBJ_FIELD(class_table_obj, 5) = (uint64_t)undefined_object_class;
     ctx.class_table = class_table_obj;
     ctx.passes = 0;
     ctx.failures = 0;

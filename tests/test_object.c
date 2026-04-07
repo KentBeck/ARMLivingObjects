@@ -137,6 +137,9 @@ void test_object(TestContext *ctx)
     not_found = class_lookup(child_class, sel_bar);
     ASSERT_EQ(ctx, not_found, 0,
               "class_lookup: not found in chain returns 0");
+    ASSERT_EQ(ctx, (uint64_t)oop_class(tagged_nil(), class_table),
+              (uint64_t)ctx->undefined_object_class,
+              "oop_class: nil resolves to UndefinedObject");
 
     // Create a CompiledMethod with bytecodes and literals
     // CM: 4 fields (num_args, num_temps, literal_count, bytecodes_ptr)

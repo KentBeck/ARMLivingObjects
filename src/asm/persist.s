@@ -66,7 +66,8 @@ _image_pointers_to_offsets:
     EPILOGUE
     ret
 
-// Helper: convert slot at address x0 from pointer to offset
+// Helper: convert slot at address x0 from pointer to offset.
+// Bias by 8 so a real offset 0 does not collide with a raw NULL word.
 .Lp2o_convert_slot:
     ldr     x3, [x0]
     tst     x3, #3
@@ -76,10 +77,7 @@ _image_pointers_to_offsets:
     cmp     x3, x22             // < heap_base + size?
     b.hs    .Lp2o_slot_done
     sub     x3, x3, x21         // offset = ptr - heap_base
-    // Mark as offset: set bit 2 to distinguish from tagged values
-    // Actually offsets are 8-byte aligned (bits 0-2 = 0).
-    // Tagged SmallInt has bit 0 set. Nil/true/false have bits 0-1 set.
-    // So offset (bits 0-2 = 0) is distinguishable. No extra marking needed.
+    add     x3, x3, #8          // bias encoded offsets away from 0
     str     x3, [x0]
 .Lp2o_slot_done:
     ret
@@ -134,24 +132,18 @@ _image_offsets_to_pointers:
     EPILOGUE
     ret
 
-// Helper: convert slot at x0 from offset to pointer
-// An offset is stored as (real_offset + 8) to distinguish from NULL (0).
-// On save: ptr -> (ptr - heap_base + 8). On load: (offset - 8 + new_base).
-// But we use a simpler scheme: offsets are 8-byte aligned with tag 00.
-// To distinguish offset 0 from NULL, pointers_to_offsets never produces 0:
-// we add 8 as a bias. offsets_to_pointers subtracts 8.
-// ACTUALLY: simplest approach — first object is at offset 0 in the heap.
-// We avoid the ambiguity by noting that the p2o step only converts values
-// that are in [heap_base, heap_base+size). NULL=0 is never in that range
-// (heap_base is a large address). So offset 0 in the image IS always valid.
-// On load, 0 tag-00 and < size → convert.
+// Helper: convert slot at x0 from biased offset to pointer.
+// Encoded offsets are stored as (real_offset + 8), so raw 0 remains NULL.
 .Lo2p_convert_slot:
     ldr     x3, [x0]
     tst     x3, #3
     b.ne    .Lo2p_slot_done     // tagged value, skip
-    cmp     x3, x22             // < size? (valid offset)
-    b.hs    .Lo2p_slot_done     // external ptr or truly out of range
-    add     x3, x3, x21         // ptr = offset + new_base
+    cmp     x3, #8
+    b.lo    .Lo2p_slot_done     // raw 0 stays raw 0
+    cmp     x3, x22
+    b.hi    .Lo2p_slot_done     // external ptr or truly out of range
+    sub     x3, x3, #8
+    add     x3, x3, x21         // ptr = real_offset + new_base
     str     x3, [x0]
 .Lo2p_slot_done:
     ret

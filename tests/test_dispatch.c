@@ -1360,6 +1360,55 @@ void test_dispatch(TestContext *ctx)
                   "basicClass: Character $A returns Character class");
     }
 
+    // --- basicClass on nil immediate ---
+    {
+        uint64_t sel_basicClass = tag_smallint(74);
+
+        uint64_t *uo_class = ctx->undefined_object_class;
+        uint64_t *uocm_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *uocm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(uocm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_CLASS);
+        OBJ_FIELD(uocm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(uocm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(uocm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(uocm, CM_BYTECODES) = (uint64_t)uocm_bc;
+
+        uint64_t *uomd = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(uomd, 0) = sel_basicClass;
+        OBJ_FIELD(uomd, 1) = (uint64_t)uocm;
+        OBJ_FIELD(uo_class, CLASS_METHOD_DICT) = (uint64_t)uomd;
+
+        uint64_t *uocaller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint8_t *uobb = (uint8_t *)&OBJ_FIELD(uocaller_bc, 0);
+        uobb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&uobb[1], 0); // nil
+        uobb[5] = BC_SEND_MESSAGE;
+        WRITE_U32(&uobb[6], 1); // #basicClass
+        WRITE_U32(&uobb[10], 0);
+        uobb[14] = BC_HALT;
+
+        uint64_t *uolits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(uolits, 0) = tagged_nil();
+        OBJ_FIELD(uolits, 1) = sel_basicClass;
+
+        uint64_t *uocaller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(uocaller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(uocaller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(uocaller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(uocaller_cm, CM_LITERALS) = (uint64_t)uolits;
+        OBJ_FIELD(uocaller_cm, CM_BYTECODES) = (uint64_t)uocaller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+        activate_method(&sp, &fp, 0, (uint64_t)uocaller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(uocaller_bc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)uo_class,
+                  "basicClass: nil returns UndefinedObject class");
+    }
+
     // --- Character>>value primitive ---
     {
         uint64_t sel_value = tag_smallint(81);
@@ -2058,5 +2107,134 @@ void test_dispatch(TestContext *ctx)
                            class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(42),
                   "perform: dynamically sends #answer, returns 42");
+    }
+
+    // --- perform: on nil uses UndefinedObject class ---
+    {
+        uint64_t sel_perform = tag_smallint(79);
+        uint64_t sel_basicClass = tag_smallint(74);
+
+        uint64_t *uo_class = ctx->undefined_object_class;
+        uint64_t *bc_cm_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *bc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bc_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_CLASS);
+        OBJ_FIELD(bc_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bc_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bc_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(bc_cm, CM_BYTECODES) = (uint64_t)bc_cm_bc;
+
+        uint64_t *perf_cm_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *perf_cm_nil = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(perf_cm_nil, CM_PRIMITIVE) = tag_smallint(PRIM_PERFORM);
+        OBJ_FIELD(perf_cm_nil, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(perf_cm_nil, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(perf_cm_nil, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(perf_cm_nil, CM_BYTECODES) = (uint64_t)perf_cm_bc;
+
+        uint64_t *uo_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(uo_md, 0) = sel_basicClass;
+        OBJ_FIELD(uo_md, 1) = (uint64_t)bc_cm;
+        OBJ_FIELD(uo_md, 2) = sel_perform;
+        OBJ_FIELD(uo_md, 3) = (uint64_t)perf_cm_nil;
+        OBJ_FIELD(uo_class, CLASS_METHOD_DICT) = (uint64_t)uo_md;
+
+        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        cbb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&cbb[1], 0); // nil
+        cbb[5] = BC_PUSH_LITERAL;
+        WRITE_U32(&cbb[6], 1); // #basicClass
+        cbb[10] = BC_SEND_MESSAGE;
+        WRITE_U32(&cbb[11], 2); // #perform:
+        WRITE_U32(&cbb[15], 1);
+        cbb[19] = BC_HALT;
+
+        uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(caller_lits, 0) = tagged_nil();
+        OBJ_FIELD(caller_lits, 1) = sel_basicClass;
+        OBJ_FIELD(caller_lits, 2) = sel_perform;
+
+        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)uo_class,
+                  "perform: nil dispatches through UndefinedObject");
+    }
+
+    // --- perform: primitive target ---
+    {
+        uint64_t sel_perform = tag_smallint(79);
+        uint64_t sel_basicClass = tag_smallint(74);
+
+        uint64_t *klass_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *klass_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(klass_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_CLASS);
+        OBJ_FIELD(klass_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(klass_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(klass_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(klass_cm, CM_BYTECODES) = (uint64_t)klass_bc;
+
+        uint64_t *perform_bc2 = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        uint64_t *perform_cm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(perform_cm2, CM_PRIMITIVE) = tag_smallint(PRIM_PERFORM);
+        OBJ_FIELD(perform_cm2, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(perform_cm2, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(perform_cm2, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(perform_cm2, CM_BYTECODES) = (uint64_t)perform_bc2;
+
+        uint64_t *perf_class2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(perf_class2, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(perf_class2, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(perf_class2, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        uint64_t *perf_md2 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(perf_md2, 0) = sel_basicClass;
+        OBJ_FIELD(perf_md2, 1) = (uint64_t)klass_cm;
+        OBJ_FIELD(perf_md2, 2) = sel_perform;
+        OBJ_FIELD(perf_md2, 3) = (uint64_t)perform_cm2;
+        OBJ_FIELD(perf_class2, CLASS_METHOD_DICT) = (uint64_t)perf_md2;
+
+        uint64_t *perf_obj2 = om_alloc(om, (uint64_t)perf_class2, FORMAT_FIELDS, 0);
+
+        uint64_t *perf_bc2 = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *pcbc3 = (uint8_t *)&OBJ_FIELD(perf_bc2, 0);
+        pcbc3[0] = BC_PUSH_SELF;
+        pcbc3[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&pcbc3[2], 1); // lit 1 = #basicClass
+        pcbc3[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&pcbc3[7], 0);  // lit 0 = #perform:
+        WRITE_U32(&pcbc3[11], 1); // 1 arg
+        pcbc3[15] = BC_HALT;
+
+        uint64_t *perf_lits2 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(perf_lits2, 0) = sel_perform;
+        OBJ_FIELD(perf_lits2, 1) = sel_basicClass;
+
+        uint64_t *perf_ccm2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(perf_ccm2, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(perf_ccm2, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(perf_ccm2, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(perf_ccm2, CM_LITERALS) = (uint64_t)perf_lits2;
+        OBJ_FIELD(perf_ccm2, CM_BYTECODES) = (uint64_t)perf_bc2;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)perf_obj2);
+        activate_method(&sp, &fp, 0, (uint64_t)perf_ccm2, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(perf_bc2, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)perf_class2,
+                  "perform: primitive target sees the original receiver stack shape");
     }
 }

@@ -76,7 +76,8 @@
 // x0 = pointer to SP variable
 // x1 = pointer to FP variable
 // x2 = IP: pointer to first bytecode (in a ByteArray's data area)
-// x3 = pointer to class table: [0]=SmallInteger, [1]=Block, [2]=True, [3]=False
+// x3 = pointer to class table:
+//      [0]=SmallInteger, [1]=Block, [2]=True, [3]=False, [4]=Character, [5]=UndefinedObject
 // x4 = pointer to om {free_ptr, end_ptr} pair (for allocation)
 // x5 = pointer to transaction log (NULL if no active transaction)
 //
@@ -444,8 +445,18 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // arg0
     ldr     x7, [x5, #8]       // receiver
-    add     x8, x7, x6
-    sub     x8, x8, #1          // tag correction
+    and     x9, x6, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
+    and     x9, x7, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
+    asr     x6, x6, #SMALLINT_SHIFT
+    asr     x7, x7, #SMALLINT_SHIFT
+    adds    x8, x7, x6
+    b.vs    .Lprim_overflow
+    lsl     x8, x8, #SMALLINT_SHIFT
+    orr     x8, x8, #TAG_SMALLINT
     add     x5, x5, #16         // pop both
     sub     x5, x5, #8          // push result
     str     x8, [x5]
@@ -456,8 +467,18 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0
     ldr     x7, [x5, #8]       // receiver
-    sub     x8, x7, x6
-    add     x8, x8, #1
+    and     x9, x6, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
+    and     x9, x7, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
+    asr     x6, x6, #SMALLINT_SHIFT
+    asr     x7, x7, #SMALLINT_SHIFT
+    subs    x8, x7, x6
+    b.vs    .Lprim_overflow
+    lsl     x8, x8, #SMALLINT_SHIFT
+    orr     x8, x8, #TAG_SMALLINT
     add     x5, x5, #8         // pop arg, result replaces receiver
     str     x8, [x5]
     str     x5, [x19]
@@ -467,7 +488,13 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0
     ldr     x7, [x5, #8]       // receiver
-    cmp     x7, x6              // signed compare (works on tagged)
+    and     x8, x6, #TAG_MASK
+    cmp     x8, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
+    and     x8, x7, #TAG_MASK
+    cmp     x8, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
+    cmp     x7, x6
     mov     x8, #7              // tagged true
     mov     x9, #11             // tagged false
     csel    x8, x8, x9, lt
@@ -480,6 +507,12 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0
     ldr     x7, [x5, #8]       // receiver
+    and     x8, x6, #TAG_MASK
+    cmp     x8, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
+    and     x8, x7, #TAG_MASK
+    cmp     x8, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
     cmp     x7, x6
     mov     x8, #7
     mov     x9, #11
@@ -496,11 +529,21 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0 (tagged)
     ldr     x7, [x5, #8]       // receiver (tagged)
+    and     x9, x6, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
+    and     x9, x7, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprim_type_error
     asr     x6, x6, #SMALLINT_SHIFT         // untag arg0
     asr     x7, x7, #SMALLINT_SHIFT         // untag receiver
     mul     x8, x7, x6         // result = receiver * arg0
-    lsl     x8, x8, #2         // retag
-    orr     x8, x8, #1
+    smulh   x9, x7, x6
+    asr     x11, x8, #63
+    cmp     x9, x11
+    b.ne    .Lprim_overflow
+    lsl     x8, x8, #SMALLINT_SHIFT
+    orr     x8, x8, #TAG_SMALLINT
     add     x5, x5, #8         // pop arg, result replaces receiver
     str     x8, [x5]
     str     x5, [x19]
@@ -777,14 +820,19 @@ _interpret:
     and     x7, x6, #CHAR_TAG_MASK
     cmp     x7, #CHAR_TAG_VALUE
     b.eq    .Lbasicclass_character
+    cmp     x6, #TAGGED_NIL
+    b.eq    .Lbasicclass_nil
     // true (0x07) → class_table[2], false (0x0B) → class_table[3]
     cmp     x6, #TAGGED_TRUE
     b.eq    .Lbasicclass_true
     cmp     x6, #TAGGED_FALSE
     b.eq    .Lbasicclass_false
-    // nil (0x03) — could return UndefinedObject class, but we don't have one yet
-    // For now, return nil itself
-    str     x6, [x5]
+    // Unknown special immediate.
+    str     xzr, [x5]
+    b       .Ldispatch
+.Lbasicclass_nil:
+    ldr     x7, [x25, #CLASS_TABLE_UNDEFINED_OBJECT_OFS]
+    str     x7, [x5]
     b       .Ldispatch
 .Lbasicclass_true:
     ldr     x7, [x25, #CLASS_TABLE_TRUE_OFS]    // class_table field 2 (true class)
@@ -1083,11 +1131,16 @@ _interpret:
     and     x8, x7, #CHAR_TAG_MASK
     cmp     x8, #CHAR_TAG_VALUE
     b.eq    .Lperf_character
+    cmp     x7, #TAGGED_NIL
+    b.eq    .Lperf_nil
     cmp     x7, #TAGGED_TRUE
     b.eq    .Lperf_true
     cmp     x7, #TAGGED_FALSE
     b.eq    .Lperf_false
     brk     #8                  // perform on nil or unknown
+.Lperf_nil:
+    ldr     x8, [x25, #CLASS_TABLE_UNDEFINED_OBJECT_OFS] // UndefinedObject class
+    b       .Lperf_lookup
 .Lperf_true:
     ldr     x8, [x25, #CLASS_TABLE_TRUE_OFS]     // true class
     b       .Lperf_lookup
@@ -1104,6 +1157,9 @@ _interpret:
     ldp     x6, x8, [sp], #16
     cbz     x0, .Lperf_mnu
     mov     x8, x0              // method
+    ldr     x3, [x8, #CM_PRIMITIVE_OFS]     // CM_PRIMITIVE (tagged)
+    cmp     x3, #1              // tag_smallint(0) means "no primitive"
+    b.ne    .Lperf_primitive
     ldr     x3, [x8, #CM_NUM_TEMPS_OFS]      // CM_NUM_TEMPS (tagged)
     asr     x3, x3, #SMALLINT_SHIFT
     mov     x5, x3             // num_temps
@@ -1115,15 +1171,15 @@ _interpret:
     stp     x8, xzr, [sp, #-16]!
     bl      _activate_method
     ldp     x8, xzr, [sp], #16
-    // Check if found method has primitive
-    ldr     x3, [x8, #CM_PRIMITIVE_OFS]     // CM_PRIMITIVE (tagged)
-    asr     x3, x3, #SMALLINT_SHIFT
-    cbnz    x3, .Lcheck_prim_dispatch
     // Set IP from method (x8)
     ldr     x10, [x8, #CM_BYTECODES_OFS]     // CM_BYTECODES
     add     x23, x10, #OBJ_FIELDS_OFS
     mov     x21, x23
     b       .Ldispatch
+.Lperf_primitive:
+    mov     x0, x8              // CompiledMethod
+    mov     x10, #0             // perform: sends a 0-arg message
+    b       .Lsend_primitive
 .Lperf_mnu:
     brk     #3                  // message not understood in perform:
 
@@ -1239,37 +1295,50 @@ _interpret:
     // x26 points to GC context: [0..1] = from, [2..3] = to, [4..5] = starts, [6] = size
     // Save x9 (block CM), x10 (home receiver) as roots along with stack roots
 
-    // First, scan stack roots
-    sub     sp, sp, #256        // root buffer on stack (max 32 roots)
-    mov     x0, sp
+    // First, collect the exact slot addresses that hold live roots.
+    sub     sp, sp, #1024       // 512B slot buffer + 512B root buffer
     stp     x9, x10, [sp, #-16]!   // save on stack
 
-    // Scan stack frames
-    ldr     x0, [x20]          // FP
-    add     x1, sp, #16        // root_buf (past saved x9/x10)
-    mov     x2, #28             // max roots (leave room for extras)
-    bl      _gc_scan_stack
-    // x0 = num stack roots found
+    // Collect root slot addresses from frames and suspended operand stacks.
+    ldr     x0, [x19]          // current Smalltalk SP
+    ldr     x1, [x20]          // current FP
+    add     x2, sp, #16        // slot_buf (past saved x9/x10)
+    mov     x3, #60            // leave room for explicit extra roots
+    bl      _gc_collect_stack_slots
+    // x0 = num slot roots found
     ldp     x9, x10, [sp], #16
 
-    // Add x9 (block CM) and x10 (receiver) and x25 (class table) as roots
-    // Use x28 (callee-saved) for root count so it survives bl calls
-    mov     x28, x0             // num roots so far
-    str     x9, [sp, x28, lsl #3]
+    // Materialize slot roots into the root buffer right after the slot buffer.
+    mov     x28, x0             // x28 = num slot roots
+    add     x11, sp, #0         // slot_buf
+    add     x12, sp, #512       // root_buf
+    mov     x13, #0
+.Lgc_slot_roots_to_values:
+    cmp     x13, x28
+    b.ge    .Lgc_slot_roots_done
+    ldr     x14, [x11, x13, lsl #3]  // slot address
+    ldr     x15, [x14]               // root value
+    str     x15, [x12, x13, lsl #3]
+    add     x13, x13, #1
+    b       .Lgc_slot_roots_to_values
+.Lgc_slot_roots_done:
+
+    // Add x9 (block CM), x10 (receiver), and x25 (class table) as explicit roots.
+    str     x9, [x12, x28, lsl #3]
     add     x28, x28, #1
-    str     x10, [sp, x28, lsl #3]
+    str     x10, [x12, x28, lsl #3]
     add     x28, x28, #1
-    str     x25, [sp, x28, lsl #3]
+    str     x25, [x12, x28, lsl #3]
     add     x28, x28, #1
 
     // Also add the current method from the frame
     ldr     x0, [x20]          // FP
     ldr     x0, [x0, #FP_METHOD_OFS]     // method
-    str     x0, [sp, x28, lsl #3]
+    str     x0, [x12, x28, lsl #3]
     add     x28, x28, #1
 
     // gc_collect(roots, num_roots, from_space, to_space, from_start, from_end)
-    mov     x0, sp              // roots
+    mov     x0, x12             // roots
     mov     x1, x28             // num_roots
     mov     x2, x26             // from_space = gc_ctx[0..1]
     add     x3, x26, #16       // to_space = gc_ctx[2..3]
@@ -1277,23 +1346,32 @@ _interpret:
     ldr     x5, [x26, #GCCTX_FROM_END_OFS]      // from_end = gc_ctx[1]
     bl      _gc_collect
 
-    // Update stack frame slots to follow forwarding pointers
-    ldr     x0, [x20]          // FP
-    ldr     x1, [x26, #GCCTX_FROM_START_OFS]     // from_start
-    ldr     x2, [x26, #GCCTX_FROM_END_OFS]      // from_end
-    bl      _gc_update_stack
+    // Write updated slot-root values back to their exact stack/frame slots.
+    add     x11, sp, #0         // slot_buf
+    add     x12, sp, #512       // root_buf
+    sub     x14, x28, #4        // explicit roots are appended after slot roots
+    mov     x13, #0
+.Lgc_values_to_slot_roots:
+    cmp     x13, x14
+    b.ge    .Lgc_values_done
+    ldr     x15, [x11, x13, lsl #3]
+    ldr     x6, [x12, x13, lsl #3]
+    str     x6, [x15]
+    add     x13, x13, #1
+    b       .Lgc_values_to_slot_roots
+.Lgc_values_done:
 
     // Read back updated roots
     sub     x28, x28, #1
     // skip method (x28 now points to class_table entry)
     sub     x28, x28, #1
-    ldr     x25, [sp, x28, lsl #3]  // updated class table
+    ldr     x25, [x12, x28, lsl #3]  // updated class table
     sub     x28, x28, #1
-    ldr     x10, [sp, x28, lsl #3]  // updated receiver
+    ldr     x10, [x12, x28, lsl #3]  // updated receiver
     sub     x28, x28, #1
-    ldr     x9, [sp, x28, lsl #3]   // updated block CM
+    ldr     x9, [x12, x28, lsl #3]   // updated block CM
 
-    add     sp, sp, #256        // pop root buffer
+    add     sp, sp, #1024       // pop slot/root buffers
 
     // Swap from/to in GC context
     ldp     x0, x1, [x26]       // from_free, from_end
@@ -1346,3 +1424,9 @@ _interpret:
 .Lexit:
     EPILOGUE
     ret
+
+.Lprim_type_error:
+    brk     #11                 // primitive called with wrong tagged operand types
+
+.Lprim_overflow:
+    brk     #12                 // SmallInteger primitive overflow

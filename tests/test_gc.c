@@ -851,11 +851,19 @@ void test_gc(TestContext *ctx)
         OBJ_FIELD(blk_class, CLASS_METHOD_DICT) = tagged_nil();
         OBJ_FIELD(blk_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-        uint64_t *ct = om_alloc(gs, (uint64_t)cc, FORMAT_INDEXABLE, 4);
+        uint64_t *uo_class = om_alloc(gs, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(uo_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(uo_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(uo_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(uo_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *ct = om_alloc(gs, (uint64_t)cc, FORMAT_INDEXABLE, 6);
         OBJ_FIELD(ct, 0) = (uint64_t)si_class;
         OBJ_FIELD(ct, 1) = (uint64_t)blk_class;
         OBJ_FIELD(ct, 2) = 0;
         OBJ_FIELD(ct, 3) = 0;
+        OBJ_FIELD(ct, 4) = (uint64_t)ctx->character_class;
+        OBJ_FIELD(ct, 5) = (uint64_t)uo_class;
 
         // Block body: PUSH_LITERAL 0, RETURN
         uint64_t *blk_bc = om_alloc(gs, (uint64_t)cc, FORMAT_BYTES, 10);
@@ -939,11 +947,19 @@ void test_gc(TestContext *ctx)
         OBJ_FIELD(blk2, CLASS_METHOD_DICT) = tagged_nil();
         OBJ_FIELD(blk2, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-        uint64_t *ct2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_INDEXABLE, 4);
+        uint64_t *uo2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(uo2, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(uo2, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(uo2, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(uo2, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *ct2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_INDEXABLE, 6);
         OBJ_FIELD(ct2, 0) = (uint64_t)si2;
         OBJ_FIELD(ct2, 1) = (uint64_t)blk2;
         OBJ_FIELD(ct2, 2) = 0;
         OBJ_FIELD(ct2, 3) = 0;
+        OBJ_FIELD(ct2, 4) = (uint64_t)ctx->character_class;
+        OBJ_FIELD(ct2, 5) = (uint64_t)uo2;
 
         // Block body: PUSH_LITERAL 0, RETURN
         uint64_t *bbc2 = om_alloc(gc_ctx2, (uint64_t)cc, FORMAT_BYTES, 10);
@@ -1209,5 +1225,129 @@ void test_gc(TestContext *ctx)
         // The remembered set should have an entry
         ASSERT_EQ(ctx, wb_rset[0], 1,
                   "gc write-barrier: remembered set has 1 entry");
+    }
+
+    // --- Auto-GC: object kept only on operand stack survives and is updated ---
+    {
+        static uint8_t sa[4096] __attribute__((aligned(8)));
+        static uint8_t sb[4096] __attribute__((aligned(8)));
+        uint64_t gc_ctx4[10];
+        gc_ctx_init(gc_ctx4, sa, sb, 4096);
+
+        uint64_t *cc = ctx->class_class;
+
+        uint64_t *meta_class = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(meta_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(meta_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(meta_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *inst_class = om_alloc(gc_ctx4, (uint64_t)meta_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(inst_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(inst_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(inst_class, CLASS_INST_SIZE) = tag_smallint(1);
+        OBJ_FIELD(inst_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *block_class = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(block_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(block_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(block_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *uo4 = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(uo4, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(uo4, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(uo4, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(uo4, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *ct4 = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_INDEXABLE, 6);
+        OBJ_FIELD(ct4, 0) = 0;
+        OBJ_FIELD(ct4, 1) = (uint64_t)block_class;
+        OBJ_FIELD(ct4, 2) = 0;
+        OBJ_FIELD(ct4, 3) = 0;
+        OBJ_FIELD(ct4, 4) = (uint64_t)ctx->character_class;
+        OBJ_FIELD(ct4, 5) = (uint64_t)uo4;
+
+        uint64_t *basicnew_bc = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_BYTES, 2);
+        uint64_t *basicnew_cm = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(basicnew_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_NEW);
+        OBJ_FIELD(basicnew_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(basicnew_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(basicnew_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(basicnew_cm, CM_BYTECODES) = (uint64_t)basicnew_bc;
+
+        uint64_t *meta_md = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(meta_md, 0) = tag_smallint(70); // #basicNew
+        OBJ_FIELD(meta_md, 1) = (uint64_t)basicnew_cm;
+        OBJ_FIELD(meta_class, CLASS_METHOD_DICT) = (uint64_t)meta_md;
+
+        uint64_t *blk_body_bc = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_BYTES, 2);
+        uint8_t *bbb = (uint8_t *)&OBJ_FIELD(blk_body_bc, 0);
+        bbb[0] = BC_PUSH_SELF;
+        bbb[1] = BC_RETURN;
+
+        uint64_t *blk_body_cm = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(blk_body_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(blk_body_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(blk_body_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(blk_body_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(blk_body_cm, CM_BYTECODES) = (uint64_t)blk_body_bc;
+
+        uint64_t *outer_bc = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_BYTES, 200);
+        uint8_t *ob = (uint8_t *)&OBJ_FIELD(outer_bc, 0);
+        int ip = 0;
+        ob[ip++] = BC_PUSH_LITERAL;
+        WRITE_U32(ob + ip, 0); // inst_class
+        ip += 4;
+        ob[ip++] = BC_SEND_MESSAGE;
+        WRITE_U32(ob + ip, 1); // #basicNew
+        ip += 4;
+        WRITE_U32(ob + ip, 0);
+        ip += 4;
+        for (int i = 0; i < 20; i++)
+        {
+            ob[ip++] = BC_PUSH_CLOSURE;
+            WRITE_U32(ob + ip, 2); // block CM
+            ip += 4;
+            ob[ip++] = BC_POP;
+        }
+        ob[ip++] = BC_HALT;
+
+        uint64_t *outer_lits = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(outer_lits, 0) = (uint64_t)inst_class;
+        OBJ_FIELD(outer_lits, 1) = tag_smallint(70); // #basicNew
+        OBJ_FIELD(outer_lits, 2) = (uint64_t)blk_body_cm;
+
+        uint64_t *outer_cm = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(outer_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_LITERALS) = (uint64_t)outer_lits;
+        OBJ_FIELD(outer_cm, CM_BYTECODES) = (uint64_t)outer_bc;
+
+        uint64_t remaining = gc_ctx4[GC_FROM_END] - gc_ctx4[GC_FROM_FREE];
+        if (remaining > 120)
+        {
+            uint64_t fill = (remaining - 120) / 8;
+            if (fill > 3)
+                om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, fill - 3);
+        }
+
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp, *fp;
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+
+        activate_method(&sp, &fp, 0, (uint64_t)outer_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(outer_bc, 0),
+                                    ct4, gc_ctx4, NULL);
+
+        ASSERT_EQ(ctx, result >= gc_ctx4[GC_FROM_START], 1,
+                  "gc operand-stack root: result moved into current from-space");
+        ASSERT_EQ(ctx, result < gc_ctx4[GC_FROM_END], 1,
+                  "gc operand-stack root: result remains within active semispace");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)result, 0), tagged_nil(),
+                  "gc operand-stack root: object payload preserved across GC");
     }
 }

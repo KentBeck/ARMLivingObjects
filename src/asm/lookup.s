@@ -28,12 +28,17 @@ _oop_class:
     and     x2, x0, #CHAR_TAG_MASK
     cmp     x2, #CHAR_TAG_VALUE
     b.eq    .Loop_character
+    cmp     x0, #TAGGED_NIL
+    b.eq    .Loop_nil
     cmp     x0, #TAGGED_TRUE
     b.eq    .Loop_true
     cmp     x0, #TAGGED_FALSE
     b.eq    .Loop_false
-    // nil or other special — no class yet, return 0
+    // Unknown special immediate.
     mov     x0, #0
+    ret
+.Loop_nil:
+    ldr     x0, [x1, #CLASS_TABLE_UNDEFINED_OBJECT_OFS]
     ret
 .Loop_true:
     ldr     x0, [x1, #CLASS_TABLE_TRUE_OFS]

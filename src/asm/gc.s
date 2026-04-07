@@ -16,6 +16,9 @@
 .global _gc_collect
 .global _gc_scan_stack
 .global _gc_update_stack
+.global _gc_scan_stack_with_eval
+.global _gc_update_stack_with_eval
+.global _gc_collect_stack_slots
 
 .align 2
 
@@ -48,6 +51,12 @@ _gc_copy_object:
     ldr     x5, [x1]            // x5 = to_space free_ptr (destination)
     mov     x6, x5              // x6 = new_obj (return value)
 
+    // Ensure the copy fits in to-space before writing into it.
+    ldr     x10, [x1, #8]       // x10 = to_space end_ptr
+    add     x11, x5, x4, lsl #3 // x11 = destination end
+    cmp     x11, x10
+    b.hi    .Lgc_copy_oom
+
     // Copy x4 words from x0 to x5
     mov     x7, x0              // x7 = src
     mov     x8, x4              // x8 = word count
@@ -73,6 +82,9 @@ _gc_copy_object:
     // x2 = forwarding ptr with tag
     bic     x0, x2, #1          // clear tag bit -> real address
     ret
+
+.Lgc_copy_oom:
+    brk     #10                 // GC to-space overflow
 
 // gc_is_forwarded(obj) -> 0 or 1
 // x0 = pointer to object
@@ -287,6 +299,96 @@ _gc_scan_stack:
 .Lgc_not_root:
     ret
 
+// gc_scan_stack_with_eval(sp, fp, root_buf, max_roots) -> num_roots_found
+// x0 = current Smalltalk SP
+// x1 = current frame pointer
+// x2 = root_buf
+// x3 = max_roots
+//
+// Walks the frame chain and collects:
+// - receiver, method, context, temps
+// - suspended operand stack slots for each frame
+//
+// For the current frame, suspended operands are in [sp, frame_bottom).
+// For caller frames, the suspended SP is the child's return SP:
+//   child_fp + (2 + child_num_args) * 8
+_gc_scan_stack_with_eval:
+    PROLOGUE
+
+    mov     x19, x0             // x19 = suspended SP for current frame
+    mov     x20, x1             // x20 = fp
+    mov     x21, x2             // x21 = root_buf
+    mov     x22, x3             // x22 = max_roots
+    mov     x23, #0             // x23 = count
+
+.Lgcse_frame_loop:
+    cmp     x20, #0
+    b.eq    .Lgcse_done
+    mov     x24, #FP_SENTINEL
+    cmp     x20, x24
+    b.eq    .Lgcse_done
+
+    // Collect receiver, method, and context.
+    ldr     x0, [x20, #-32]
+    bl      .Lgc_maybe_add_root_eval
+    ldr     x0, [x20, #-8]
+    bl      .Lgc_maybe_add_root_eval
+    ldr     x0, [x20, #-24]
+    bl      .Lgc_maybe_add_root_eval
+
+    // Get num_temps from method.
+    ldr     x24, [x20, #-8]
+    ldr     x24, [x24, #40]
+    asr     x24, x24, #2
+
+    // Collect temps.
+    mov     x25, #0
+.Lgcse_temps:
+    cmp     x25, x24
+    b.ge    .Lgcse_eval
+    add     x26, x25, #5
+    neg     x26, x26
+    ldr     x0, [x20, x26, lsl #3]
+    bl      .Lgc_maybe_add_root_eval
+    add     x25, x25, #1
+    b       .Lgcse_temps
+
+.Lgcse_eval:
+    // frame_bottom = FP - (4 + num_temps) * 8
+    add     x25, x24, #4
+    sub     x26, x20, x25, lsl #3
+.Lgcse_eval_loop:
+    cmp     x19, x26
+    b.hs    .Lgcse_next_frame
+    ldr     x0, [x19]
+    bl      .Lgc_maybe_add_root_eval
+    add     x19, x19, #8
+    b       .Lgcse_eval_loop
+
+.Lgcse_next_frame:
+    ldr     x24, [x20, #FP_FLAGS_OFS]
+    ubfx    x24, x24, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    add     x24, x24, #FP_ARG_BASE_WORDS
+    add     x19, x20, x24, lsl #3   // caller's suspended SP
+    ldr     x20, [x20]              // caller FP
+    b       .Lgcse_frame_loop
+
+.Lgcse_done:
+    mov     x0, x23
+    EPILOGUE
+    ret
+
+.Lgc_maybe_add_root_eval:
+    cbz     x0, .Lgc_not_root_eval
+    tst     x0, #3
+    b.ne    .Lgc_not_root_eval
+    cmp     x23, x22
+    b.ge    .Lgc_not_root_eval
+    str     x0, [x21, x23, lsl #3]
+    add     x23, x23, #1
+.Lgc_not_root_eval:
+    ret
+
 // gc_update_stack(fp, from_start, from_end)
 // x0 = fp, x1 = from_start, x2 = from_end
 // Walk stack frames, follow forwarding pointers for any from-space reference.
@@ -356,4 +458,154 @@ _gc_update_stack:
     bic     x4, x4, #1          // clear tag
     str     x4, [x0]            // update slot
 .Lgu_slot_done:
+    ret
+
+// gc_update_stack_with_eval(sp, fp, from_start, from_end)
+// x0 = current Smalltalk SP
+// x1 = current frame pointer
+// x2 = from_start
+// x3 = from_end
+//
+// Updates both frame slots and suspended operand stack slots for every frame.
+_gc_update_stack_with_eval:
+    PROLOGUE
+    mov     x19, x0             // x19 = suspended SP for current frame
+    mov     x20, x1             // x20 = fp
+    mov     x21, x2             // x21 = from_start
+    mov     x22, x3             // x22 = from_end
+
+.Lguse_frame_loop:
+    cbz     x20, .Lguse_done
+    mov     x23, #FP_SENTINEL
+    cmp     x20, x23
+    b.eq    .Lguse_done
+
+    // Update receiver, method, and context.
+    sub     x0, x20, #32
+    bl      .Lgu_update_slot
+    sub     x0, x20, #8
+    bl      .Lgu_update_slot
+    sub     x0, x20, #24
+    bl      .Lgu_update_slot
+
+    // Get num_temps from the updated method.
+    ldr     x23, [x20, #-8]
+    ldr     x23, [x23, #40]
+    asr     x23, x23, #2
+
+    // Update temps.
+    mov     x24, #0
+.Lguse_temps:
+    cmp     x24, x23
+    b.ge    .Lguse_eval
+    add     x25, x24, #5
+    neg     x25, x25
+    add     x0, x20, x25, lsl #3
+    bl      .Lgu_update_slot
+    add     x24, x24, #1
+    b       .Lguse_temps
+
+.Lguse_eval:
+    // frame_bottom = FP - (4 + num_temps) * 8
+    add     x24, x23, #4
+    sub     x25, x20, x24, lsl #3
+.Lguse_eval_loop:
+    cmp     x19, x25
+    b.hs    .Lguse_next_frame
+    mov     x0, x19
+    bl      .Lgu_update_slot
+    add     x19, x19, #8
+    b       .Lguse_eval_loop
+
+.Lguse_next_frame:
+    ldr     x24, [x20, #FP_FLAGS_OFS]
+    ubfx    x24, x24, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    add     x24, x24, #FP_ARG_BASE_WORDS
+    add     x19, x20, x24, lsl #3   // caller's suspended SP
+    ldr     x20, [x20]
+    b       .Lguse_frame_loop
+
+.Lguse_done:
+    EPILOGUE
+    ret
+
+// gc_collect_stack_slots(sp, fp, slot_buf, max_slots) -> num_slots
+// x0 = current Smalltalk SP
+// x1 = current frame pointer
+// x2 = slot_buf (array of uint64_t* slot addresses)
+// x3 = max_slots
+//
+// Collects the addresses of all root-bearing slots reachable from the
+// current frame chain:
+// - receiver, method, context, temps
+// - suspended operand stack slots for each frame
+//
+// The caller can materialize the values, run gc_collect, then write the
+// updated root values back to these exact addresses.
+_gc_collect_stack_slots:
+    PROLOGUE
+    mov     x19, x0             // x19 = suspended SP
+    mov     x20, x1             // x20 = fp
+    mov     x21, x2             // x21 = slot_buf
+    mov     x22, x3             // x22 = max_slots
+    mov     x23, #0             // x23 = count
+
+.Lgcss_frame_loop:
+    cbz     x20, .Lgcss_done
+    mov     x24, #FP_SENTINEL
+    cmp     x20, x24
+    b.eq    .Lgcss_done
+
+    sub     x0, x20, #32
+    bl      .Lgcss_add_slot
+    sub     x0, x20, #8
+    bl      .Lgcss_add_slot
+    sub     x0, x20, #24
+    bl      .Lgcss_add_slot
+
+    ldr     x24, [x20, #-8]
+    ldr     x24, [x24, #40]
+    asr     x24, x24, #2
+
+    mov     x25, #0
+.Lgcss_temps:
+    cmp     x25, x24
+    b.ge    .Lgcss_eval
+    add     x26, x25, #5
+    neg     x26, x26
+    add     x0, x20, x26, lsl #3
+    bl      .Lgcss_add_slot
+    add     x25, x25, #1
+    b       .Lgcss_temps
+
+.Lgcss_eval:
+    add     x25, x24, #4
+    sub     x26, x20, x25, lsl #3
+.Lgcss_eval_loop:
+    cmp     x19, x26
+    b.hs    .Lgcss_next_frame
+    mov     x0, x19
+    bl      .Lgcss_add_slot
+    add     x19, x19, #8
+    b       .Lgcss_eval_loop
+
+.Lgcss_next_frame:
+    ldr     x24, [x20, #FP_FLAGS_OFS]
+    ubfx    x24, x24, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    add     x24, x24, #FP_ARG_BASE_WORDS
+    add     x19, x20, x24, lsl #3
+    ldr     x20, [x20]
+    b       .Lgcss_frame_loop
+
+.Lgcss_done:
+    mov     x0, x23
+    EPILOGUE
+    ret
+
+.Lgcss_add_slot:
+    cmp     x23, x22
+    b.ge    .Lgcss_slot_done
+    str     x0, [x21, x23, lsl #3]
+    add     x23, x23, #1
+.Lgcss_slot_done:
     ret

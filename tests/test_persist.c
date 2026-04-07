@@ -101,6 +101,39 @@ void test_persist(TestContext *ctx)
                   "persist heap-class: class inst_size preserved");
     }
 
+    // --- Raw zero words survive save/load without becoming heap_base ---
+    {
+        static uint8_t srcz[8192] __attribute__((aligned(8)));
+        uint64_t sz[2];
+        om_init(srcz, 8192, sz);
+
+        uint64_t *first = om_alloc(sz, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(first, 0) = tag_smallint(123);
+
+        uint64_t *holder = om_alloc(sz, (uint64_t)class_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(holder, 0) = 0;
+        OBJ_FIELD(holder, 1) = (uint64_t)first;
+
+        uint64_t usedz = sz[0] - (uint64_t)srcz;
+        static uint8_t imgz[8192];
+        memcpy(imgz, srcz, usedz);
+        image_pointers_to_offsets(imgz, usedz, (uint64_t)srcz);
+
+        static uint8_t dstz[8192] __attribute__((aligned(8)));
+        memcpy(dstz, imgz, usedz);
+        image_offsets_to_pointers(dstz, usedz, (uint64_t)dstz);
+
+        uint64_t off_first = (uint64_t)first - (uint64_t)srcz;
+        uint64_t off_holder = (uint64_t)holder - (uint64_t)srcz;
+        uint64_t *new_first = (uint64_t *)((uint64_t)dstz + off_first);
+        uint64_t *new_holder = (uint64_t *)((uint64_t)dstz + off_holder);
+
+        ASSERT_EQ(ctx, OBJ_FIELD(new_holder, 0), 0,
+                  "persist zero: raw zero stays zero after reload");
+        ASSERT_EQ(ctx, OBJ_FIELD(new_holder, 1), (uint64_t)new_first,
+                  "persist zero: first object pointer still relocates correctly");
+    }
+
     // --- Transaction log replay on loaded image ---
     {
         static uint8_t src3[8192] __attribute__((aligned(8)));
