@@ -550,6 +550,25 @@ _interpret:
 
 .Lprim_at_bytes:
     // FORMAT_BYTES — byte access, return tagged SmallInt
+    // If transaction active, check txn log first using byte-index marker.
+    cbz     x27, .Lprim_at_bytes_no_txn
+    stp     x5, x6, [sp, #-16]!
+    stp     x7, xzr, [sp, #-16]!
+    sub     sp, sp, #16         // space for found flag
+    mov     x0, x27             // log
+    mov     x1, x7              // obj
+    mov     x2, #1
+    lsl     x2, x2, #63         // byte marker bit
+    orr     x2, x2, x6          // encoded field index
+    mov     x3, sp              // &found
+    bl      _txn_log_read
+    ldr     x8, [sp]            // found flag
+    add     sp, sp, #16
+    ldp     x7, xzr, [sp], #16
+    ldp     x5, x6, [sp], #16
+    cbnz    x8, .Lprim_at_got_value  // x0 = tagged value from log
+
+.Lprim_at_bytes_no_txn:
     add     x7, x7, #OBJ_FIELDS_OFS        // skip header
     ldrb    w0, [x7, x6]       // load single byte
     lsl     x0, x0, #SMALLINT_SHIFT
@@ -608,7 +627,24 @@ _interpret:
     b       .Lprim_atput_done
 
 .Lprim_atput_bytes:
-    // FORMAT_BYTES — byte store, value is tagged SmallInt
+    // FORMAT_BYTES — byte store, value is tagged SmallInt.
+    // If transaction active, write encoded byte entry to txn log.
+    cbz     x27, .Lprim_atput_bytes_no_txn
+    stp     x5, x6, [sp, #-16]!
+    stp     x7, x8, [sp, #-16]!
+    mov     x0, x27             // log
+    mov     x1, x8              // obj
+    mov     x2, #1
+    lsl     x2, x2, #63         // byte marker bit
+    orr     x2, x2, x7          // encoded index
+    mov     x3, x6              // tagged SmallInt value
+    bl      _txn_log_write
+    ldp     x7, x8, [sp], #16
+    ldp     x5, x6, [sp], #16
+    b       .Lprim_atput_done
+
+.Lprim_atput_bytes_no_txn:
+    // No transaction: write directly to byte storage.
     asr     x6, x6, #SMALLINT_SHIFT         // untag value → byte
     add     x9, x8, #OBJ_FIELDS_OFS        // skip header
     strb    w6, [x9, x7]       // store single byte

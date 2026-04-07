@@ -1,6 +1,11 @@
 // Transaction log operations
 // Log layout: [0] = count, then triples starting at [1]
 //   triple i: [1 + i*3] = object_ptr, [2 + i*3] = field_index, [3 + i*3] = new_value
+// field_index encoding:
+//   bit 63 = 0 -> word field index (obj[3 + index])
+//   bit 63 = 1 -> byte index (obj bytes at OBJ_FIELDS_OFS + index), value is tagged SmallInt
+
+.include "asm_constants_shared.s"
 
 .global _txn_log_write
 .global _txn_log_read
@@ -76,10 +81,23 @@ _txn_commit:
     ldr     x5, [x0, x3, lsl #3]   // x5 = field_index
     add     x3, x3, #1
     ldr     x6, [x0, x3, lsl #3]   // x6 = value
-    // OBJ_FIELD(obj, field_index) = value
-    // obj[3 + field_index] = value
+    // If field_index has bit63 set, this is a byte write entry.
+    tbnz    x5, #63, .Lcommit_byte_write
+
+    // Word slot write: OBJ_FIELD(obj, field_index) = value
     add     x5, x5, #3             // x5 = 3 + field_index
     str     x6, [x4, x5, lsl #3]   // obj[3 + field_index] = value
+    b       .Lcommit_next
+
+.Lcommit_byte_write:
+    // Clear marker bit: index = field_index & ((1<<63)-1)
+    lsl     x9, x5, #1
+    lsr     x9, x9, #1
+    asr     x10, x6, #SMALLINT_SHIFT       // untag SmallInt value -> byte
+    add     x11, x4, #OBJ_FIELDS_OFS
+    strb    w10, [x11, x9]
+
+.Lcommit_next:
     add     x2, x2, #1             // i++
     cmp     x2, x1                 // i < count?
     b.lt    .Lcommit_loop

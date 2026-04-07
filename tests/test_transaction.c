@@ -426,4 +426,128 @@ void test_transaction(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD(arr3, 0), tag_smallint(77),
                   "txn at:put: after commit array[0] = 77");
     }
+
+    // --- byte at:/at:put: with transaction ---
+    {
+        uint64_t *om = ctx->om;
+        uint64_t *class_class = ctx->class_class;
+        uint64_t *class_table = ctx->class_table;
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp, *fp;
+
+        uint64_t *byte_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(byte_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(byte_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(byte_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+
+        uint64_t sel_at = tag_smallint(90);
+        uint64_t sel_atput = tag_smallint(91);
+
+        uint64_t *at_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        uint64_t *at_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        ((uint8_t *)&OBJ_FIELD(at_bc, 0))[0] = BC_HALT;
+        OBJ_FIELD(at_cm, CM_PRIMITIVE) = tag_smallint(PRIM_AT);
+        OBJ_FIELD(at_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(at_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(at_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(at_cm, CM_BYTECODES) = (uint64_t)at_bc;
+
+        uint64_t *atput_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        uint64_t *atput_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        ((uint8_t *)&OBJ_FIELD(atput_bc, 0))[0] = BC_HALT;
+        OBJ_FIELD(atput_cm, CM_PRIMITIVE) = tag_smallint(PRIM_AT_PUT);
+        OBJ_FIELD(atput_cm, CM_NUM_ARGS) = tag_smallint(2);
+        OBJ_FIELD(atput_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(atput_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(atput_cm, CM_BYTECODES) = (uint64_t)atput_bc;
+
+        uint64_t *md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(md, 0) = sel_at;
+        OBJ_FIELD(md, 1) = (uint64_t)at_cm;
+        OBJ_FIELD(md, 2) = sel_atput;
+        OBJ_FIELD(md, 3) = (uint64_t)atput_cm;
+        OBJ_FIELD(byte_class, CLASS_METHOD_DICT) = (uint64_t)md;
+
+        uint64_t *bytes_obj = om_alloc(om, (uint64_t)byte_class, FORMAT_BYTES, 3);
+        uint8_t *raw = (uint8_t *)&OBJ_FIELD(bytes_obj, 0);
+        raw[0] = 10;
+        raw[1] = 20;
+        raw[2] = 30;
+
+        // Write in transaction: bytes_obj at: 2 put: 77
+        uint64_t *put_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 30);
+        uint8_t *pbc = (uint8_t *)&OBJ_FIELD(put_bc, 0);
+        pbc[0] = BC_PUSH_SELF;
+        pbc[1] = BC_PUSH_LITERAL;
+        WRITE_U32(pbc + 2, 0);
+        pbc[6] = BC_PUSH_LITERAL;
+        WRITE_U32(pbc + 7, 1);
+        pbc[11] = BC_SEND_MESSAGE;
+        WRITE_U32(pbc + 12, 2);
+        WRITE_U32(pbc + 16, 2);
+        pbc[20] = BC_HALT;
+
+        uint64_t *put_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(put_lits, 0) = tag_smallint(2);
+        OBJ_FIELD(put_lits, 1) = tag_smallint(77);
+        OBJ_FIELD(put_lits, 2) = sel_atput;
+
+        uint64_t *put_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(put_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(put_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(put_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(put_cm, CM_LITERALS) = (uint64_t)put_lits;
+        OBJ_FIELD(put_cm, CM_BYTECODES) = (uint64_t)put_bc;
+
+        uint64_t txn[1 + 64 * 3];
+        txn[0] = 0;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)bytes_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)put_cm, 0, 0);
+        interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(put_bc, 0), class_table, om, txn);
+
+        ASSERT_EQ(ctx, raw[1], (uint64_t)20,
+                  "txn byte at:put: leaves object unchanged before commit");
+        ASSERT_EQ(ctx, txn[0], 1,
+                  "txn byte at:put: writes to log");
+
+        // Read in same transaction: bytes_obj at: 2 => 77 from txn log
+        uint64_t *get_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 30);
+        uint8_t *gbc = (uint8_t *)&OBJ_FIELD(get_bc, 0);
+        gbc[0] = BC_PUSH_SELF;
+        gbc[1] = BC_PUSH_LITERAL;
+        WRITE_U32(gbc + 2, 0);
+        gbc[6] = BC_SEND_MESSAGE;
+        WRITE_U32(gbc + 7, 1);
+        WRITE_U32(gbc + 11, 1);
+        gbc[15] = BC_HALT;
+
+        uint64_t *get_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(get_lits, 0) = tag_smallint(2);
+        OBJ_FIELD(get_lits, 1) = sel_at;
+
+        uint64_t *get_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(get_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(get_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(get_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(get_cm, CM_LITERALS) = (uint64_t)get_lits;
+        OBJ_FIELD(get_cm, CM_BYTECODES) = (uint64_t)get_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)bytes_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)get_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(get_bc, 0),
+                                    class_table, om, txn);
+
+        ASSERT_EQ(ctx, result, tag_smallint(77),
+                  "txn byte at: reads pending value from log");
+
+        txn_commit(txn);
+        ASSERT_EQ(ctx, raw[1], (uint64_t)77,
+                  "txn byte at:put: writes byte on commit");
+    }
 }
