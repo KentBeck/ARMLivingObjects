@@ -449,16 +449,20 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // arg0
     ldr     x7, [x5, #8]       // receiver
-    and     x9, x6, #TAG_MASK
-    cmp     x9, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
     and     x9, x7, #TAG_MASK
     cmp     x9, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
+    b.ne    .Lprim_receiver_type_error
+    and     x9, x6, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     asr     x6, x6, #SMALLINT_SHIFT
     asr     x7, x7, #SMALLINT_SHIFT
     adds    x8, x7, x6
-    b.vs    .Lprim_overflow
+    b.vs    .Lprimitive_failed
+    lsl     x9, x8, #SMALLINT_SHIFT
+    asr     x10, x9, #SMALLINT_SHIFT
+    cmp     x10, x8
+    b.ne    .Lprimitive_failed
     lsl     x8, x8, #SMALLINT_SHIFT
     orr     x8, x8, #TAG_SMALLINT
     add     x5, x5, #16         // pop both
@@ -471,16 +475,20 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0
     ldr     x7, [x5, #8]       // receiver
-    and     x9, x6, #TAG_MASK
-    cmp     x9, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
     and     x9, x7, #TAG_MASK
     cmp     x9, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
+    b.ne    .Lprim_receiver_type_error
+    and     x9, x6, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     asr     x6, x6, #SMALLINT_SHIFT
     asr     x7, x7, #SMALLINT_SHIFT
     subs    x8, x7, x6
-    b.vs    .Lprim_overflow
+    b.vs    .Lprimitive_failed
+    lsl     x9, x8, #SMALLINT_SHIFT
+    asr     x10, x9, #SMALLINT_SHIFT
+    cmp     x10, x8
+    b.ne    .Lprimitive_failed
     lsl     x8, x8, #SMALLINT_SHIFT
     orr     x8, x8, #TAG_SMALLINT
     add     x5, x5, #8         // pop arg, result replaces receiver
@@ -492,12 +500,12 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0
     ldr     x7, [x5, #8]       // receiver
-    and     x8, x6, #TAG_MASK
-    cmp     x8, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
     and     x8, x7, #TAG_MASK
     cmp     x8, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
+    b.ne    .Lprim_receiver_type_error
+    and     x8, x6, #TAG_MASK
+    cmp     x8, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     cmp     x7, x6
     mov     x8, #7              // tagged true
     mov     x9, #11             // tagged false
@@ -511,12 +519,12 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0
     ldr     x7, [x5, #8]       // receiver
-    and     x8, x6, #TAG_MASK
-    cmp     x8, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
     and     x8, x7, #TAG_MASK
     cmp     x8, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
+    b.ne    .Lprim_receiver_type_error
+    and     x8, x6, #TAG_MASK
+    cmp     x8, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     cmp     x7, x6
     mov     x8, #7
     mov     x9, #11
@@ -533,19 +541,23 @@ _interpret:
     ldr     x5, [x19]
     ldr     x6, [x5]           // arg0 (tagged)
     ldr     x7, [x5, #8]       // receiver (tagged)
-    and     x9, x6, #TAG_MASK
-    cmp     x9, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
     and     x9, x7, #TAG_MASK
     cmp     x9, #TAG_SMALLINT
-    b.ne    .Lprim_type_error
+    b.ne    .Lprim_receiver_type_error
+    and     x9, x6, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     asr     x6, x6, #SMALLINT_SHIFT         // untag arg0
     asr     x7, x7, #SMALLINT_SHIFT         // untag receiver
     mul     x8, x7, x6         // result = receiver * arg0
     smulh   x9, x7, x6
     asr     x11, x8, #63
     cmp     x9, x11
-    b.ne    .Lprim_overflow
+    b.ne    .Lprimitive_failed
+    lsl     x9, x8, #SMALLINT_SHIFT
+    asr     x10, x9, #SMALLINT_SHIFT
+    cmp     x10, x8
+    b.ne    .Lprimitive_failed
     lsl     x8, x8, #SMALLINT_SHIFT
     orr     x8, x8, #TAG_SMALLINT
     add     x5, x5, #8         // pop arg, result replaces receiver
@@ -1644,7 +1656,7 @@ _interpret:
     EPILOGUE
     ret
 
-.Lprim_type_error:
+.Lprim_receiver_type_error:
     brk     #11                 // primitive called with wrong tagged operand types
 
 .Lprim_overflow:

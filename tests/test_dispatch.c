@@ -1,5 +1,63 @@
 #include "test_defs.h"
 
+static void trap_smallint_add_wrong_receiver(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    uint64_t *sp;
+    uint64_t *fp;
+
+    uint64_t sel_plus = tag_smallint(120);
+
+    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+    uint64_t *plus_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(plus_cm, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_ADD);
+    OBJ_FIELD(plus_cm, CM_NUM_ARGS) = tag_smallint(1);
+    OBJ_FIELD(plus_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(plus_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(plus_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+    uint64_t *recv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(recv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(recv_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(recv_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *recv_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(recv_md, 0) = sel_plus;
+    OBJ_FIELD(recv_md, 1) = (uint64_t)plus_cm;
+    OBJ_FIELD(recv_class, CLASS_METHOD_DICT) = (uint64_t)recv_md;
+
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)recv_class, FORMAT_FIELDS, 0);
+
+    uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+    uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+    cbb[0] = BC_PUSH_SELF;
+    cbb[1] = BC_PUSH_LITERAL;
+    WRITE_U32(&cbb[2], 0);
+    cbb[6] = BC_SEND_MESSAGE;
+    WRITE_U32(&cbb[7], 1);
+    WRITE_U32(&cbb[11], 1);
+    cbb[15] = BC_HALT;
+
+    uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(caller_lits, 0) = tag_smallint(4);
+    OBJ_FIELD(caller_lits, 1) = sel_plus;
+
+    uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+    OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, (uint64_t)recv_obj);
+    activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+    (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+}
+
 void test_dispatch(TestContext *ctx)
 {
     uint64_t *om = ctx->om;
@@ -824,6 +882,100 @@ void test_dispatch(TestContext *ctx)
         result = interpret(&sp, &fp,
                            (uint8_t *)&OBJ_FIELD(mul_bc2, 0), class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(42), "primitive: 6 * 7 = 42 via dispatch");
+
+        // Wrong argument type should primitive-fail into the Smalltalk body.
+        uint64_t old_smallint_md = OBJ_FIELD(smallint_class, CLASS_METHOD_DICT);
+        uint64_t old_smallint_slot = OBJ_FIELD(class_table, 0);
+
+        uint64_t sel_plus_fallback = tag_smallint(121);
+        uint64_t *fallback_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 6);
+        uint8_t *fbb = (uint8_t *)&OBJ_FIELD(fallback_bc, 0);
+        fbb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&fbb[1], 0);
+        fbb[5] = BC_RETURN;
+
+        uint64_t *fallback_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(fallback_lits, 0) = tag_smallint(444);
+
+        uint64_t *fallback_plus_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(fallback_plus_cm, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_ADD);
+        OBJ_FIELD(fallback_plus_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(fallback_plus_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(fallback_plus_cm, CM_LITERALS) = (uint64_t)fallback_lits;
+        OBJ_FIELD(fallback_plus_cm, CM_BYTECODES) = (uint64_t)fallback_bc;
+
+        uint64_t *fallback_si_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(fallback_si_md, 0) = sel_plus_fallback;
+        OBJ_FIELD(fallback_si_md, 1) = (uint64_t)fallback_plus_cm;
+        OBJ_FIELD(smallint_class, CLASS_METHOD_DICT) = (uint64_t)fallback_si_md;
+        OBJ_FIELD(class_table, 0) = (uint64_t)smallint_class;
+
+        uint64_t *wrong_arg_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *wab = (uint8_t *)&OBJ_FIELD(wrong_arg_bc, 0);
+        wab[0] = BC_PUSH_SELF;
+        wab[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&wab[2], 0);
+        wab[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&wab[7], 1);
+        WRITE_U32(&wab[11], 1);
+        wab[15] = BC_HALT;
+
+        uint64_t *wrong_arg_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(wrong_arg_lits, 0) = tagged_nil();
+        OBJ_FIELD(wrong_arg_lits, 1) = sel_plus_fallback;
+
+        uint64_t *wrong_arg_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(wrong_arg_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(wrong_arg_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(wrong_arg_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(wrong_arg_cm, CM_LITERALS) = (uint64_t)wrong_arg_lits;
+        OBJ_FIELD(wrong_arg_cm, CM_BYTECODES) = (uint64_t)wrong_arg_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(7));
+        activate_method(&sp, &fp, 0, (uint64_t)wrong_arg_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(wrong_arg_bc, 0), class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(444),
+                  "primitive failure: SmallInteger>>+ wrong arg falls through to method body");
+
+        uint64_t *overflow_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+        uint8_t *ovb = (uint8_t *)&OBJ_FIELD(overflow_bc, 0);
+        ovb[0] = BC_PUSH_SELF;
+        ovb[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&ovb[2], 0);
+        ovb[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&ovb[7], 1);
+        WRITE_U32(&ovb[11], 1);
+        ovb[15] = BC_HALT;
+
+        uint64_t *overflow_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(overflow_lits, 0) = tag_smallint(1);
+        OBJ_FIELD(overflow_lits, 1) = sel_plus_fallback;
+
+        uint64_t *overflow_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(overflow_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(overflow_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(overflow_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(overflow_cm, CM_LITERALS) = (uint64_t)overflow_lits;
+        OBJ_FIELD(overflow_cm, CM_BYTECODES) = (uint64_t)overflow_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(INT64_MAX >> 2));
+        activate_method(&sp, &fp, 0, (uint64_t)overflow_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(overflow_bc, 0), class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(444),
+                  "primitive failure: SmallInteger>>+ overflow falls through to method body");
+
+        ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_smallint_add_wrong_receiver),
+                  (uint64_t)SIGTRAP,
+                  "primitive trap: SmallInteger>>+ wrong receiver traps");
+
+        OBJ_FIELD(smallint_class, CLASS_METHOD_DICT) = old_smallint_md;
+        OBJ_FIELD(class_table, 0) = old_smallint_slot;
     }
 
     ctx->smallint_class = smallint_class;

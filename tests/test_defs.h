@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 
 extern void stack_push(uint64_t **sp_ptr, uint64_t *stack_base, uint64_t value);
 extern uint64_t stack_pop(uint64_t **sp_ptr);
@@ -260,6 +261,8 @@ typedef struct
     int failures;
 } TestContext;
 
+typedef void (*TrapTestFn)(TestContext *ctx);
+
 #define ASSERT_EQ(ctx, a, b, msg)                                        \
     do                                                                   \
     {                                                                    \
@@ -280,6 +283,7 @@ void debug_mnu(uint64_t selector);
 void debug_oom(void);
 void debug_unknown_prim(uint64_t prim_index);
 void debug_error(uint64_t message, uint64_t *fp, uint64_t *class_table);
+int run_trap_test(TestContext *ctx, TrapTestFn fn);
 
 void test_stack(TestContext *ctx);
 void test_tagged(TestContext *ctx);

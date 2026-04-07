@@ -1,4 +1,6 @@
 #include "test_defs.h"
+#include <sys/wait.h>
+#include <unistd.h>
 
 static uint64_t debug_oop_class(uint64_t oop, uint64_t *class_table)
 {
@@ -145,6 +147,31 @@ void debug_error(uint64_t message, uint64_t *fp, uint64_t *class_table)
         fp = (uint64_t *)fp[0];
         depth++;
     }
+}
+
+int run_trap_test(TestContext *ctx, TrapTestFn fn)
+{
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+        fn(ctx);
+        _exit(0);
+    }
+    if (pid < 0)
+    {
+        return -1;
+    }
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0)
+    {
+        return -1;
+    }
+    if (WIFSIGNALED(status))
+    {
+        return WTERMSIG(status);
+    }
+    return 0;
 }
 
 int main()
