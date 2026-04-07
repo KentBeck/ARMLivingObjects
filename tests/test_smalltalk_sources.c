@@ -17,6 +17,7 @@ static int read_file(const char *path, char *buf, size_t cap)
 void test_smalltalk_sources(TestContext *ctx)
 {
     char class_src[4096];
+    char object_src[4096];
     char string_src[8192];
     char symbol_src[2048];
     char array_src[4096];
@@ -29,6 +30,18 @@ void test_smalltalk_sources(TestContext *ctx)
     char expr_specs_src[4096];
     BCompiledMethodDef methods[64];
     int method_count = 0;
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Object.st", object_src, sizeof(object_src)), 1,
+              "src/smalltalk/Object.st exists");
+    ASSERT_EQ(ctx, strstr(object_src, "error: aString") != NULL, 1,
+              "Object>>error: exists");
+    ASSERT_EQ(ctx, strstr(object_src, "<primitive: 29>") != NULL, 1,
+              "Object>>error: uses primitive 29");
+    ASSERT_EQ(ctx, strstr(object_src, "== anObject\n    <primitive: 12>\n    ^ false") != NULL, 1,
+              "Object>>== has explicit fallback body");
+    ASSERT_EQ(ctx, bc_compile_source_methods(object_src, methods, 64, &method_count), 1,
+              "Object.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 8, "Object.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Class.st exists");

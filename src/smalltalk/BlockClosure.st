@@ -3,8 +3,10 @@
 !BlockClosure methodsFor: 'evaluating'!
 value
     <primitive: 6>
+    self error: 'value primitive failed'
 !
 
 value: anArg
     <primitive: 16>
+    self error: 'value: primitive failed'
 !

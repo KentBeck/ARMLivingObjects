@@ -1,5 +1,112 @@
 #include "test_defs.h"
 
+static uint64_t debug_oop_class(uint64_t oop, uint64_t *class_table)
+{
+    if ((oop & 1) == 0)
+    {
+        return oop ? ((uint64_t *)oop)[0] : 0;
+    }
+    if ((oop & 3) == 1)
+    {
+        return class_table ? class_table[3] : 0;
+    }
+    if ((oop & 0x0F) == 0x0F)
+    {
+        return class_table ? class_table[7] : 0;
+    }
+    if (oop == tagged_nil())
+    {
+        return class_table ? class_table[8] : 0;
+    }
+    if (oop == tagged_true())
+    {
+        return class_table ? class_table[5] : 0;
+    }
+    if (oop == tagged_false())
+    {
+        return class_table ? class_table[6] : 0;
+    }
+    return 0;
+}
+
+static uint64_t debug_method_selector(uint64_t klass, uint64_t method)
+{
+    while (klass != 0 && klass != tagged_nil())
+    {
+        uint64_t md_value = ((uint64_t *)klass)[4];
+        if (md_value != tagged_nil() && (md_value & 3) == 0)
+        {
+            uint64_t *md = (uint64_t *)md_value;
+            uint64_t size = md[2];
+            for (uint64_t index = 0; index + 1 < size; index += 2)
+            {
+                if (md[3 + index + 1] == method)
+                {
+                    return md[3 + index];
+                }
+            }
+        }
+        klass = ((uint64_t *)klass)[3];
+    }
+    return 0;
+}
+
+static void debug_print_oop(FILE *stream, uint64_t oop)
+{
+    if ((oop & 3) == 1)
+    {
+        fprintf(stream, "%lld", (long long)(oop >> 2));
+        return;
+    }
+    if ((oop & 0x0F) == 0x0F)
+    {
+        unsigned char ch = (unsigned char)(oop >> 4);
+        if (ch >= 32 && ch < 127)
+            fprintf(stream, "$%c", ch);
+        else
+            fprintf(stream, "$<%u>", (unsigned)ch);
+        return;
+    }
+    if (oop == tagged_nil())
+    {
+        fputs("nil", stream);
+        return;
+    }
+    if (oop == tagged_true())
+    {
+        fputs("true", stream);
+        return;
+    }
+    if (oop == tagged_false())
+    {
+        fputs("false", stream);
+        return;
+    }
+    if ((oop & 3) == 0 && oop != 0)
+    {
+        uint64_t *obj = (uint64_t *)oop;
+        if (obj[1] == FORMAT_BYTES)
+        {
+            uint64_t size = obj[2];
+            uint8_t *bytes = (uint8_t *)&obj[3];
+            fputc('\'', stream);
+            for (uint64_t i = 0; i < size; i++)
+            {
+                unsigned char ch = bytes[i];
+                if (ch >= 32 && ch < 127 && ch != '\'')
+                    fputc((int)ch, stream);
+                else
+                    fputc('.', stream);
+            }
+            fputc('\'', stream);
+            return;
+        }
+        fprintf(stream, "<oop %p>", (void *)obj);
+        return;
+    }
+    fprintf(stream, "<tagged %llu>", (unsigned long long)oop);
+}
+
 void debug_mnu(uint64_t selector)
 {
     fprintf(stderr, "MNU: selector=%lld (untagged=%lld)\n", selector, selector >> 2);
@@ -13,6 +120,31 @@ void debug_oom(void)
 void debug_unknown_prim(uint64_t prim_index)
 {
     fprintf(stderr, "UNKNOWN PRIM: %lld\n", prim_index);
+}
+
+void debug_error(uint64_t message, uint64_t *fp, uint64_t *class_table)
+{
+    fprintf(stderr, "ERROR: ");
+    debug_print_oop(stderr, message);
+    fprintf(stderr, "\nSTACK TRACE:\n");
+
+    int depth = 0;
+    while (fp != NULL && fp != (uint64_t *)0xCAFE)
+    {
+        uint64_t receiver = fp[-4];
+        uint64_t method = fp[-1];
+        uint64_t klass = debug_oop_class(receiver, class_table);
+        uint64_t selector = debug_method_selector(klass, method);
+
+        fprintf(stderr, "  #%d receiver=", depth);
+        debug_print_oop(stderr, receiver);
+        if (selector != 0)
+            fprintf(stderr, " selector=%lld", (long long)(selector >> 2));
+        fprintf(stderr, " method=%p\n", (void *)method);
+
+        fp = (uint64_t *)fp[0];
+        depth++;
+    }
 }
 
 int main()

@@ -3,6 +3,7 @@
 !Character methodsFor: 'accessing'!
 value
     <primitive: 19>
+    ^ 0
 !
 
 !Character methodsFor: 'comparing'!
@@ -13,15 +14,18 @@ value
 !Character methodsFor: 'printing'!
 printChar
     <primitive: 15>
+    ^ self
 !
 
 !Character methodsFor: 'testing'!
 isLetter
     <primitive: 21>
+    ^ false
 !
 
 isDigit
     <primitive: 22>
+    ^ false
 !
 
 isAlphanumeric
@@ -31,8 +35,10 @@ isAlphanumeric
 !Character methodsFor: 'converting'!
 asUppercase
     <primitive: 23>
+    ^ self
 !
 
 asLowercase
     <primitive: 24>
+    ^ self
 !

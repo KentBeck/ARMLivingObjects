@@ -375,8 +375,11 @@ void test_bootstrap_compiler(TestContext *ctx)
 
     {
         BCompiledBody compiled;
-        ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 0,
-                  "reject codegen without return");
+        ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 1,
+                  "implicit return for final expression");
+        ASSERT_EQ(ctx, compiled.bytecode_count, 2, "implicit return bytecode count");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], BC_PUSH_SELF, "implicit return push self");
+        ASSERT_EQ(ctx, compiled.bytecodes[1], BC_RETURN, "implicit return return opcode");
     }
 
     {
@@ -443,6 +446,33 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, methods[1].body.bytecodes[0], BC_PUSH_SELF, "compiled unary body push self");
         ASSERT_EQ(ctx, methods[1].body.bytecodes[1], BC_SEND_MESSAGE, "compiled unary body send");
         ASSERT_EQ(ctx, methods[1].body.bytecodes[10], BC_RETURN, "compiled unary body return");
+    }
+
+    {
+        const char *source =
+            "!Character methodsFor: 'accessing'!\n"
+            "value\n"
+            "    <primitive: 19>\n"
+            "    ^ 0\n"
+            "!\n";
+        BMethodChunk chunks[4];
+        int chunk_count = 0;
+        BCompiledMethodDef methods[4];
+        int method_count = 0;
+
+        ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 4, &chunk_count), 1,
+                  "parse primitive+body chunks");
+        ASSERT_EQ(ctx, bc_compile_method_chunks(chunks, chunk_count, methods, 4, &method_count), 1,
+                  "compile primitive+body chunks");
+        ASSERT_EQ(ctx, method_count, 1, "primitive+body method count");
+        ASSERT_EQ(ctx, methods[0].primitive_index, 19, "primitive+body primitive index");
+        ASSERT_EQ(ctx, methods[0].body.bytecode_count, 6, "primitive+body bytecode count");
+        ASSERT_EQ(ctx, methods[0].body.bytecodes[0], BC_PUSH_LITERAL, "primitive+body push literal");
+        ASSERT_EQ(ctx, read_u32(methods[0].body.bytecodes, 1), 0, "primitive+body literal index");
+        ASSERT_EQ(ctx, methods[0].body.bytecodes[5], BC_RETURN, "primitive+body return");
+        ASSERT_EQ(ctx, methods[0].body.literal_count, 1, "primitive+body literal count");
+        ASSERT_EQ(ctx, methods[0].body.literals[0].type, BTOK_INTEGER, "primitive+body literal type");
+        ASSERT_EQ(ctx, methods[0].body.literals[0].int_value, 0, "primitive+body literal value");
     }
 
     {

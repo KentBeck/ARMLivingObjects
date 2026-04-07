@@ -135,6 +135,8 @@ extern uint64_t *gc_forwarding_ptr(uint64_t *obj);
 extern void gc_collect(uint64_t *roots, uint64_t num_roots,
                        uint64_t *from_space, uint64_t *to_space,
                        uint64_t from_start, uint64_t from_end);
+extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
+                                       uint64_t **slot_buf, uint64_t max_slots);
 
 // gc_update_stack(fp, from_start, from_end)
 //   Walk stack frames, update any pointer in from-space range to its forwarding address.
@@ -200,6 +202,7 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define PRIM_STRING_HASH_FNV 26
 #define PRIM_STRING_AS_SYMBOL 27
 #define PRIM_SYMBOL_EQ 28 // Identity equality for symbols
+#define PRIM_ERROR 29
 #define BLOCK_HOME_RECEIVER 0
 #define BLOCK_CM 1
 #define BC_PUSH_LITERAL 0
@@ -276,6 +279,7 @@ typedef struct
 void debug_mnu(uint64_t selector);
 void debug_oom(void);
 void debug_unknown_prim(uint64_t prim_index);
+void debug_error(uint64_t message, uint64_t *fp, uint64_t *class_table);
 
 void test_stack(TestContext *ctx);
 void test_tagged(TestContext *ctx);

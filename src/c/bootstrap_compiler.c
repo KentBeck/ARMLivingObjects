@@ -779,10 +779,8 @@ static int cg_compile_and_store_block(CgState *state, const char *raw_source, in
     return 1;
 }
 
-static int cg_parse_primary(CgState *state)
+static int cg_emit_primary_token(CgState *state, BToken token)
 {
-    BToken token = bp_next(&state->parser);
-
     if (token.type == BTOK_IDENTIFIER)
     {
         if (strcmp(token.text, "self") == 0)
@@ -877,13 +875,14 @@ static int cg_parse_primary(CgState *state)
     return 0;
 }
 
-static int cg_parse_expression(CgState *state)
+static int cg_parse_primary(CgState *state)
 {
-    if (!cg_parse_primary(state))
-    {
-        return 0;
-    }
+    BToken token = bp_next(&state->parser);
+    return cg_emit_primary_token(state, token);
+}
 
+static int cg_parse_expression_continuation(CgState *state)
+{
     while (1)
     {
         BToken token = bp_next(&state->parser);
@@ -976,6 +975,16 @@ static int cg_parse_expression(CgState *state)
 
         return 0;
     }
+}
+
+static int cg_parse_expression(CgState *state)
+{
+    if (!cg_parse_primary(state))
+    {
+        return 0;
+    }
+
+    return cg_parse_expression_continuation(state);
 }
 
 static int cg_parse_temp_decls(CgState *state)
@@ -1072,6 +1081,29 @@ static int cg_parse_statements(CgState *state)
                 continue;
             }
             bp_unread(&state->parser, maybe_assign);
+
+            if (!cg_emit_primary_token(state, token))
+            {
+                return 0;
+            }
+            if (!cg_parse_expression_continuation(state))
+            {
+                return 0;
+            }
+
+            BToken separator = bp_next(&state->parser);
+            if (separator.type == BTOK_EOF)
+            {
+                cg_emit_byte(state, BC_CG_RETURN);
+                state->saw_return = 1;
+                return 1;
+            }
+            if (separator.type != BTOK_SPECIAL || strcmp(separator.text, ".") != 0)
+            {
+                return 0;
+            }
+            cg_emit_byte(state, BC_CG_POP);
+            continue;
         }
 
         bp_unread(&state->parser, token);
@@ -1079,17 +1111,19 @@ static int cg_parse_statements(CgState *state)
         {
             return 0;
         }
-        cg_emit_byte(state, BC_CG_POP);
 
         BToken separator = bp_next(&state->parser);
         if (separator.type == BTOK_EOF)
         {
+            cg_emit_byte(state, BC_CG_RETURN);
+            state->saw_return = 1;
             return 1;
         }
         if (separator.type != BTOK_SPECIAL || strcmp(separator.text, ".") != 0)
         {
             return 0;
         }
+        cg_emit_byte(state, BC_CG_POP);
     }
 }
 
@@ -1449,6 +1483,20 @@ int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,
         if (sscanf(body_source, "<primitive: %d>", &primitive_index) == 1)
         {
             method->primitive_index = primitive_index;
+
+            const char *primitive_end = strchr(body_source, '>');
+            if (primitive_end != NULL)
+            {
+                body_source = primitive_end + 1;
+                while (*body_source == ' ' || *body_source == '\t' || *body_source == '\n' || *body_source == '\r')
+                {
+                    body_source++;
+                }
+                if (*body_source != '\0' && !bc_codegen_method_body(body_source, &method->body))
+                {
+                    return 0;
+                }
+            }
         }
         else if (!bc_codegen_method_body(body_source, &method->body))
         {
