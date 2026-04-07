@@ -535,13 +535,17 @@ _gc_update_stack_with_eval:
 // x2 = slot_buf (array of uint64_t* slot addresses)
 // x3 = max_slots
 //
-// Collects the addresses of all root-bearing slots reachable from the
+// Collects the addresses of all slots that currently contain object-pointer roots
+// reachable from the
 // current frame chain:
 // - receiver, method, context, temps
 // - suspended operand stack slots for each frame
 //
-// The caller can materialize the values, run gc_collect, then write the
-// updated root values back to these exact addresses.
+// Returns the total number of matching slots, even if max_slots is smaller.
+// The caller can first call with slot_buf=0,max_slots=0 to count roots,
+// then allocate an exact-sized buffer, call again to fill it, materialize the
+// values, run gc_collect, and write the updated root values back to these
+// exact addresses.
 _gc_collect_stack_slots:
     PROLOGUE
     mov     x19, x0             // x19 = suspended SP
@@ -603,9 +607,15 @@ _gc_collect_stack_slots:
     ret
 
 .Lgcss_add_slot:
+    ldr     x24, [x0]
+    cbz     x24, .Lgcss_slot_done
+    tst     x24, #3
+    b.ne    .Lgcss_slot_done
     cmp     x23, x22
-    b.ge    .Lgcss_slot_done
+    b.ge    .Lgcss_count_only
+    cbz     x21, .Lgcss_count_only
     str     x0, [x21, x23, lsl #3]
+.Lgcss_count_only:
     add     x23, x23, #1
 .Lgcss_slot_done:
     ret

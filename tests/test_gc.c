@@ -1350,4 +1350,339 @@ void test_gc(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)result, 0), tagged_nil(),
                   "gc operand-stack root: object payload preserved across GC");
     }
+
+    // --- Auto-GC: basicNew retries after nursery exhaustion ---
+    {
+        static uint8_t sa[4096] __attribute__((aligned(8)));
+        static uint8_t sb[4096] __attribute__((aligned(8)));
+        uint64_t gc_ctx5[10];
+        gc_ctx_init(gc_ctx5, sa, sb, 4096);
+
+        uint64_t *cc = ctx->class_class;
+
+        uint64_t *inst_class = om_alloc(gc_ctx5, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(inst_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(inst_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(inst_class, CLASS_INST_SIZE) = tag_smallint(3);
+        OBJ_FIELD(inst_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *basicnew_bc = om_alloc(gc_ctx5, (uint64_t)cc, FORMAT_BYTES, 2);
+        uint64_t *basicnew_cm = om_alloc(gc_ctx5, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(basicnew_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_NEW);
+        OBJ_FIELD(basicnew_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(basicnew_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(basicnew_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(basicnew_cm, CM_BYTECODES) = (uint64_t)basicnew_bc;
+
+        uint64_t *meta_md = om_alloc(gc_ctx5, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(meta_md, 0) = tag_smallint(70); // #basicNew
+        OBJ_FIELD(meta_md, 1) = (uint64_t)basicnew_cm;
+        OBJ_FIELD(cc, CLASS_METHOD_DICT) = (uint64_t)meta_md;
+
+        uint64_t *caller_bc = om_alloc(gc_ctx5, (uint64_t)cc, FORMAT_BYTES, 15);
+        uint8_t *cb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        cb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(cb + 1, 0); // inst_class
+        cb[5] = BC_SEND_MESSAGE;
+        WRITE_U32(cb + 6, 1); // #basicNew
+        WRITE_U32(cb + 10, 0);
+        cb[14] = BC_HALT;
+
+        uint64_t *caller_lits = om_alloc(gc_ctx5, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(caller_lits, 0) = (uint64_t)inst_class;
+        OBJ_FIELD(caller_lits, 1) = tag_smallint(70); // #basicNew
+
+        uint64_t *caller_cm = om_alloc(gc_ctx5, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        uint64_t remaining = gc_ctx5[GC_FROM_END] - gc_ctx5[GC_FROM_FREE];
+        if (remaining > 24)
+        {
+            uint64_t fill = (remaining - 24) / 8;
+            if (fill > 3)
+                om_alloc(gc_ctx5, (uint64_t)cc, FORMAT_FIELDS, fill - 3);
+        }
+
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp, *fp;
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                                    ctx->class_table, gc_ctx5, NULL);
+
+        ASSERT_EQ(ctx, result >= gc_ctx5[GC_FROM_START], 1,
+                  "gc basicNew: result moved into active semispace");
+        ASSERT_EQ(ctx, result < gc_ctx5[GC_FROM_END], 1,
+                  "gc basicNew: result remains within active semispace");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)result) >= gc_ctx5[GC_FROM_START], 1,
+                  "gc basicNew: allocated object's class moved into active semispace");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)result) < gc_ctx5[GC_FROM_END], 1,
+                  "gc basicNew: allocated object's class remains in active semispace");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)OBJ_CLASS((uint64_t *)result), CLASS_INST_SIZE), tag_smallint(3),
+                  "gc basicNew: allocated object keeps requested class shape");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)result, 0), tagged_nil(),
+                  "gc basicNew: field 0 initialized after retry");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)result, 2), tagged_nil(),
+                  "gc basicNew: field 2 initialized after retry");
+    }
+
+    // --- Auto-GC: deep operand stack does not truncate live roots ---
+    {
+        static uint8_t sa[4096] __attribute__((aligned(8)));
+        static uint8_t sb[4096] __attribute__((aligned(8)));
+        uint64_t gc_ctx6[10];
+        gc_ctx_init(gc_ctx6, sa, sb, 4096);
+
+        uint64_t *cc = ctx->class_class;
+
+        uint64_t *meta_class = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(meta_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(meta_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(meta_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(meta_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *inst_class = om_alloc(gc_ctx6, (uint64_t)meta_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(inst_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(inst_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(inst_class, CLASS_INST_SIZE) = tag_smallint(1);
+        OBJ_FIELD(inst_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *block_class = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(block_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(block_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(block_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *uo6 = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(uo6, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(uo6, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(uo6, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(uo6, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *ct6 = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_INDEXABLE, 6);
+        OBJ_FIELD(ct6, 0) = 0;
+        OBJ_FIELD(ct6, 1) = (uint64_t)block_class;
+        OBJ_FIELD(ct6, 2) = 0;
+        OBJ_FIELD(ct6, 3) = 0;
+        OBJ_FIELD(ct6, 4) = (uint64_t)ctx->character_class;
+        OBJ_FIELD(ct6, 5) = (uint64_t)uo6;
+
+        uint64_t *basicnew_bc = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_BYTES, 2);
+        uint64_t *basicnew_cm = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(basicnew_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_NEW);
+        OBJ_FIELD(basicnew_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(basicnew_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(basicnew_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(basicnew_cm, CM_BYTECODES) = (uint64_t)basicnew_bc;
+
+        uint64_t *meta_md = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(meta_md, 0) = tag_smallint(70); // #basicNew
+        OBJ_FIELD(meta_md, 1) = (uint64_t)basicnew_cm;
+        OBJ_FIELD(meta_class, CLASS_METHOD_DICT) = (uint64_t)meta_md;
+
+        uint64_t *blk_body_bc = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_BYTES, 2);
+        uint8_t *bbb = (uint8_t *)&OBJ_FIELD(blk_body_bc, 0);
+        bbb[0] = BC_PUSH_SELF;
+        bbb[1] = BC_RETURN;
+
+        uint64_t *blk_body_cm = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(blk_body_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(blk_body_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(blk_body_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(blk_body_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(blk_body_cm, CM_BYTECODES) = (uint64_t)blk_body_bc;
+
+        uint64_t *outer_bc = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_BYTES, 800);
+        uint8_t *ob = (uint8_t *)&OBJ_FIELD(outer_bc, 0);
+        int ip = 0;
+        ob[ip++] = BC_PUSH_LITERAL;
+        WRITE_U32(ob + ip, 0); // inst_class
+        ip += 4;
+        ob[ip++] = BC_SEND_MESSAGE;
+        WRITE_U32(ob + ip, 1); // #basicNew
+        ip += 4;
+        WRITE_U32(ob + ip, 0);
+        ip += 4;
+        for (int i = 0; i < 70; i++)
+        {
+            ob[ip++] = BC_PUSH_LITERAL;
+            WRITE_U32(ob + ip, 3); // smallint filler
+            ip += 4;
+        }
+        ob[ip++] = BC_PUSH_CLOSURE;
+        WRITE_U32(ob + ip, 2); // block CM
+        ip += 4;
+        ob[ip++] = BC_POP;
+        for (int i = 0; i < 70; i++)
+            ob[ip++] = BC_POP;
+        ob[ip++] = BC_HALT;
+
+        uint64_t *outer_lits = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(outer_lits, 0) = (uint64_t)inst_class;
+        OBJ_FIELD(outer_lits, 1) = tag_smallint(70); // #basicNew
+        OBJ_FIELD(outer_lits, 2) = (uint64_t)blk_body_cm;
+        OBJ_FIELD(outer_lits, 3) = tag_smallint(1);
+
+        uint64_t *outer_cm = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(outer_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(outer_cm, CM_LITERALS) = (uint64_t)outer_lits;
+        OBJ_FIELD(outer_cm, CM_BYTECODES) = (uint64_t)outer_bc;
+
+        uint64_t remaining = gc_ctx6[GC_FROM_END] - gc_ctx6[GC_FROM_FREE];
+        if (remaining > 120)
+        {
+            uint64_t fill = (remaining - 120) / 8;
+            if (fill > 3)
+                om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, fill - 3);
+        }
+
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp, *fp;
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+
+        activate_method(&sp, &fp, 0, (uint64_t)outer_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(outer_bc, 0),
+                                    ct6, gc_ctx6, NULL);
+
+        ASSERT_EQ(ctx, result >= gc_ctx6[GC_FROM_START], 1,
+                  "gc deep-stack root: result moved into active semispace");
+        ASSERT_EQ(ctx, result < gc_ctx6[GC_FROM_END], 1,
+                  "gc deep-stack root: result remains within active semispace");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)result, 0), tagged_nil(),
+                  "gc deep-stack root: deep object payload preserved across GC");
+    }
+
+    // --- gc_collect_stack_slots skips immediate-only eval slots ---
+    {
+        uint64_t *cc = ctx->class_class;
+        uint64_t *receiver = om_alloc(ctx->om, (uint64_t)cc, FORMAT_FIELDS, 0);
+        uint64_t *deep_obj = om_alloc(ctx->om, (uint64_t)cc, FORMAT_FIELDS, 1);
+        OBJ_FIELD(deep_obj, 0) = tag_smallint(77);
+
+        uint64_t *bytecodes = om_alloc(ctx->om, (uint64_t)cc, FORMAT_BYTES, 1);
+        uint64_t *method = om_alloc(ctx->om, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(method, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)method, 0, 0);
+
+        stack_push(&sp, stack, (uint64_t)deep_obj);
+        uint64_t **deep_slot = (uint64_t **)sp;
+        for (int i = 0; i < 70; i++)
+            stack_push(&sp, stack, tag_smallint(i));
+
+        uint64_t *slot_buf[63];
+        uint64_t count = gc_collect_stack_slots(sp, fp, slot_buf, 63);
+        uint64_t found_deep_slot = 0;
+        for (uint64_t i = 0; i < count; i++)
+        {
+            if (slot_buf[i] == (uint64_t *)deep_slot)
+            {
+                found_deep_slot = 1;
+                break;
+            }
+        }
+
+        ASSERT_EQ(ctx, found_deep_slot, 1,
+                  "gc slot scan: deep object slot survives many immediate eval slots");
+    }
+
+    // --- Auto-GC: basicNew: retries for byte-indexable classes ---
+    {
+        static uint8_t sa[4096] __attribute__((aligned(8)));
+        static uint8_t sb[4096] __attribute__((aligned(8)));
+        uint64_t gc_ctx7[10];
+        gc_ctx_init(gc_ctx7, sa, sb, 4096);
+
+        uint64_t *cc = ctx->class_class;
+
+        uint64_t *byte_class = om_alloc(gc_ctx7, (uint64_t)cc, FORMAT_FIELDS, 4);
+        OBJ_FIELD(byte_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(byte_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(byte_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(byte_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+
+        uint64_t *basicnewsize_bc = om_alloc(gc_ctx7, (uint64_t)cc, FORMAT_BYTES, 2);
+        uint64_t *basicnewsize_cm = om_alloc(gc_ctx7, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(basicnewsize_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_NEW_SIZE);
+        OBJ_FIELD(basicnewsize_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(basicnewsize_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(basicnewsize_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(basicnewsize_cm, CM_BYTECODES) = (uint64_t)basicnewsize_bc;
+
+        uint64_t *meta_md = om_alloc(gc_ctx7, (uint64_t)cc, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(meta_md, 0) = tag_smallint(71); // #basicNew:
+        OBJ_FIELD(meta_md, 1) = (uint64_t)basicnewsize_cm;
+        OBJ_FIELD(cc, CLASS_METHOD_DICT) = (uint64_t)meta_md;
+
+        uint64_t *caller_bc = om_alloc(gc_ctx7, (uint64_t)cc, FORMAT_BYTES, 20);
+        uint8_t *cb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        cb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(cb + 1, 1); // byte_class
+        cb[5] = BC_PUSH_LITERAL;
+        WRITE_U32(cb + 6, 0); // size
+        cb[10] = BC_SEND_MESSAGE;
+        WRITE_U32(cb + 11, 2); // #basicNew:
+        WRITE_U32(cb + 15, 1);
+        cb[19] = BC_HALT;
+
+        uint64_t *caller_lits = om_alloc(gc_ctx7, (uint64_t)cc, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(caller_lits, 0) = tag_smallint(24);
+        OBJ_FIELD(caller_lits, 1) = (uint64_t)byte_class;
+        OBJ_FIELD(caller_lits, 2) = tag_smallint(71); // #basicNew:
+
+        uint64_t *caller_cm = om_alloc(gc_ctx7, (uint64_t)cc, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        uint64_t remaining = gc_ctx7[GC_FROM_END] - gc_ctx7[GC_FROM_FREE];
+        if (remaining > 24)
+        {
+            uint64_t fill = (remaining - 24) / 8;
+            if (fill > 3)
+                om_alloc(gc_ctx7, (uint64_t)cc, FORMAT_FIELDS, fill - 3);
+        }
+
+        uint64_t *stack = ctx->stack;
+        uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, tag_smallint(0));
+
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        uint64_t result = interpret(&sp, &fp,
+                                    (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                                    ctx->class_table, gc_ctx7, NULL);
+
+        ASSERT_EQ(ctx, result >= gc_ctx7[GC_FROM_START], 1,
+                  "gc basicNew:: bytes result moved into active semispace");
+        ASSERT_EQ(ctx, result < gc_ctx7[GC_FROM_END], 1,
+                  "gc basicNew:: bytes result remains within active semispace");
+        ASSERT_EQ(ctx, OBJ_FORMAT((uint64_t *)result), FORMAT_BYTES,
+                  "gc basicNew:: bytes format preserved after retry");
+        ASSERT_EQ(ctx, OBJ_SIZE((uint64_t *)result), 24,
+                  "gc basicNew:: requested byte size preserved after retry");
+    }
 }
