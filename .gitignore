@@ -2,6 +2,9 @@
 /test
 /bin/
 /target
+gc_stress_logs/
+gc_stress_*/
+gc_stress.out
 test_dbg
 test_dbg.dSYM/
 test_new
