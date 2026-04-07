@@ -1250,6 +1250,16 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x1, [x5]           // arg
     ldr     x0, [x5, #8]       // receiver
+    and     x6, x0, #TAG_MASK
+    cbnz    x6, .Lprim_receiver_type_error
+    ldr     x6, [x0, #OBJ_FORMAT_OFS]
+    cmp     x6, #FORMAT_BYTES
+    b.ne    .Lprim_receiver_type_error
+    and     x6, x1, #TAG_MASK
+    cbnz    x6, .Lprimitive_failed
+    ldr     x6, [x1, #OBJ_FORMAT_OFS]
+    cmp     x6, #FORMAT_BYTES
+    b.ne    .Lprimitive_failed
     bl      _prim_string_eq    // Call C function
     add     x5, x5, #16        // Pop arg and receiver
     str     x0, [x5]           // Push result
@@ -1259,6 +1269,11 @@ _interpret:
 .Lprim_string_hash_fnv:
     ldr     x5, [x19]          // SP
     ldr     x0, [x5]           // receiver
+    and     x6, x0, #TAG_MASK
+    cbnz    x6, .Lprim_receiver_type_error
+    ldr     x6, [x0, #OBJ_FORMAT_OFS]
+    cmp     x6, #FORMAT_BYTES
+    b.ne    .Lprim_receiver_type_error
     bl      _prim_string_hash_fnv  // Call C function
     add     x5, x5, #8         // Pop receiver
     str     x0, [x5]           // Push result
@@ -1268,6 +1283,11 @@ _interpret:
 .Lprim_string_as_symbol:
     ldr     x5, [x19]          // SP
     ldr     x0, [x5]           // receiver
+    and     x6, x0, #TAG_MASK
+    cbnz    x6, .Lprim_receiver_type_error
+    ldr     x6, [x0, #OBJ_FORMAT_OFS]
+    cmp     x6, #FORMAT_BYTES
+    b.ne    .Lprim_receiver_type_error
     bl      _prim_string_as_symbol // Call C function
     add     x5, x5, #8         // Pop receiver
     str     x0, [x5]           // Push result
@@ -1278,6 +1298,20 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x1, [x5]           // arg
     ldr     x0, [x5, #8]       // receiver
+    and     x6, x0, #TAG_MASK
+    cbnz    x6, .Lprim_receiver_type_error
+    ldr     x6, [x0, #OBJ_FORMAT_OFS]
+    cmp     x6, #FORMAT_BYTES
+    b.ne    .Lprim_receiver_type_error
+    and     x6, x1, #TAG_MASK
+    cbnz    x6, .Lprimitive_failed
+    ldr     x6, [x1, #OBJ_FORMAT_OFS]
+    cmp     x6, #FORMAT_BYTES
+    b.ne    .Lprimitive_failed
+    ldr     x6, [x0]
+    ldr     x7, [x1]
+    cmp     x6, x7
+    b.ne    .Lprimitive_failed
     bl      _prim_symbol_eq    // Call C function
     add     x5, x5, #16        // Pop arg and receiver
     str     x0, [x5]           // Push result

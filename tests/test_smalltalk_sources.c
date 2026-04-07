@@ -68,11 +68,15 @@ void test_smalltalk_sources(TestContext *ctx)
               "String>>printString exists");
     ASSERT_EQ(ctx, strstr(string_src, "(self at: i) asCharacter printChar.") != NULL, 1,
               "String>>printString prints chars via asCharacter printChar");
+    ASSERT_EQ(ctx, strstr(string_src, "= aString\n    <primitive: 25>\n    false") != NULL, 1,
+              "String>>= has explicit false fallback");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Symbol.st", symbol_src, sizeof(symbol_src)), 1,
               "src/smalltalk/Symbol.st exists");
     ASSERT_EQ(ctx, strstr(symbol_src, "= aSymbol") != NULL, 1,
               "Symbol>>= method exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "<primitive: 28>") != NULL, 1,
+              "Symbol>>= uses primitive 28");
     ASSERT_EQ(ctx, strstr(symbol_src, "^ self == aSymbol") != NULL, 1,
               "Symbol>>= uses identity equality");
     ASSERT_EQ(ctx, bc_compile_source_methods(symbol_src, methods, 64, &method_count), 1,

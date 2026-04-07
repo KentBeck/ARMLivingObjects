@@ -1,5 +1,173 @@
 #include "test_defs.h"
 
+static uint64_t *make_bytes_obj(uint64_t *om, uint64_t *class_class, uint64_t *string_class, const char *bytes, uint64_t n);
+
+static void trap_string_eq_wrong_receiver(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    uint64_t *sp;
+    uint64_t *fp;
+    uint64_t sel_eq = tag_smallint(320);
+
+    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+    uint64_t *eq_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(eq_cm, CM_PRIMITIVE) = tag_smallint(PRIM_STRING_EQ);
+    OBJ_FIELD(eq_cm, CM_NUM_ARGS) = tag_smallint(1);
+    OBJ_FIELD(eq_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(eq_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(eq_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+    uint64_t *recv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(recv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(recv_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(recv_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *recv_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(recv_md, 0) = sel_eq;
+    OBJ_FIELD(recv_md, 1) = (uint64_t)eq_cm;
+    OBJ_FIELD(recv_class, CLASS_METHOD_DICT) = (uint64_t)recv_md;
+
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)recv_class, FORMAT_FIELDS, 0);
+    uint64_t *arg_obj = make_bytes_obj(om, class_class, ctx->string_class, "a", 1);
+
+    uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+    uint8_t *p = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+    p[0] = BC_PUSH_SELF;
+    p[1] = BC_PUSH_LITERAL;
+    WRITE_U32(&p[2], 0);
+    p[6] = BC_SEND_MESSAGE;
+    WRITE_U32(&p[7], 1);
+    WRITE_U32(&p[11], 1);
+    p[15] = BC_HALT;
+
+    uint64_t *lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(lits, 0) = (uint64_t)arg_obj;
+    OBJ_FIELD(lits, 1) = sel_eq;
+
+    uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)lits;
+    OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, (uint64_t)recv_obj);
+    activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+    (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+}
+
+static void trap_string_hash_wrong_receiver(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    uint64_t *sp;
+    uint64_t *fp;
+    uint64_t sel_hash = tag_smallint(321);
+
+    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+    uint64_t *hash_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(hash_cm, CM_PRIMITIVE) = tag_smallint(PRIM_STRING_HASH_FNV);
+    OBJ_FIELD(hash_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(hash_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(hash_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(hash_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+    uint64_t *recv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(recv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(recv_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(recv_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *recv_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(recv_md, 0) = sel_hash;
+    OBJ_FIELD(recv_md, 1) = (uint64_t)hash_cm;
+    OBJ_FIELD(recv_class, CLASS_METHOD_DICT) = (uint64_t)recv_md;
+
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)recv_class, FORMAT_FIELDS, 0);
+
+    uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+    uint8_t *p = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+    p[0] = BC_PUSH_SELF;
+    p[1] = BC_SEND_MESSAGE;
+    WRITE_U32(&p[2], 0);
+    WRITE_U32(&p[6], 0);
+    p[10] = BC_HALT;
+
+    uint64_t *lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(lits, 0) = sel_hash;
+
+    uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)lits;
+    OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, (uint64_t)recv_obj);
+    activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+    (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+}
+
+static void trap_string_as_symbol_wrong_receiver(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    uint64_t *sp;
+    uint64_t *fp;
+    uint64_t sel_as_symbol = tag_smallint(322);
+
+    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+    uint64_t *as_symbol_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(as_symbol_cm, CM_PRIMITIVE) = tag_smallint(PRIM_STRING_AS_SYMBOL);
+    OBJ_FIELD(as_symbol_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(as_symbol_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(as_symbol_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(as_symbol_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+    uint64_t *recv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(recv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(recv_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(recv_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *recv_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(recv_md, 0) = sel_as_symbol;
+    OBJ_FIELD(recv_md, 1) = (uint64_t)as_symbol_cm;
+    OBJ_FIELD(recv_class, CLASS_METHOD_DICT) = (uint64_t)recv_md;
+
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)recv_class, FORMAT_FIELDS, 0);
+
+    uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+    uint8_t *p = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+    p[0] = BC_PUSH_SELF;
+    p[1] = BC_SEND_MESSAGE;
+    WRITE_U32(&p[2], 0);
+    WRITE_U32(&p[6], 0);
+    p[10] = BC_HALT;
+
+    uint64_t *lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(lits, 0) = sel_as_symbol;
+
+    uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)lits;
+    OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, (uint64_t)recv_obj);
+    activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+    (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+}
+
 static void md_append(uint64_t *om, uint64_t *class_class, uint64_t *klass, uint64_t selector, uint64_t method)
 {
     uint64_t md_val = OBJ_FIELD(klass, CLASS_METHOD_DICT);
@@ -130,6 +298,75 @@ void test_string_dispatch(TestContext *ctx)
                   "dispatch new:: format is bytes");
         ASSERT_EQ(ctx, OBJ_SIZE((uint64_t *)result), 5,
                   "dispatch new:: size is 5");
+    }
+
+    {
+        uint64_t sel_eq_string = tag_smallint(100);
+        uint64_t *eq_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 6);
+        uint8_t *eqb = (uint8_t *)&OBJ_FIELD(eq_bc, 0);
+        eqb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&eqb[1], 0);
+        eqb[5] = BC_RETURN;
+
+        uint64_t *eq_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(eq_lits, 0) = tagged_false();
+
+        uint64_t *eq_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(eq_cm, CM_PRIMITIVE) = tag_smallint(PRIM_STRING_EQ);
+        OBJ_FIELD(eq_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(eq_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(eq_cm, CM_LITERALS) = (uint64_t)eq_lits;
+        OBJ_FIELD(eq_cm, CM_BYTECODES) = (uint64_t)eq_bc;
+
+        uint64_t *eq_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(eq_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(eq_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(eq_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+        uint64_t *eq_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(eq_md, 0) = sel_eq_string;
+        OBJ_FIELD(eq_md, 1) = (uint64_t)eq_cm;
+        OBJ_FIELD(eq_class, CLASS_METHOD_DICT) = (uint64_t)eq_md;
+
+        uint64_t *recv = make_bytes_obj(om, class_class, eq_class, "alpha", 5);
+
+        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *p = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        p[0] = BC_PUSH_SELF;
+        p[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&p[2], 0);
+        p[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&p[7], 1);
+        WRITE_U32(&p[11], 1);
+        p[15] = BC_HALT;
+
+        uint64_t *lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(lits, 0) = tagged_nil();
+        OBJ_FIELD(lits, 1) = sel_eq_string;
+
+        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)recv);
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+
+        ASSERT_EQ(ctx, result, tagged_false(),
+                  "primitive failure: String>>= wrong arg falls through to method body");
+        ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_string_eq_wrong_receiver),
+                  (uint64_t)SIGTRAP,
+                  "primitive trap: String>>= wrong receiver traps");
+        ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_string_hash_wrong_receiver),
+                  (uint64_t)SIGTRAP,
+                  "primitive trap: String>>hash wrong receiver traps");
+        ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_string_as_symbol_wrong_receiver),
+                  (uint64_t)SIGTRAP,
+                  "primitive trap: String>>asSymbol wrong receiver traps");
     }
 
     {
@@ -303,4 +540,3 @@ void test_string_dispatch(TestContext *ctx)
         ASSERT_EQ(ctx, rb[4], (uint8_t)'o', "dispatch comma: byte 5");
     }
 }
-

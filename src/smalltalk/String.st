@@ -19,7 +19,7 @@ at: index put: value
 !String methodsFor: 'comparing'!
 = aString
     <primitive: 25>
-    self error: '= primitive failed'
+    false
 !
 
 hash
