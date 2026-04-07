@@ -139,20 +139,9 @@ void test_blocks(TestContext *ctx)
         uint64_t sel_ifTF = tag_smallint(70); // #ifTrue:ifFalse:
 
         // True >> ifTrue: aBlock ifFalse: anotherBlock  ^ aBlock value
-        // Bytecodes: PUSH_ARG? No — we don't have PUSH_ARG yet.
-        // Args are above the frame at FP + (2+i)*8.
-        // For a 2-arg method, arg0 (aBlock) is at FP+3*W, arg1 (anotherBlock) at FP+2*W.
-        // We need frame_arg(fp, 0) = FP+2*W (most recently pushed), but we want aBlock
-        // which was pushed first = FP+3*W = frame_arg(fp, 1).
-        //
-        // Actually in our calling convention:
-        //   stack_push(receiver), stack_push(arg0=aBlock), stack_push(arg1=anotherBlock)
-        //   arg0 at FP + 3*W = frame_arg(fp, 1)
-        //   arg1 at FP + 2*W = frame_arg(fp, 0)
-        //
-        // We don't have a PUSH_ARG bytecode. Let's add one: BC_PUSH_ARG (15).
-        // For now, use PUSH_TEMP with a negative offset hack? No.
-        // Let me just add BC_PUSH_ARG.
+        // In this calling convention, the first pushed arg is frame_arg(fp, 1)
+        // and the second pushed arg is frame_arg(fp, 0), so the methods use
+        // BC_PUSH_ARG with explicit indices.
 
         // True>>ifTrue:ifFalse: bytecodes:
         //   PUSH_ARG 1    (aBlock = first arg pushed = frame_arg(1))

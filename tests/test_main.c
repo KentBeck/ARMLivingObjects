@@ -217,7 +217,7 @@ int main()
     OBJ_FIELD(symbol_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
 
-    uint64_t *symbol_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 20); // size 20 for now
+    uint64_t *symbol_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 20);
     for (int i = 0; i < 20; i++)
     {
         OBJ_FIELD(symbol_table_obj, i) = tagged_nil();

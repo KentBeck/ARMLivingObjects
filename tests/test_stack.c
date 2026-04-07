@@ -325,17 +325,25 @@ void test_stack(TestContext *ctx)
     ip = caller_ip_val;
     stack_push(&sp, stack, receiver);
     stack_push(&sp, stack, 0xAAAA); // push arg
-    activate_method(&sp, &fp, ip, method, 1, 0);
-    // arg 0 is at FP+2*W, which is frame_arg(fp, 0)
-    // To push it, we treat it as a temp access (but it's above the frame)
-    // For now we use bc_push_temp won't work for args — we need a different approach
-    // Actually, in Cog the bytecode indexes args and temps uniformly.
-    // But our current bc_push_temp only accesses below-FP temps.
-    // Let's just manually push the arg value for now:
-    stack_push(&sp, stack, frame_arg(fp, 0));
-    bc_return_stack_top(&sp, &fp, &ip);
-    ASSERT_EQ(ctx, stack_top(&sp), 0xAAAA,
-              "scenario: ^arg returns arg to caller");
+    {
+        uint64_t *arg_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+        uint8_t *abc = (uint8_t *)&OBJ_FIELD(arg_bc, 0);
+        abc[0] = BC_PUSH_ARG;
+        WRITE_U32(&abc[1], 0);
+        abc[5] = BC_RETURN;
+
+        uint64_t *arg_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(arg_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(arg_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(arg_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(arg_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(arg_cm, CM_BYTECODES) = (uint64_t)arg_bc;
+
+        activate_method(&sp, &fp, ip, (uint64_t)arg_cm, 1, 0);
+        uint64_t result = interpret(&sp, &fp, abc, ctx->class_table, om, NULL);
+        ASSERT_EQ(ctx, result, 0xAAAA,
+                  "scenario: ^arg returns arg to caller");
+    }
 
     // Scenario 3: call, store into temp, push temp, return
     // Smalltalk: foo   | t | t := 42. ^t

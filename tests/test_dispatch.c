@@ -168,6 +168,116 @@ static void trap_as_character_wrong_receiver(TestContext *ctx)
     (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
 }
 
+static void trap_print_char_wrong_receiver(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    uint64_t *sp;
+    uint64_t *fp;
+
+    uint64_t sel_printChar = tag_smallint(124);
+
+    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+    uint64_t *pc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(pc_cm, CM_PRIMITIVE) = tag_smallint(PRIM_PRINT_CHAR);
+    OBJ_FIELD(pc_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(pc_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(pc_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(pc_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+    uint64_t *recv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(recv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(recv_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(recv_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *recv_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(recv_md, 0) = sel_printChar;
+    OBJ_FIELD(recv_md, 1) = (uint64_t)pc_cm;
+    OBJ_FIELD(recv_class, CLASS_METHOD_DICT) = (uint64_t)recv_md;
+
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)recv_class, FORMAT_FIELDS, 0);
+
+    uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+    uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+    cbb[0] = BC_PUSH_SELF;
+    cbb[1] = BC_SEND_MESSAGE;
+    WRITE_U32(&cbb[2], 0);
+    WRITE_U32(&cbb[6], 0);
+    cbb[10] = BC_HALT;
+
+    uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(caller_lits, 0) = sel_printChar;
+
+    uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+    OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, (uint64_t)recv_obj);
+    activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+    (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+}
+
+static void trap_block_value_wrong_receiver(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    uint64_t *sp;
+    uint64_t *fp;
+
+    uint64_t sel_value = tag_smallint(125);
+
+    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+    uint64_t *value_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(value_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BLOCK_VALUE);
+    OBJ_FIELD(value_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(value_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(value_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(value_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+    uint64_t *recv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(recv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(recv_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(recv_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *recv_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(recv_md, 0) = sel_value;
+    OBJ_FIELD(recv_md, 1) = (uint64_t)value_cm;
+    OBJ_FIELD(recv_class, CLASS_METHOD_DICT) = (uint64_t)recv_md;
+
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)recv_class, FORMAT_FIELDS, 0);
+
+    uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+    uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+    cbb[0] = BC_PUSH_SELF;
+    cbb[1] = BC_SEND_MESSAGE;
+    WRITE_U32(&cbb[2], 0);
+    WRITE_U32(&cbb[6], 0);
+    cbb[10] = BC_HALT;
+
+    uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(caller_lits, 0) = sel_value;
+
+    uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+    OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, (uint64_t)recv_obj);
+    activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+    (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+}
+
 void test_dispatch(TestContext *ctx)
 {
     uint64_t *om = ctx->om;
@@ -632,19 +742,7 @@ void test_dispatch(TestContext *ctx)
                   "SEND: obj x returns inst var 0 (42)");
     }
 
-    // Test: send a 1-arg message
-    // Class with method #add: that pushes inst var 0, pushes arg, adds, returns
-    // But we don't have SmallInteger + as a bytecode yet.
-    // Simpler: method #identity: that just returns the arg (push arg 0, return)
-    // Arg 0 is at FP+2*W. We need to access it. In our frame layout,
-    // arg 0 (last pushed) is at FP+2*W = frame_arg(fp, 0).
-    // We can use PUSH_TEMP with a negative trick... but our PUSH_TEMP only
-    // reads below FP. We need args to be accessible.
-    // Solution: treat arg indices as temp indices where temp index for arg N
-    // = -(N+1) mapped above the frame. Actually, the simplest thing:
-    // push the arg from the caller side as a literal in the callee.
-    // No — let's just have the callee return self for now and test that
-    // the 1-arg send correctly pops both arg and receiver.
+    // Test: send a 1-arg message and verify the send path pops arg and receiver correctly.
     {
         // Method #withArg: just returns self (ignores arg)
         uint64_t *wa_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
@@ -2364,6 +2462,9 @@ void test_dispatch(TestContext *ctx)
         // printChar returns self (the Character)
         ASSERT_EQ(ctx, result, tag_character(46),
                   "printChar: Character $. returns self");
+        ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_print_char_wrong_receiver),
+                  (uint64_t)SIGTRAP,
+                  "primitive trap: Character>>printChar wrong receiver traps");
     }
 
     // --- value: primitive (1-arg block) ---
@@ -2444,6 +2545,9 @@ void test_dispatch(TestContext *ctx)
                            class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(99),
                   "value: 1-arg block returns the argument");
+        ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_block_value_wrong_receiver),
+                  (uint64_t)SIGTRAP,
+                  "primitive trap: Block>>value wrong receiver traps");
     }
 
     // --- perform: primitive ---
