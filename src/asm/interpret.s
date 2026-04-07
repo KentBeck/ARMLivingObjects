@@ -312,31 +312,37 @@ _interpret:
     // Get receiver from stack: at SP + arg_count * 8
     ldr     x15, [x19]         // SP
     ldr     x0, [x15, x10, lsl #3]  // receiver
+    b       .Llookup_method_for_receiver
 
-    // Look up receiver's class via oop_class(oop, class_table)
+.Lsend_not_found:
+    // Debug: print "MNU" before trapping
+    stp     x0, x14, [sp, #-16]!
+    mov     x0, x14             // selector
+    bl      _debug_mnu
+    ldp     x0, x14, [sp], #16
+    brk     #3                  // message not understood (trap for now)
+
+.Llookup_method_for_receiver:
+    // x0 = receiver, x14 = selector, x10 = arg_count
+    // Returns x0 = found method or branches to .Lsend_not_found.
     mov     x1, x25            // class_table
-    stp     x9, x10, [sp, #-16]!
-    str     x14, [sp, #-16]!
+    stp     x10, x14, [sp, #-16]!
     bl      _oop_class
-    ldr     x14, [sp], #16
-    ldp     x9, x10, [sp], #16
+    ldp     x10, x14, [sp], #16
     mov     x1, x14            // selector
-    // Save volatile state before function call
-    stp     x9, x10, [sp, #-16]!
-    str     x14, [sp, #-16]!   // save selector
+    stp     x10, x14, [sp, #-16]!
     bl      _class_lookup       // x0 = found method or 0
-    ldr     x14, [sp], #16
-    ldp     x9, x10, [sp], #16
-
-    // Check if method was found
+    ldp     x10, x14, [sp], #16
     cbz     x0, .Lsend_not_found
+    b       .Ldispatch_found_method
 
-    // Check for primitive: CM_PRIMITIVE at method + header(24) + field0(0) = offset 24
+.Ldispatch_found_method:
+    // x0 = found CompiledMethod, x10 = arg_count, x21 = saved caller IP
+    // Shared by normal send and perform: dispatch primitive or activate frame.
     ldr     x3, [x0, #CM_PRIMITIVE_OFS]      // primitive index (tagged)
     cmp     x3, #1              // tag_smallint(0) = 1 means no primitive
     b.ne    .Lsend_primitive
 
-    // x0 = found CompiledMethod, x10 = arg_count, x21 = IP (past SEND operands)
     // Read num_temps from found method
     ldr     x3, [x0, #CM_NUM_TEMPS_OFS]      // num_temps (tagged)
     asr     x3, x3, #SMALLINT_SHIFT         // untag num_temps
@@ -357,14 +363,6 @@ _interpret:
     add     x23, x10, #OBJ_FIELDS_OFS      // skip ByteArray header → data
     mov     x21, x23            // IP = start of new method's bytecodes
     b       .Ldispatch
-
-.Lsend_not_found:
-    // Debug: print "MNU" before trapping
-    stp     x0, x14, [sp, #-16]!
-    mov     x0, x14             // selector
-    bl      _debug_mnu
-    ldp     x0, x14, [sp], #16
-    brk     #3                  // message not understood (trap for now)
 
 .Lsend_primitive:
     // x0 = CompiledMethod, x3 = primitive index (tagged), x10 = arg_count
@@ -1112,76 +1110,12 @@ _interpret:
     // perform: selector — dynamically send a 0-arg message
     // NO frame built. Stack: [selector, receiver, ...]
     ldr     x5, [x19]          // SP
-    ldr     x6, [x5]           // selector
-    ldr     x7, [x5, #8]       // receiver
+    ldr     x14, [x5]          // selector
+    ldr     x0, [x5, #8]       // receiver
     add     x5, x5, #8         // pop selector, receiver stays
     str     x5, [x19]
-    // Get class of receiver
-    tst     x7, #1
-    b.ne    .Lperf_tagged
-    ldr     x8, [x7]           // heap obj class
-    b       .Lperf_lookup
-.Lperf_tagged:
-    tst     x7, #2
-    b.ne    .Lperf_special
-    ldr     x8, [x25, #CLASS_TABLE_SMALLINT_OFS]     // SmallInt class = class_table[0]
-    b       .Lperf_lookup
-.Lperf_special:
-    // Check Character first (low 4 bits = 0x0F)
-    and     x8, x7, #CHAR_TAG_MASK
-    cmp     x8, #CHAR_TAG_VALUE
-    b.eq    .Lperf_character
-    cmp     x7, #TAGGED_NIL
-    b.eq    .Lperf_nil
-    cmp     x7, #TAGGED_TRUE
-    b.eq    .Lperf_true
-    cmp     x7, #TAGGED_FALSE
-    b.eq    .Lperf_false
-    brk     #8                  // perform on nil or unknown
-.Lperf_nil:
-    ldr     x8, [x25, #CLASS_TABLE_UNDEFINED_OBJECT_OFS] // UndefinedObject class
-    b       .Lperf_lookup
-.Lperf_true:
-    ldr     x8, [x25, #CLASS_TABLE_TRUE_OFS]     // true class
-    b       .Lperf_lookup
-.Lperf_false:
-    ldr     x8, [x25, #CLASS_TABLE_FALSE_OFS]     // false class
-    b       .Lperf_lookup
-.Lperf_character:
-    ldr     x8, [x25, #CLASS_TABLE_CHARACTER_OFS]     // Character class
-.Lperf_lookup:
-    stp     x6, x8, [sp, #-16]!
-    mov     x0, x8              // class
-    mov     x1, x6              // selector
-    bl      _class_lookup
-    ldp     x6, x8, [sp], #16
-    cbz     x0, .Lperf_mnu
-    mov     x8, x0              // method
-    ldr     x3, [x8, #CM_PRIMITIVE_OFS]     // CM_PRIMITIVE (tagged)
-    cmp     x3, #1              // tag_smallint(0) means "no primitive"
-    b.ne    .Lperf_primitive
-    ldr     x3, [x8, #CM_NUM_TEMPS_OFS]      // CM_NUM_TEMPS (tagged)
-    asr     x3, x3, #SMALLINT_SHIFT
-    mov     x5, x3             // num_temps
-    mov     x4, #0             // 0 args
-    mov     x3, x8             // method
-    mov     x2, x21            // saved IP
-    mov     x1, x20            // fp_ptr
-    mov     x0, x19            // sp_ptr
-    stp     x8, xzr, [sp, #-16]!
-    bl      _activate_method
-    ldp     x8, xzr, [sp], #16
-    // Set IP from method (x8)
-    ldr     x10, [x8, #CM_BYTECODES_OFS]     // CM_BYTECODES
-    add     x23, x10, #OBJ_FIELDS_OFS
-    mov     x21, x23
-    b       .Ldispatch
-.Lperf_primitive:
-    mov     x0, x8              // CompiledMethod
     mov     x10, #0             // perform: sends a 0-arg message
-    b       .Lsend_primitive
-.Lperf_mnu:
-    brk     #3                  // message not understood in perform:
+    b       .Llookup_method_for_receiver
 
 .Lprim_halt:
     brk     #9                  // halt primitive — crash the VM
