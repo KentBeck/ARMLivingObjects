@@ -58,6 +58,116 @@ static void trap_smallint_add_wrong_receiver(TestContext *ctx)
     (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
 }
 
+static void trap_char_value_wrong_receiver(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    uint64_t *sp;
+    uint64_t *fp;
+
+    uint64_t sel_value = tag_smallint(122);
+
+    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+    uint64_t *value_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(value_cm, CM_PRIMITIVE) = tag_smallint(PRIM_CHAR_VALUE);
+    OBJ_FIELD(value_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(value_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(value_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(value_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+    uint64_t *recv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(recv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(recv_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(recv_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *recv_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(recv_md, 0) = sel_value;
+    OBJ_FIELD(recv_md, 1) = (uint64_t)value_cm;
+    OBJ_FIELD(recv_class, CLASS_METHOD_DICT) = (uint64_t)recv_md;
+
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)recv_class, FORMAT_FIELDS, 0);
+
+    uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+    uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+    cbb[0] = BC_PUSH_SELF;
+    cbb[1] = BC_SEND_MESSAGE;
+    WRITE_U32(&cbb[2], 0);
+    WRITE_U32(&cbb[6], 0);
+    cbb[10] = BC_HALT;
+
+    uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(caller_lits, 0) = sel_value;
+
+    uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+    OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, (uint64_t)recv_obj);
+    activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+    (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+}
+
+static void trap_as_character_wrong_receiver(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t *class_table = ctx->class_table;
+    uint64_t *stack = ctx->stack;
+    uint64_t *sp;
+    uint64_t *fp;
+
+    uint64_t sel_asChar = tag_smallint(123);
+
+    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+    uint64_t *aschar_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(aschar_cm, CM_PRIMITIVE) = tag_smallint(PRIM_AS_CHARACTER);
+    OBJ_FIELD(aschar_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(aschar_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(aschar_cm, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(aschar_cm, CM_BYTECODES) = (uint64_t)prim_bc;
+
+    uint64_t *recv_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(recv_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(recv_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(recv_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *recv_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(recv_md, 0) = sel_asChar;
+    OBJ_FIELD(recv_md, 1) = (uint64_t)aschar_cm;
+    OBJ_FIELD(recv_class, CLASS_METHOD_DICT) = (uint64_t)recv_md;
+
+    uint64_t *recv_obj = om_alloc(om, (uint64_t)recv_class, FORMAT_FIELDS, 0);
+
+    uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+    uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+    cbb[0] = BC_PUSH_SELF;
+    cbb[1] = BC_SEND_MESSAGE;
+    WRITE_U32(&cbb[2], 0);
+    WRITE_U32(&cbb[6], 0);
+    cbb[10] = BC_HALT;
+
+    uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(caller_lits, 0) = sel_asChar;
+
+    uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+    OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, (uint64_t)recv_obj);
+    activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+    (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+}
+
 void test_dispatch(TestContext *ctx)
 {
     uint64_t *om = ctx->om;
@@ -1060,10 +1170,74 @@ void test_dispatch(TestContext *ctx)
     }
 
     // --- basicNew: on a non-indexable class → error ---
-    // (FORMAT_FIELDS class should not accept basicNew: — it's for variable-size)
-    // For now, we test this crashes by NOT calling it — just verify the
-    // primitive checks the format field and returns an error.
-    // TODO: test crash in subprocess when we have that infrastructure.
+    {
+        uint64_t sel_basicNewSize = tag_smallint(71);
+
+        uint64_t *fixed_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(fixed_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(fixed_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(fixed_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(fixed_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *fallback_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 6);
+        uint8_t *fbb = (uint8_t *)&OBJ_FIELD(fallback_bc, 0);
+        fbb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&fbb[1], 0);
+        fbb[5] = BC_RETURN;
+
+        uint64_t *fallback_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(fallback_lits, 0) = tag_smallint(333);
+
+        uint64_t *bns_fail_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bns_fail_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_NEW_SIZE);
+        OBJ_FIELD(bns_fail_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(bns_fail_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bns_fail_cm, CM_LITERALS) = (uint64_t)fallback_lits;
+        OBJ_FIELD(bns_fail_cm, CM_BYTECODES) = (uint64_t)fallback_bc;
+
+        uint64_t old_md_val = OBJ_FIELD(class_class, CLASS_METHOD_DICT);
+        uint64_t *old_md = (old_md_val != tagged_nil() && (old_md_val & 3) == 0)
+                               ? (uint64_t *)old_md_val
+                               : NULL;
+        uint64_t old_md_size = old_md ? OBJ_SIZE(old_md) : 0;
+        uint64_t *new_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, old_md_size + 2);
+        for (uint64_t i = 0; i < old_md_size; i++)
+            OBJ_FIELD(new_md, i) = OBJ_FIELD(old_md, i);
+        OBJ_FIELD(new_md, old_md_size) = sel_basicNewSize;
+        OBJ_FIELD(new_md, old_md_size + 1) = (uint64_t)bns_fail_cm;
+        OBJ_FIELD(class_class, CLASS_METHOD_DICT) = (uint64_t)new_md;
+
+        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        cbb[0] = BC_PUSH_SELF;
+        cbb[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&cbb[2], 1);
+        cbb[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&cbb[7], 0);
+        WRITE_U32(&cbb[11], 1);
+        cbb[15] = BC_HALT;
+
+        uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(caller_lits, 0) = sel_basicNewSize;
+        OBJ_FIELD(caller_lits, 1) = tag_smallint(5);
+
+        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)fixed_class);
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(333),
+                  "primitive failure: basicNew: on fixed-size class falls through to method body");
+    }
 
     // --- basicNew: on an indexable class → correct size ---
     {
@@ -1617,6 +1791,10 @@ void test_dispatch(TestContext *ctx)
                            class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(65),
                   "Character>>value: $A value = 65");
+
+        ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_char_value_wrong_receiver),
+                  (uint64_t)SIGTRAP,
+                  "primitive trap: Character>>value wrong receiver traps");
     }
 
     // --- SmallInteger>>asCharacter primitive ---
@@ -1677,124 +1855,9 @@ void test_dispatch(TestContext *ctx)
                   "SmallInteger>>asCharacter: 65 asCharacter = $A");
     }
 
-    // --- Primitive failure falls through to method body ---
-    {
-        uint64_t sel_value = tag_smallint(81);
-
-        uint64_t *fallback_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 6);
-        uint8_t *fbb = (uint8_t *)&OBJ_FIELD(fallback_bc, 0);
-        fbb[0] = BC_PUSH_LITERAL;
-        WRITE_U32(&fbb[1], 0);
-        fbb[5] = BC_RETURN;
-
-        uint64_t *fallback_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
-        OBJ_FIELD(fallback_lits, 0) = tag_smallint(123);
-
-        uint64_t *fallback_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-        OBJ_FIELD(fallback_cm, CM_PRIMITIVE) = tag_smallint(PRIM_CHAR_VALUE);
-        OBJ_FIELD(fallback_cm, CM_NUM_ARGS) = tag_smallint(0);
-        OBJ_FIELD(fallback_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(fallback_cm, CM_LITERALS) = (uint64_t)fallback_lits;
-        OBJ_FIELD(fallback_cm, CM_BYTECODES) = (uint64_t)fallback_bc;
-
-        uint64_t *fallback_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
-        OBJ_FIELD(fallback_class, CLASS_SUPERCLASS) = tagged_nil();
-        OBJ_FIELD(fallback_class, CLASS_INST_SIZE) = tag_smallint(0);
-        OBJ_FIELD(fallback_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
-        uint64_t *fallback_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
-        OBJ_FIELD(fallback_md, 0) = sel_value;
-        OBJ_FIELD(fallback_md, 1) = (uint64_t)fallback_cm;
-        OBJ_FIELD(fallback_class, CLASS_METHOD_DICT) = (uint64_t)fallback_md;
-
-        uint64_t *fallback_obj = om_alloc(om, (uint64_t)fallback_class, FORMAT_FIELDS, 0);
-
-        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
-        uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
-        cbb[0] = BC_PUSH_SELF;
-        cbb[1] = BC_SEND_MESSAGE;
-        WRITE_U32(&cbb[2], 0);
-        WRITE_U32(&cbb[6], 0);
-        cbb[10] = BC_HALT;
-
-        uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
-        OBJ_FIELD(caller_lits, 0) = sel_value;
-
-        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
-        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
-
-        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
-        fp = (uint64_t *)0xCAFE;
-        stack_push(&sp, stack, (uint64_t)fallback_obj);
-        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
-        result = interpret(&sp, &fp,
-                           (uint8_t *)&OBJ_FIELD(caller_bc, 0),
-                           class_table, om, NULL);
-        ASSERT_EQ(ctx, result, tag_smallint(123),
-                  "primitive failure: Character fast path falls through to method body");
-    }
-
-    {
-        uint64_t sel_asChar = tag_smallint(82);
-
-        uint64_t *fallback_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 6);
-        uint8_t *fbb = (uint8_t *)&OBJ_FIELD(fallback_bc, 0);
-        fbb[0] = BC_PUSH_LITERAL;
-        WRITE_U32(&fbb[1], 0);
-        fbb[5] = BC_RETURN;
-
-        uint64_t *fallback_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
-        OBJ_FIELD(fallback_lits, 0) = tag_smallint(42);
-
-        uint64_t *fallback_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-        OBJ_FIELD(fallback_cm, CM_PRIMITIVE) = tag_smallint(PRIM_AS_CHARACTER);
-        OBJ_FIELD(fallback_cm, CM_NUM_ARGS) = tag_smallint(0);
-        OBJ_FIELD(fallback_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(fallback_cm, CM_LITERALS) = (uint64_t)fallback_lits;
-        OBJ_FIELD(fallback_cm, CM_BYTECODES) = (uint64_t)fallback_bc;
-
-        uint64_t *fallback_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
-        OBJ_FIELD(fallback_class, CLASS_SUPERCLASS) = tagged_nil();
-        OBJ_FIELD(fallback_class, CLASS_INST_SIZE) = tag_smallint(0);
-        OBJ_FIELD(fallback_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
-        uint64_t *fallback_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
-        OBJ_FIELD(fallback_md, 0) = sel_asChar;
-        OBJ_FIELD(fallback_md, 1) = (uint64_t)fallback_cm;
-        OBJ_FIELD(fallback_class, CLASS_METHOD_DICT) = (uint64_t)fallback_md;
-
-        uint64_t *fallback_obj = om_alloc(om, (uint64_t)fallback_class, FORMAT_FIELDS, 0);
-
-        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
-        uint8_t *cbb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
-        cbb[0] = BC_PUSH_SELF;
-        cbb[1] = BC_SEND_MESSAGE;
-        WRITE_U32(&cbb[2], 0);
-        WRITE_U32(&cbb[6], 0);
-        cbb[10] = BC_HALT;
-
-        uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
-        OBJ_FIELD(caller_lits, 0) = sel_asChar;
-
-        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
-        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
-
-        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
-        fp = (uint64_t *)0xCAFE;
-        stack_push(&sp, stack, (uint64_t)fallback_obj);
-        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
-        result = interpret(&sp, &fp,
-                           (uint8_t *)&OBJ_FIELD(caller_bc, 0),
-                           class_table, om, NULL);
-        ASSERT_EQ(ctx, result, tag_smallint(42),
-                  "primitive failure: SmallInteger fast path falls through to method body");
-    }
+    ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_as_character_wrong_receiver),
+              (uint64_t)SIGTRAP,
+              "primitive trap: SmallInteger>>asCharacter wrong receiver traps");
 
     // --- Character isLetter, isDigit, asUppercase, asLowercase ---
     {
@@ -2160,6 +2223,87 @@ void test_dispatch(TestContext *ctx)
                            class_table, om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(66),
                   "at: bytes 1-based: at:2 → 66 (B)");
+
+        uint64_t *at_fail_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 6);
+        uint8_t *afbb = (uint8_t *)&OBJ_FIELD(at_fail_bc, 0);
+        afbb[0] = BC_PUSH_LITERAL;
+        WRITE_U32(&afbb[1], 0);
+        afbb[5] = BC_RETURN;
+
+        uint64_t *at_fail_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(at_fail_lits, 0) = tag_smallint(222);
+
+        uint64_t *at_fail_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(at_fail_cm, CM_PRIMITIVE) = tag_smallint(PRIM_AT);
+        OBJ_FIELD(at_fail_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(at_fail_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(at_fail_cm, CM_LITERALS) = (uint64_t)at_fail_lits;
+        OBJ_FIELD(at_fail_cm, CM_BYTECODES) = (uint64_t)at_fail_bc;
+
+        uint64_t *fail_idx_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(fail_idx_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(fail_idx_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(fail_idx_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        uint64_t *fail_idx_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(fail_idx_md, 0) = sel_at;
+        OBJ_FIELD(fail_idx_md, 1) = (uint64_t)at_fail_cm;
+        OBJ_FIELD(fail_idx_class, CLASS_METHOD_DICT) = (uint64_t)fail_idx_md;
+
+        uint64_t *fail_arr = om_alloc(om, (uint64_t)fail_idx_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(fail_arr, 0) = tag_smallint(10);
+        OBJ_FIELD(fail_arr, 1) = tag_smallint(20);
+
+        uint64_t *at_fail_cbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
+        uint8_t *afbc = (uint8_t *)&OBJ_FIELD(at_fail_cbc, 0);
+        afbc[0] = BC_PUSH_SELF;
+        afbc[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&afbc[2], 1);
+        afbc[6] = BC_SEND_MESSAGE;
+        WRITE_U32(&afbc[7], 0);
+        WRITE_U32(&afbc[11], 1);
+        afbc[15] = BC_HALT;
+
+        uint64_t *bad_index_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(bad_index_lits, 0) = sel_at;
+        OBJ_FIELD(bad_index_lits, 1) = tagged_nil();
+
+        uint64_t *bad_index_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(bad_index_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(bad_index_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(bad_index_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(bad_index_cm, CM_LITERALS) = (uint64_t)bad_index_lits;
+        OBJ_FIELD(bad_index_cm, CM_BYTECODES) = (uint64_t)at_fail_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)fail_arr);
+        activate_method(&sp, &fp, 0, (uint64_t)bad_index_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(at_fail_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(222),
+                  "primitive failure: at: wrong index type falls through to method body");
+
+        uint64_t *oob_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(oob_lits, 0) = sel_at;
+        OBJ_FIELD(oob_lits, 1) = tag_smallint(9);
+
+        uint64_t *oob_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(oob_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(oob_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(oob_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(oob_cm, CM_LITERALS) = (uint64_t)oob_lits;
+        OBJ_FIELD(oob_cm, CM_BYTECODES) = (uint64_t)at_fail_cbc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)fail_arr);
+        activate_method(&sp, &fp, 0, (uint64_t)oob_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(at_fail_cbc, 0),
+                           class_table, om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(222),
+                  "primitive failure: at: bounds error falls through to method body");
     }
 
     // --- printChar primitive on Character ---

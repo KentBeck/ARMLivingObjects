@@ -571,17 +571,24 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // index (tagged)
     ldr     x7, [x5, #8]       // receiver (object)
+    and     x10, x7, #TAG_MASK
+    cbnz    x10, .Lprim_receiver_type_error
+    and     x10, x6, #TAG_MASK
+    cmp     x10, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     asr     x6, x6, #SMALLINT_SHIFT         // untag index -> 1-based
+    cmp     x6, #1
+    b.lt    .Lprimitive_failed
     sub     x6, x6, #1         // convert to 0-based
 
     // Check format
     ldr     x8, [x7, #8]       // obj[1] = format
-    cbz     x8, .Lprim_at_fields_err  // FORMAT_FIELDS → error
+    cbz     x8, .Lprimitive_failed  // FORMAT_FIELDS → method fallback
 
     // Bounds check: 0 <= x6 < size
     ldr     x9, [x7, #OBJ_SIZE_OFS]      // obj[2] = size
     cmp     x6, x9
-    b.hs    .Lprim_at_bounds_err
+    b.hs    .Lprimitive_failed
 
     cmp     x8, #2
     b.eq    .Lprim_at_bytes
@@ -640,11 +647,6 @@ _interpret:
     str     x5, [x19]
     b       .Ldispatch
 
-.Lprim_at_fields_err:
-    brk     #6                  // at: on FORMAT_FIELDS object
-.Lprim_at_bounds_err:
-    brk     #7                  // at: index out of bounds
-
 .Lprim_at_put:
     // receiver at: index put: value — dispatch on format
     // Stack: [SP]=value, [SP+8]=index (tagged SmallInt), [SP+16]=receiver
@@ -652,17 +654,24 @@ _interpret:
     ldr     x6, [x5]           // value
     ldr     x7, [x5, #8]       // index (tagged)
     ldr     x8, [x5, #16]      // receiver (object)
+    and     x11, x8, #TAG_MASK
+    cbnz    x11, .Lprim_receiver_type_error
+    and     x11, x7, #TAG_MASK
+    cmp     x11, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     asr     x7, x7, #SMALLINT_SHIFT         // untag index -> 1-based
+    cmp     x7, #1
+    b.lt    .Lprimitive_failed
     sub     x7, x7, #1         // convert to 0-based
 
     // Check format
     ldr     x9, [x8, #OBJ_FORMAT_OFS]       // obj[1] = format
-    cbz     x9, .Lprim_at_fields_err  // FORMAT_FIELDS → error
+    cbz     x9, .Lprimitive_failed
 
     // Bounds check
     ldr     x10, [x8, #OBJ_SIZE_OFS]     // obj[2] = size
     cmp     x7, x10
-    b.hs    .Lprim_at_bounds_err
+    b.hs    .Lprimitive_failed
 
     cmp     x9, #FORMAT_BYTES
     b.eq    .Lprim_atput_bytes
@@ -704,7 +713,12 @@ _interpret:
 
 .Lprim_atput_bytes_no_txn:
     // No transaction: write directly to byte storage.
+    and     x11, x6, #TAG_MASK
+    cmp     x11, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     asr     x6, x6, #SMALLINT_SHIFT         // untag value → byte
+    cmp     x6, #255
+    b.hi    .Lprimitive_failed
     add     x9, x8, #OBJ_FIELDS_OFS        // skip header
     strb    w6, [x9, x7]       // store single byte
 
@@ -722,6 +736,8 @@ _interpret:
     // Initialize all fields to nil.
     ldr     x5, [x19]          // SP
     ldr     x5, [x5]           // receiver = the class
+    and     x9, x5, #TAG_MASK
+    cbnz    x9, .Lprim_receiver_type_error
     ldr     x6, [x5, #CLASS_INST_SIZE_OFS]      // CLASS_INST_SIZE
     asr     x6, x6, #SMALLINT_SHIFT         // untag SmallInt -> raw size
 
@@ -871,14 +887,21 @@ _interpret:
     ldr     x5, [x19]          // SP
     ldr     x8, [x5, #8]       // receiver (below arg) — the class
     ldr     x6, [x5]           // arg = size (tagged SmallInt)
+    and     x9, x8, #TAG_MASK
+    cbnz    x9, .Lprim_receiver_type_error
+    and     x9, x6, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     asr     x6, x6, #SMALLINT_SHIFT         // untag size
+    cmp     x6, #0
+    b.lt    .Lprimitive_failed
 
     // Read inst_format from the class
     ldr     x7, [x8, #CLASS_INST_FORMAT_OFS]      // CLASS_INST_FORMAT
     asr     x7, x7, #SMALLINT_SHIFT         // untag format
 
     // Check format
-    cbz     x7, .Lbasicnewsize_err  // FORMAT_FIELDS → error
+    cbz     x7, .Lprimitive_failed  // FORMAT_FIELDS → method fallback
 
     // om_alloc(om, class_ptr, format, size)
     mov     x0, x26             // om
@@ -1007,10 +1030,17 @@ _interpret:
     ldr     x5, [x19]
     ldr     x8, [x5, #8]
     ldr     x6, [x5]
+    and     x9, x8, #TAG_MASK
+    cbnz    x9, .Lprim_receiver_type_error
+    and     x9, x6, #TAG_MASK
+    cmp     x9, #TAG_SMALLINT
+    b.ne    .Lprimitive_failed
     asr     x6, x6, #SMALLINT_SHIFT
+    cmp     x6, #0
+    b.lt    .Lprimitive_failed
     ldr     x7, [x8, #CLASS_INST_FORMAT_OFS]
     asr     x7, x7, #SMALLINT_SHIFT
-    cbz     x7, .Lbasicnewsize_err
+    cbz     x7, .Lprimitive_failed
     mov     x0, x26
     mov     x1, x8
     mov     x2, x7
@@ -1026,9 +1056,6 @@ _interpret:
     mov     x9, #0
     mov     x10, #TAGGED_NIL
     b       .Lbasicnewsize_init
-
-.Lbasicnewsize_err:
-    brk     #5                  // basicNew: on non-indexable class
 
 .Lprim_basic_class:
     // basicClass: return the class of the receiver
@@ -1087,7 +1114,7 @@ _interpret:
     ldr     x6, [x5]           // receiver (Character immediate)
     and     x7, x6, #CHAR_TAG_MASK
     cmp     x7, #CHAR_TAG_VALUE
-    b.ne    .Lprimitive_failed
+    b.ne    .Lprim_receiver_type_error
     lsr     x6, x6, #4         // untag Character → code point
     // write(1, &byte, 1) via C library
     sub     sp, sp, #16
@@ -1107,7 +1134,7 @@ _interpret:
     ldr     x6, [x5]           // receiver (Character immediate)
     and     x7, x6, #CHAR_TAG_MASK
     cmp     x7, #CHAR_TAG_VALUE
-    b.ne    .Lprimitive_failed
+    b.ne    .Lprim_receiver_type_error
     lsr     x6, x6, #4         // extract code point
     lsl     x6, x6, #2
     orr     x6, x6, #1         // tag as SmallInt
@@ -1121,7 +1148,7 @@ _interpret:
     ldr     x6, [x5]           // receiver (tagged SmallInt)
     and     x7, x6, #TAG_MASK
     cmp     x7, #TAG_SMALLINT
-    b.ne    .Lprimitive_failed
+    b.ne    .Lprim_receiver_type_error
     asr     x6, x6, #SMALLINT_SHIFT         // untag SmallInt → code point
     lsl     x6, x6, #4
     orr     x6, x6, #CHAR_TAG_VALUE      // tag as Character
@@ -1134,7 +1161,7 @@ _interpret:
     ldr     x6, [x5]           // Character immediate
     and     x7, x6, #CHAR_TAG_MASK
     cmp     x7, #CHAR_TAG_VALUE
-    b.ne    .Lprimitive_failed
+    b.ne    .Lprim_receiver_type_error
     lsr     x6, x6, #4         // code point
     // Check A-Z (65-90)
     sub     x7, x6, #65
@@ -1152,7 +1179,7 @@ _interpret:
     ldr     x6, [x5]
     and     x7, x6, #CHAR_TAG_MASK
     cmp     x7, #CHAR_TAG_VALUE
-    b.ne    .Lprimitive_failed
+    b.ne    .Lprim_receiver_type_error
     lsr     x6, x6, #4
     sub     x7, x6, #48        // '0' = 48
     cmp     x7, #9
@@ -1174,7 +1201,7 @@ _interpret:
     ldr     x6, [x5]           // Character immediate
     and     x8, x6, #CHAR_TAG_MASK
     cmp     x8, #CHAR_TAG_VALUE
-    b.ne    .Lprimitive_failed
+    b.ne    .Lprim_receiver_type_error
     lsr     x7, x6, #4         // code point
     sub     x8, x7, #97        // 'a'
     cmp     x8, #25
@@ -1191,7 +1218,7 @@ _interpret:
     ldr     x6, [x5]            // Character immediate
     and     x8, x6, #CHAR_TAG_MASK
     cmp     x8, #CHAR_TAG_VALUE
-    b.ne    .Lprimitive_failed
+    b.ne    .Lprim_receiver_type_error
     lsr     x7, x6, #4          // code point
     sub     x8, x7, #ASCII_A_UPPER
     cmp     x8, #25
@@ -1285,6 +1312,8 @@ _interpret:
     // size: return the object's size field as a tagged SmallInt
     ldr     x5, [x19]          // SP
     ldr     x5, [x5]           // receiver
+    and     x7, x5, #TAG_MASK
+    cbnz    x7, .Lprim_receiver_type_error
     ldr     x6, [x5, #OBJ_SIZE_OFS]      // obj[2] = size
     lsl     x6, x6, #SMALLINT_SHIFT
     orr     x6, x6, #TAG_SMALLINT         // tag as SmallInt
@@ -1299,6 +1328,12 @@ _interpret:
     // Pop block from stack, activate its CM with the home receiver, continue dispatch.
     ldr     x5, [x19]          // SP
     ldr     x6, [x5]           // block object (the receiver of #value)
+    and     x9, x6, #TAG_MASK
+    cbnz    x9, .Lprim_receiver_type_error
+    ldr     x9, [x6, #OBJ_CLASS_OFS]
+    ldr     x10, [x25, #CLASS_TABLE_BLOCK_OFS]
+    cmp     x9, x10
+    b.ne    .Lprim_receiver_type_error
     add     x5, x5, #8         // pop block
     str     x5, [x19]
 
@@ -1338,6 +1373,12 @@ _interpret:
     // Strategy: replace block with home_rcv in place, call _activate_method with 1 arg.
     ldr     x5, [x19]          // SP
     ldr     x6, [x5, #8]       // block object
+    and     x9, x6, #TAG_MASK
+    cbnz    x9, .Lprim_receiver_type_error
+    ldr     x9, [x6, #OBJ_CLASS_OFS]
+    ldr     x10, [x25, #CLASS_TABLE_BLOCK_OFS]
+    cmp     x9, x10
+    b.ne    .Lprim_receiver_type_error
 
     ldr     x7, [x6, #BLOCK_HOME_RECEIVER_OFS]      // home receiver (block field 0)
     ldr     x8, [x6, #BLOCK_CM_OFS]      // CM (block field 1)
