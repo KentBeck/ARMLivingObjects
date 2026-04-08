@@ -242,7 +242,6 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define BC_PUSH_ARG 15
 #define BC_RETURN_NON_LOCAL 16
 #define BC_PUSH_THIS_CONTEXT 17
-#define BC_REVERSE_ARGS 18
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
 #define FRAME_METHOD -1   // FP - 1*W

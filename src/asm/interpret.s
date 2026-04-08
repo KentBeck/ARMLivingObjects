@@ -56,7 +56,6 @@
 .equ BC_PUSH_ARG, 15
 .equ BC_RETURN_NON_LOCAL, 16
 .equ BC_PUSH_THIS_CONTEXT, 17
-.equ BC_REVERSE_ARGS, 18
 
 // Other interpreter-local constants
 .equ ASCII_A_UPPER, 65
@@ -106,7 +105,6 @@
 //  11  POP
 //  12  DUPLICATE
 //  13  HALT (stop interpreter, return top of stack)
-//  18  REVERSE_ARGS            + 4-byte arg_count
 //
 // Register conventions during dispatch:
 //   x19 = sp_ptr (preserved)
@@ -158,7 +156,6 @@ _interpret:
     .long   .Lbc_push_arg        - .Ldispatch_table  // 15
     .long   .Lbc_return_non_local- .Ldispatch_table  // 16
     .long   .Lbc_push_this_context- .Ldispatch_table // 17
-    .long   .Lbc_reverse_args    - .Ldispatch_table  // 18
 
 // --- Bytecode handlers ---
 // Each reads operands from [x21] (IP), advances IP, operates on stack via x19/x20.
@@ -1697,36 +1694,20 @@ _interpret:
     b       .Ldispatch
 
 .Lbc_push_arg:
-    // PUSH_ARG: read 4-byte arg index, push arg from above frame
-    // arg at FP + (2 + index) * 8
+    // PUSH_ARG: read 4-byte arg index, push the logical source-order arg.
     READ_U32                    // w5 = arg index
     ldr     x6, [x20]          // FP
-    add     x7, x5, #2
+    ldr     x7, [x6, #FP_FLAGS_OFS]
+    ubfx    x7, x7, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    sub     x7, x7, #1
+    sub     x7, x7, x5
+    add     x7, x7, #FP_ARG_BASE_WORDS
     ldr     x8, [x6, x7, lsl #3]
     ldr     x9, [x19]          // SP
     sub     x9, x9, #8
     str     x8, [x9]
     str     x9, [x19]
     b       .Ldispatch
-
-.Lbc_reverse_args:
-    READ_U32                    // w5 = arg count
-    mov     x10, x5
-    cmp     x10, #1
-    b.ls    .Ldispatch
-    ldr     x6, [x19]          // SP points at last pushed arg
-    mov     x7, #0             // low index
-    sub     x8, x10, #1        // high index
-.Lbc_reverse_args_loop:
-    cmp     x7, x8
-    b.hs    .Ldispatch
-    ldr     x11, [x6, x7, lsl #3]
-    ldr     x12, [x6, x8, lsl #3]
-    str     x12, [x6, x7, lsl #3]
-    str     x11, [x6, x8, lsl #3]
-    add     x7, x7, #1
-    sub     x8, x8, #1
-    b       .Lbc_reverse_args_loop
 
 .Lbc_push_closure:
     // PUSH_CLOSURE: read literal_index, get CM from literals,

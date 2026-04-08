@@ -157,6 +157,10 @@ _frame_temp:
 
 // frame_arg(fp, arg_index) -> uint64_t
 _frame_arg:
+    ldr     x2, [x0, #FP_FLAGS_OFS]
+    ubfx    x2, x2, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    sub     x2, x2, #1
+    sub     x1, x2, x1
     add     x1, x1, #FP_ARG_BASE_WORDS
     lsl     x1, x1, #3
     add     x2, x0, x1

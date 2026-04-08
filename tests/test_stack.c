@@ -132,9 +132,9 @@ void test_stack(TestContext *ctx)
     stack_push(&sp, stack, arg1);     // caller pushes arg 1
     activate_method(&sp, &fp, fake_ip, method, 2, 1);
     ASSERT_EQ(ctx, fp[FRAME_RECEIVER], receiver, "activate 2/1: receiver");
-    // Args are in stack order: last pushed (arg1) is closest to frame
-    ASSERT_EQ(ctx, fp[2], arg1, "activate 2/1: arg 1 at FP+2*W (last pushed)");
-    ASSERT_EQ(ctx, fp[3], arg0, "activate 2/1: arg 0 at FP+3*W (first pushed)");
+    // Args stay on the stack in push order, but logical arg 0 is the first source arg.
+    ASSERT_EQ(ctx, fp[2], arg1, "activate 2/1: FP+2*W holds second pushed arg");
+    ASSERT_EQ(ctx, fp[3], arg0, "activate 2/1: FP+3*W holds first pushed arg");
     ASSERT_EQ(ctx, fp[FRAME_TEMP0], 0, "activate 2/1: temp 0 initialized to 0");
     ASSERT_EQ(ctx, fp[FRAME_FLAGS] & 0xFF00, 2 << 8, "activate 2/1: flags encode num_args=2");
 
@@ -183,8 +183,8 @@ void test_stack(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_CLOSURE), tagged_nil(), "method context has nil closure");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_ARGS), tag_smallint(2), "context stores arg count");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_TEMPS), tag_smallint(1), "context stores temp count");
-        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 0), arg1, "context stores arg 0 in frame order");
-        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 1), arg0, "context stores arg 1 in frame order");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 0), arg0, "context stores arg 0 in source order");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 1), arg1, "context stores arg 1 in source order");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 2), 0xDEAD, "context stores temp values");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_SENDER), tagged_nil(), "top-level context sender is nil");
         ASSERT_EQ(ctx, (uint64_t)ensure_frame_context(ctx_fp, om, (uint64_t)ctx->context_class), (uint64_t)frame_ctx,
@@ -230,11 +230,11 @@ void test_stack(TestContext *ctx)
     // Test: access temp 0 at FP - 5*W
     ASSERT_EQ(ctx, frame_temp(fp, 0), 0, "frame_temp(0) reads temp 0 (was 0)");
 
-    // Test: access arg 0 (last pushed = arg1) at FP + 2*W
-    ASSERT_EQ(ctx, frame_arg(fp, 0), arg1, "frame_arg(0) reads arg1 (last pushed)");
+    // Test: logical arg 0 is the first source argument.
+    ASSERT_EQ(ctx, frame_arg(fp, 0), arg0, "frame_arg(0) reads arg0 (first pushed)");
 
-    // Test: access arg 1 (first pushed = arg0) at FP + 3*W
-    ASSERT_EQ(ctx, frame_arg(fp, 1), arg0, "frame_arg(1) reads arg0 (first pushed)");
+    // Test: logical arg 1 is the second source argument.
+    ASSERT_EQ(ctx, frame_arg(fp, 1), arg1, "frame_arg(1) reads arg1 (second pushed)");
 
     // Test: store into temp 0 and read it back
     frame_store_temp(fp, 0, 0xDEAD);

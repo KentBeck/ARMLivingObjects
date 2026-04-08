@@ -484,18 +484,15 @@ void test_blocks(TestContext *ctx)
         uint64_t sel_ifTF = tag_smallint(70); // #ifTrue:ifFalse:
 
         // True >> ifTrue: aBlock ifFalse: anotherBlock  ^ aBlock value
-        // In this calling convention, the first pushed arg is frame_arg(fp, 1)
-        // and the second pushed arg is frame_arg(fp, 0), so the methods use
-        // BC_PUSH_ARG with explicit indices.
 
         // True>>ifTrue:ifFalse: bytecodes:
-        //   PUSH_ARG 1    (aBlock = first arg pushed = frame_arg(1))
+        //   PUSH_ARG 0    (aBlock = first source argument)
         //   SEND #value 0
         //   RETURN
         uint64_t *true_itf_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
         uint8_t *titf = (uint8_t *)&OBJ_FIELD(true_itf_bc, 0);
         titf[0] = 15;           // BC_PUSH_ARG
-        WRITE_U32(&titf[1], 1); // arg index 1 = aBlock
+        WRITE_U32(&titf[1], 0); // arg index 0 = aBlock
         titf[5] = BC_SEND_MESSAGE;
         WRITE_U32(&titf[6], 0);  // selector index 0 = sel_value
         WRITE_U32(&titf[10], 0); // 0 args to value
@@ -511,13 +508,13 @@ void test_blocks(TestContext *ctx)
         OBJ_FIELD(true_itf_cm, CM_BYTECODES) = (uint64_t)true_itf_bc;
 
         // False>>ifTrue:ifFalse: bytecodes:
-        //   PUSH_ARG 0    (anotherBlock = second arg pushed = frame_arg(0))
+        //   PUSH_ARG 1    (anotherBlock = second source argument)
         //   SEND #value 0
         //   RETURN
         uint64_t *false_itf_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
         uint8_t *fitf = (uint8_t *)&OBJ_FIELD(false_itf_bc, 0);
         fitf[0] = 15;           // BC_PUSH_ARG
-        WRITE_U32(&fitf[1], 0); // arg index 0 = anotherBlock
+        WRITE_U32(&fitf[1], 1); // arg index 1 = anotherBlock
         fitf[5] = BC_SEND_MESSAGE;
         WRITE_U32(&fitf[6], 0);
         WRITE_U32(&fitf[10], 0);

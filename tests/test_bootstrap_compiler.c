@@ -314,12 +314,10 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, compiled.bytecodes[0], 3, "keyword push self opcode");
         ASSERT_EQ(ctx, compiled.bytecodes[1], 0, "keyword push first arg literal opcode");
         ASSERT_EQ(ctx, compiled.bytecodes[6], 0, "keyword push second arg literal opcode");
-        ASSERT_EQ(ctx, compiled.bytecodes[11], BC_REVERSE_ARGS, "keyword reverse args opcode");
-        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 12), 2, "keyword reverse args count");
-        ASSERT_EQ(ctx, compiled.bytecodes[16], 6, "keyword send opcode");
-        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 17), 2, "keyword selector index");
-        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 21), 2, "keyword arg count");
-        ASSERT_EQ(ctx, compiled.bytecodes[25], 7, "keyword return opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[11], 6, "keyword send opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 12), 2, "keyword selector index");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 16), 2, "keyword arg count");
+        ASSERT_EQ(ctx, compiled.bytecodes[20], 7, "keyword return opcode");
     }
 
     {

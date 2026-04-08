@@ -595,7 +595,6 @@ enum
     BC_CG_PUSH_TEMP = 2,
     BC_CG_PUSH_SELF = 3,
     BC_CG_PUSH_THIS_CONTEXT = 17,
-    BC_CG_REVERSE_ARGS = 18,
     BC_CG_PUSH_ARG = 15,
     BC_CG_STORE_INST_VAR = 4,
     BC_CG_STORE_TEMP = 5,
@@ -653,11 +652,6 @@ static int cg_emit_selector_send(CgState *state, const char *selector, uint32_t 
     BToken selector_token = make_token(BTOK_SELECTOR);
     strncpy(selector_token.text, selector, sizeof(selector_token.text) - 1);
     int selector_index = cg_literal_index(state, selector_token);
-    if (argc > 1)
-    {
-        cg_emit_byte(state, BC_CG_REVERSE_ARGS);
-        cg_emit_u32(state, argc);
-    }
     cg_emit_byte(state, BC_CG_SEND_MESSAGE);
     cg_emit_u32(state, (uint32_t)selector_index);
     cg_emit_u32(state, argc);
