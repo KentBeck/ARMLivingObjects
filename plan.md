@@ -25,6 +25,13 @@ LSP Server
 ### Next (Critical Path)
 
 - [x] Add `PUSH_CLOSURE` codegen for block literals
+- [ ] Add stack bounds checking and fail cleanly on Smalltalk stack overflow
+- [ ] Introduce real heap context objects using the existing frame context slot
+- [ ] Materialize contexts lazily for block homes, `thisContext`, and debugger/exception paths
+- [ ] Change block closures to reference a home context, not only copied values
+- [ ] Implement non-local block return using home contexts
+- [ ] Implement `cannotReturn:` when a non-local return targets a dead home
+- [ ] Preserve arguments but not volatile non-argument temps for widowed contexts
 - [ ] Implement class builder (`Class` + method install from parsed source)
 - [ ] Implement `.st` file loader (compile/install methods into classes)
 - [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
@@ -44,7 +51,7 @@ LSP Server
 New primitives needed by the class library. Each is a VM primitive
 dispatched by the interpreter's primitive handler.
 
-Block closure scenarios added from "Under Cover Contexts and the Big Frame-Up":
+Block closure scenarios from "Under Cover Contexts and the Big Frame-Up":
 
 - [x] Copied outer temp is captured at closure creation time
 - [x] Escaped block retains copied outer state after its home method returns
@@ -52,7 +59,6 @@ Block closure scenarios added from "Under Cover Contexts and the Big Frame-Up":
 - [ ] Non-local return from block to home activation
 - [ ] `cannotReturn:` when a non-local return escapes a dead home activation
 - [ ] Married/widowed context semantics for long-lived block homes
-- [ ] Preserve arguments but not volatile non-argument temps for widowed contexts
 
 - [x] `basicNew` — primitive on Class: allocate fixed-size instance (reads instSize from receiver)
 - [x] `basicNew:` — primitive on Class: allocate indexable/byte instance (reads instFormat from receiver)
