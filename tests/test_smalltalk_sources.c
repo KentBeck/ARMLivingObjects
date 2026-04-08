@@ -39,11 +39,9 @@ void test_smalltalk_sources(TestContext *ctx)
               "Object>>error: uses primitive 29");
     ASSERT_EQ(ctx, strstr(object_src, "== anObject\n    <primitive: 12>\n    ^ false") != NULL, 1,
               "Object>>== has explicit fallback body");
-    ASSERT_EQ(ctx, strstr(object_src, "thisContext\n    <primitive: 30>") != NULL, 1,
-              "Object>>thisContext exists");
     ASSERT_EQ(ctx, bc_compile_source_methods(object_src, methods, 64, &method_count), 1,
               "Object.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 9, "Object.st method count");
+    ASSERT_EQ(ctx, method_count, 8, "Object.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Class.st exists");

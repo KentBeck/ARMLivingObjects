@@ -208,7 +208,6 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define PRIM_STRING_AS_SYMBOL 27
 #define PRIM_SYMBOL_EQ 28 // Identity equality for symbols
 #define PRIM_ERROR 29
-#define PRIM_THIS_CONTEXT 30
 #define BLOCK_HOME_CONTEXT 0
 #define BLOCK_HOME_RECEIVER 1
 #define BLOCK_CM 2
@@ -240,6 +239,7 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define BC_PUSH_CLOSURE 14
 #define BC_PUSH_ARG 15
 #define BC_RETURN_NON_LOCAL 16
+#define BC_PUSH_THIS_CONTEXT 17
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
 #define FRAME_METHOD -1   // FP - 1*W

@@ -207,8 +207,6 @@ void test_smalltalk_expressions(TestContext *ctx)
     OBJ_FIELD(expr_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(expr_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(expr_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
-    md_append(ctx->om, ctx->class_class, expr_class, "thisContext",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_THIS_CONTEXT, 0));
 
     BClassBinding bindings[1] = {
         {"ExprSpec", expr_class},

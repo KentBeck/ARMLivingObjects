@@ -1656,45 +1656,26 @@ void test_dispatch(TestContext *ctx)
                   "basicClass: heap object returns its class");
     }
 
-    // --- thisContext primitive ---
+    // --- thisContext pseudo-variable bytecode ---
     {
-        uint64_t sel_thisContext = tag_smallint(125);
-
-        uint64_t *tc_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
-        uint64_t *tc_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-        OBJ_FIELD(tc_cm, CM_PRIMITIVE) = tag_smallint(PRIM_THIS_CONTEXT);
-        OBJ_FIELD(tc_cm, CM_NUM_ARGS) = tag_smallint(0);
-        OBJ_FIELD(tc_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(tc_cm, CM_LITERALS) = tagged_nil();
-        OBJ_FIELD(tc_cm, CM_BYTECODES) = (uint64_t)tc_bc;
-
         uint64_t *ctx_user_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(ctx_user_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(ctx_user_class, CLASS_INST_SIZE) = tag_smallint(0);
         OBJ_FIELD(ctx_user_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
-        uint64_t *tc_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
-        OBJ_FIELD(tc_md, 0) = sel_thisContext;
-        OBJ_FIELD(tc_md, 1) = (uint64_t)tc_cm;
-        OBJ_FIELD(ctx_user_class, CLASS_METHOD_DICT) = (uint64_t)tc_md;
+        OBJ_FIELD(ctx_user_class, CLASS_METHOD_DICT) = tagged_nil();
 
         uint64_t *ctx_user = om_alloc(om, (uint64_t)ctx_user_class, FORMAT_FIELDS, 0);
 
-        uint64_t *tc_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+        uint64_t *tc_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
         uint8_t *tcbc = (uint8_t *)&OBJ_FIELD(tc_caller_bc, 0);
-        tcbc[0] = BC_PUSH_SELF;
-        tcbc[1] = BC_SEND_MESSAGE;
-        WRITE_U32(&tcbc[2], 0);
-        WRITE_U32(&tcbc[6], 0);
-        tcbc[10] = BC_HALT;
-
-        uint64_t *tc_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
-        OBJ_FIELD(tc_lits, 0) = sel_thisContext;
+        tcbc[0] = BC_PUSH_THIS_CONTEXT;
+        tcbc[1] = BC_HALT;
 
         uint64_t *tc_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(tc_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(tc_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(tc_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(tc_caller_cm, CM_LITERALS) = (uint64_t)tc_lits;
+        OBJ_FIELD(tc_caller_cm, CM_LITERALS) = tagged_nil();
         OBJ_FIELD(tc_caller_cm, CM_BYTECODES) = (uint64_t)tc_caller_bc;
 
         sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));

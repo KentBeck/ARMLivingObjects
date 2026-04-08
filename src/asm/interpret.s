@@ -36,7 +36,6 @@
 .equ PRIM_STRING_AS_SYMBOL, 27
 .equ PRIM_SYMBOL_EQ, 28
 .equ PRIM_ERROR, 29
-.equ PRIM_THIS_CONTEXT, 30
 
 // Bytecodes (interpreter-local)
 .equ BC_PUSH_LITERAL, 0
@@ -56,6 +55,7 @@
 .equ BC_PUSH_CLOSURE, 14
 .equ BC_PUSH_ARG, 15
 .equ BC_RETURN_NON_LOCAL, 16
+.equ BC_PUSH_THIS_CONTEXT, 17
 
 // Other interpreter-local constants
 .equ ASCII_A_UPPER, 65
@@ -155,6 +155,7 @@ _interpret:
     .long   .Lbc_push_closure    - .Ldispatch_table  // 14
     .long   .Lbc_push_arg        - .Ldispatch_table  // 15
     .long   .Lbc_return_non_local- .Ldispatch_table  // 16
+    .long   .Lbc_push_this_context- .Ldispatch_table // 17
 
 // --- Bytecode handlers ---
 // Each reads operands from [x21] (IP), advances IP, operates on stack via x19/x20.
@@ -233,6 +234,18 @@ _interpret:
     ldr     x8, [x19]          // SP
     sub     x8, x8, #8
     str     x7, [x8]
+    str     x8, [x19]
+    b       .Ldispatch
+
+.Lbc_push_this_context:
+    ldr     x6, [x20]          // current FP
+    mov     x0, x6
+    mov     x1, x26
+    bl      _ensure_frame_context_global
+    cbz     x0, .Lprimitive_failed
+    ldr     x8, [x19]          // SP
+    sub     x8, x8, #8
+    str     x0, [x8]
     str     x8, [x19]
     b       .Ldispatch
 
@@ -443,8 +456,6 @@ _interpret:
     b.eq    .Lprim_symbol_eq
     cmp     x3, #PRIM_ERROR
     b.eq    .Lprim_error
-    cmp     x3, #PRIM_THIS_CONTEXT
-    b.eq    .Lprim_this_context
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -1334,17 +1345,6 @@ _interpret:
     mov     x2, x25            // class table
     bl      _debug_error
     brk     #13
-
-.Lprim_this_context:
-    // thisContext: lazily materialize and return the current activation context.
-    ldr     x6, [x20]          // current FP
-    mov     x0, x6
-    mov     x1, x26
-    bl      _ensure_frame_context_global
-    cbz     x0, .Lprimitive_failed
-    ldr     x5, [x19]          // SP
-    str     x0, [x5]           // replace receiver with context
-    b       .Ldispatch
 
 .Lprim_identity_eq:
     // ==: receiver arg → true if same value, false otherwise

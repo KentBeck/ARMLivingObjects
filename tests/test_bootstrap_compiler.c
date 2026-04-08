@@ -392,6 +392,15 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("thisContext", &compiled), 1,
+                  "implicit return for thisContext pseudo-variable");
+        ASSERT_EQ(ctx, compiled.bytecode_count, 2, "thisContext implicit return bytecode count");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], BC_PUSH_THIS_CONTEXT, "thisContext push opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[1], BC_RETURN, "thisContext implicit return opcode");
+    }
+
+    {
         const char *source =
             "!Object methodsFor: 'comparing'!\n"
             "== anObject\n"

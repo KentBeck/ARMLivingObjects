@@ -587,6 +587,7 @@ enum
     BC_CG_PUSH_INST_VAR = 1,
     BC_CG_PUSH_TEMP = 2,
     BC_CG_PUSH_SELF = 3,
+    BC_CG_PUSH_THIS_CONTEXT = 17,
     BC_CG_STORE_INST_VAR = 4,
     BC_CG_STORE_TEMP = 5,
     BC_CG_SEND_MESSAGE = 6,
@@ -790,6 +791,11 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         if (strcmp(token.text, "self") == 0)
         {
             cg_emit_byte(state, BC_CG_PUSH_SELF);
+            return 1;
+        }
+        if (strcmp(token.text, "thisContext") == 0)
+        {
+            cg_emit_byte(state, BC_CG_PUSH_THIS_CONTEXT);
             return 1;
         }
 
