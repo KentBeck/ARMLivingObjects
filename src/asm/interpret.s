@@ -3,6 +3,8 @@
 .include "macros.s"
 .include "asm_constants_shared.s"
 
+.extern _ensure_frame_context_global
+
 // Primitive IDs (interpreter-local)
 .equ PRIM_SMALLINT_ADD, 1
 .equ PRIM_SMALLINT_SUB, 2
@@ -1374,7 +1376,7 @@ _interpret:
     ldr     x7, [x6, #BLOCK_HOME_RECEIVER_OFS]      // home receiver (block field 0)
     ldr     x8, [x6, #BLOCK_CM_OFS]      // CM (block field 1)
     ldr     x11, [x6, #OBJ_SIZE_OFS]
-    sub     x11, x11, #2         // copied values count
+    sub     x11, x11, #3         // copied values count
 
     // Read num_temps from CM
     ldr     x3, [x8, #CM_NUM_TEMPS_OFS]      // num_temps (tagged)
@@ -1439,7 +1441,7 @@ _interpret:
     ldr     x7, [x6, #BLOCK_HOME_RECEIVER_OFS]      // home receiver (block field 0)
     ldr     x8, [x6, #BLOCK_CM_OFS]      // CM (block field 1)
     ldr     x11, [x6, #OBJ_SIZE_OFS]
-    sub     x11, x11, #2         // copied values count
+    sub     x11, x11, #3         // copied values count
 
     // Replace block with home receiver on stack
     str     x7, [x5, #8]
@@ -1600,19 +1602,36 @@ _interpret:
     add     x7, x7, #OBJ_FIELDS_OFS        // skip Array header
     ldr     x9, [x7, x5, lsl #3]   // x9 = block CM (from literals)
     ldr     x10, [x6, #FP_RECEIVER_OFS]    // x10 = current receiver (home receiver)
-    // Allocate Block: om_alloc(om, block_class, FORMAT_FIELDS, 2 + copied_count)
+    // Try to materialize a home context for the creator frame. If this fails
+    // under memory pressure, leave the slot nil and let block allocation retry via GC.
+    sub     sp, sp, #48
+    stp     x9, x10, [sp]
+    stp     x11, x12, [sp, #16]
+    stp     x13, x6, [sp, #32]
+    mov     x0, x6
+    mov     x1, x26
+    bl      _ensure_frame_context_global
+    mov     x14, x0             // home context or 0
+    ldp     x9, x10, [sp]
+    ldp     x11, x12, [sp, #16]
+    ldp     x13, x6, [sp, #32]
+    add     sp, sp, #48
+
+    // Allocate Block: om_alloc(om, block_class, FORMAT_FIELDS, 3 + copied_count)
     mov     x0, x26             // om
     ldr     x1, [x25, #CLASS_TABLE_BLOCK_OFS]     // class_table_obj field[1] = Block class
     mov     x2, #FORMAT_FIELDS
-    add     x3, x13, #2
+    add     x3, x13, #3
     // Save volatile state
-    sub     sp, sp, #32
+    sub     sp, sp, #48
     stp     x9, x10, [sp]
     stp     x11, x13, [sp, #16]
+    stp     x12, x14, [sp, #32]
     bl      _om_alloc
     ldp     x9, x10, [sp]
     ldp     x11, x13, [sp, #16]
-    add     sp, sp, #32
+    ldp     x12, x14, [sp, #32]
+    add     sp, sp, #48
     // Check for OOM — if NULL, trigger GC and retry
     cbnz    x0, .Lblock_alloc_ok
 
@@ -1749,6 +1768,7 @@ _interpret:
     // Retry allocation
     ldr     x6, [x20]
     ldr     x7, [x6, #FP_METHOD_OFS]
+    ldr     x14, [x6, #FP_CONTEXT_OFS]
     ldr     x11, [x6, #FP_FLAGS_OFS]
     ubfx    x11, x11, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
     ldr     x12, [x7, #CM_NUM_TEMPS_OFS]
@@ -1757,7 +1777,7 @@ _interpret:
     mov     x0, x26
     ldr     x1, [x25, #CLASS_TABLE_BLOCK_OFS]     // Block class
     mov     x2, #FORMAT_FIELDS
-    add     x3, x13, #2
+    add     x3, x13, #3
     stp     x9, x10, [sp, #-16]!
     bl      _om_alloc
     ldp     x9, x10, [sp], #16
@@ -1767,8 +1787,9 @@ _interpret:
 .Lblock_alloc_ok:
     // x0 = new Block object
     ldr     x6, [x20]          // creator FP
-    str     x10, [x0, #BLOCK_HOME_RECEIVER_OFS]     // field 0 = home receiver
-    str     x9, [x0, #BLOCK_CM_OFS]      // field 1 = CM
+    str     x14, [x0, #BLOCK_HOME_CONTEXT_OFS]      // field 0 = home context (or nil/0)
+    str     x10, [x0, #BLOCK_HOME_RECEIVER_OFS]     // field 1 = home receiver
+    str     x9, [x0, #BLOCK_CM_OFS]                 // field 2 = CM
     cbz     x13, .Lblock_copy_done
 
     // Copy outer args then temps into the closure object.

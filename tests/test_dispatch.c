@@ -2487,10 +2487,11 @@ void test_dispatch(TestContext *ctx)
         OBJ_FIELD(bv_cm, CM_LITERALS) = (uint64_t)bv_lits;
         OBJ_FIELD(bv_cm, CM_BYTECODES) = (uint64_t)bv_bc;
 
-        // Create block object: field 0 = home receiver, field 1 = CM
-        uint64_t *block_obj = om_alloc(om, (uint64_t)ctx->block_class, FORMAT_FIELDS, 2);
-        OBJ_FIELD(block_obj, 0) = tag_smallint(0); // home receiver (dummy)
-        OBJ_FIELD(block_obj, 1) = (uint64_t)bv_cm;
+        // Create block object: field 0 = home context, field 1 = home receiver, field 2 = CM
+        uint64_t *block_obj = om_alloc(om, (uint64_t)ctx->block_class, FORMAT_FIELDS, 3);
+        OBJ_FIELD(block_obj, BLOCK_HOME_CONTEXT) = tagged_nil();
+        OBJ_FIELD(block_obj, BLOCK_HOME_RECEIVER) = tag_smallint(0); // home receiver (dummy)
+        OBJ_FIELD(block_obj, BLOCK_CM) = (uint64_t)bv_cm;
 
         // Add value: prim to block class
         uint64_t *bvp_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);

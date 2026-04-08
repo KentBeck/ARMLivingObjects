@@ -196,7 +196,7 @@ int main()
     uint64_t *block_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(block_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(block_class, CLASS_METHOD_DICT) = tagged_nil();
-    OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(2);
+    OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(3);
     OBJ_FIELD(block_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
     uint64_t *undefined_object_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
@@ -323,6 +323,7 @@ int main()
     ctx.context_class = context_class;
     ctx.symbol_table = symbol_table_obj;
     global_symbol_table = symbol_table_obj; // Initialize the global symbol table
+    global_context_class = context_class;
     ctx.test_class = test_class;
     ctx.receiver = (uint64_t)recv_obj;
     ctx.method = (uint64_t)test_cm;

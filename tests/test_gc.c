@@ -1250,7 +1250,7 @@ void test_gc(TestContext *ctx)
         uint64_t *block_class = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, 4);
         OBJ_FIELD(block_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(block_class, CLASS_METHOD_DICT) = tagged_nil();
-        OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(3);
         OBJ_FIELD(block_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         uint64_t *uo4 = om_alloc(gc_ctx4, (uint64_t)cc, FORMAT_FIELDS, 4);
@@ -1458,7 +1458,7 @@ void test_gc(TestContext *ctx)
         uint64_t *block_class = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, 4);
         OBJ_FIELD(block_class, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(block_class, CLASS_METHOD_DICT) = tagged_nil();
-        OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(block_class, CLASS_INST_SIZE) = tag_smallint(3);
         OBJ_FIELD(block_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
         uint64_t *uo6 = om_alloc(gc_ctx6, (uint64_t)cc, FORMAT_FIELDS, 4);

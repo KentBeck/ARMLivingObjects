@@ -89,6 +89,41 @@ void test_blocks(TestContext *ctx)
         ASSERT_EQ(ctx, result, tag_smallint(77),
                   "Block: PUSH_CLOSURE + send value returns 77");
 
+        // Test: PUSH_CLOSURE records a home context as well as receiver and CM.
+        {
+            uint64_t *inspect_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+            uint8_t *ibc = (uint8_t *)&OBJ_FIELD(inspect_bc, 0);
+            ibc[0] = BC_PUSH_CLOSURE;
+            WRITE_U32(&ibc[1], 0);
+            ibc[5] = BC_HALT;
+
+            uint64_t *inspect_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(inspect_lits, 0) = (uint64_t)blk_body_cm;
+            uint64_t *inspect_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(inspect_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(inspect_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(inspect_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(inspect_cm, CM_LITERALS) = (uint64_t)inspect_lits;
+            OBJ_FIELD(inspect_cm, CM_BYTECODES) = (uint64_t)inspect_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            activate_method(&sp, &fp, 0, (uint64_t)inspect_cm, 0, 0);
+            uint64_t block_oop = interpret(&sp, &fp,
+                                           (uint8_t *)&OBJ_FIELD(inspect_bc, 0),
+                                           class_table, om, NULL);
+            uint64_t *block_obj = (uint64_t *)block_oop;
+            ASSERT_EQ(ctx, is_object_ptr(block_oop), 1,
+                      "Block: PUSH_CLOSURE returns block object");
+            ASSERT_EQ(ctx, is_object_ptr(OBJ_FIELD(block_obj, BLOCK_HOME_CONTEXT)), 1,
+                      "Block: PUSH_CLOSURE stores home context");
+            ASSERT_EQ(ctx, OBJ_FIELD(block_obj, BLOCK_HOME_RECEIVER), receiver,
+                      "Block: PUSH_CLOSURE stores home receiver");
+            ASSERT_EQ(ctx, OBJ_FIELD(block_obj, BLOCK_CM), (uint64_t)blk_body_cm,
+                      "Block: PUSH_CLOSURE stores block compiled method");
+        }
+
         // Test: block captures self — block body pushes self, returns
         uint64_t *self_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
         uint8_t *sblk = (uint8_t *)&OBJ_FIELD(self_blk_bc, 0);

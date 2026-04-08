@@ -2,6 +2,7 @@
 #include <string.h> // For memcmp
 
 uint64_t *global_symbol_table; // Define global symbol table
+uint64_t *global_context_class;
 
 // Helper to get raw byte pointer and size from a FORMAT_BYTES object
 static inline void get_byte_obj_data(uint64_t obj_ptr, uint8_t **data, uint64_t *size) {
@@ -181,4 +182,13 @@ uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_clas
     fp[FRAME_CONTEXT] = (uint64_t)context;
     fp[FRAME_FLAGS] |= 1;
     return context;
+}
+
+uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om)
+{
+    if (global_context_class == NULL)
+    {
+        return NULL;
+    }
+    return ensure_frame_context(fp, om, (uint64_t)global_context_class);
 }
