@@ -345,6 +345,7 @@ int main()
     ctx.context_class = context_class;
     ctx.symbol_table = symbol_table_obj;
     global_symbol_table = symbol_table_obj; // Initialize the global symbol table
+    global_symbol_class = symbol_class;
     global_context_class = context_class;
     ctx.test_class = test_class;
     ctx.receiver = (uint64_t)recv_obj;

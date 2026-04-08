@@ -12,6 +12,7 @@ typedef enum
     BTOK_CHARACTER,
     BTOK_STRING,
     BTOK_SYMBOL,
+    BTOK_SELECTOR,
     BTOK_BLOCK_LITERAL,
     BTOK_SPECIAL
 } BTokenType;

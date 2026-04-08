@@ -2,6 +2,7 @@
 #include <string.h> // For memcmp
 
 uint64_t *global_symbol_table; // Define global symbol table
+uint64_t *global_symbol_class;
 uint64_t *global_context_class;
 
 static uint64_t selector_token_from_cstring(const char *selector)
@@ -25,6 +26,59 @@ static inline void get_byte_obj_data(uint64_t obj_ptr, uint8_t **data, uint64_t 
     uint64_t *obj = (uint64_t *)obj_ptr;
     *data = (uint8_t *)&OBJ_FIELD(obj, 0);
     *size = OBJ_SIZE(obj);
+}
+
+uint64_t intern_cstring_symbol(uint64_t *om, const char *text)
+{
+    if (global_symbol_table == NULL || global_symbol_class == NULL || text == NULL)
+    {
+        return tagged_nil();
+    }
+
+    uint64_t text_size = (uint64_t)strlen(text);
+    uint64_t table_size = OBJ_SIZE(global_symbol_table);
+
+    for (uint64_t i = 0; i < table_size; i++)
+    {
+        uint64_t existing_symbol = OBJ_FIELD(global_symbol_table, i);
+        if (!is_object_ptr(existing_symbol))
+        {
+            continue;
+        }
+
+        uint64_t *symbol_obj = (uint64_t *)existing_symbol;
+        if (OBJ_SIZE(symbol_obj) != text_size)
+        {
+            continue;
+        }
+
+        if (memcmp((const void *)&OBJ_FIELD(symbol_obj, 0), text, (size_t)text_size) == 0)
+        {
+            return existing_symbol;
+        }
+    }
+
+    uint64_t *symbol_obj = om_alloc(om, (uint64_t)global_symbol_class, FORMAT_BYTES, text_size);
+    if (symbol_obj == NULL)
+    {
+        return tagged_nil();
+    }
+
+    if (text_size > 0)
+    {
+        memcpy((void *)&OBJ_FIELD(symbol_obj, 0), text, (size_t)text_size);
+    }
+
+    for (uint64_t i = 0; i < table_size; i++)
+    {
+        if (OBJ_FIELD(global_symbol_table, i) == tagged_nil())
+        {
+            OBJ_FIELD(global_symbol_table, i) = (uint64_t)symbol_obj;
+            return (uint64_t)symbol_obj;
+        }
+    }
+
+    return tagged_nil();
 }
 
 // PRIM_STRING_EQ: Compares two strings byte by byte
@@ -79,35 +133,39 @@ uint64_t prim_string_as_symbol(uint64_t receiver) {
         return tagged_nil(); // Or error
     }
 
-    // Use the global_symbol_table
-    if (global_symbol_table == NULL) {
-        // Error: symbol table not initialized
+    if (global_symbol_table == NULL || global_symbol_class == NULL) {
         return tagged_nil();
     }
 
-    // Iterate through global_symbol_table to see if string already exists
+    uint8_t *recv_data;
+    uint64_t recv_size;
+    get_byte_obj_data(receiver, &recv_data, &recv_size);
+
     uint64_t table_size = OBJ_SIZE(global_symbol_table);
     for (uint64_t i = 0; i < table_size; i++) {
         uint64_t existing_symbol = OBJ_FIELD(global_symbol_table, i);
-        if (existing_symbol != tagged_nil()) {
-            // Compare receiver string with existing_symbol string
-            if (prim_string_eq(receiver, existing_symbol) == tagged_true()) {
-                return existing_symbol; // Found existing symbol
-            }
+        if (!is_object_ptr(existing_symbol)) {
+            continue;
+        }
+
+        uint64_t *symbol_obj = (uint64_t *)existing_symbol;
+        if (OBJ_SIZE(symbol_obj) != recv_size) {
+            continue;
+        }
+
+        if (memcmp((const void *)&OBJ_FIELD(symbol_obj, 0), recv_data, (size_t)recv_size) == 0) {
+            return existing_symbol;
         }
     }
 
-    // If not found, add receiver to global_symbol_table and return it
-    // This is a simplified version. A real symbol table would grow dynamically.
-    // For now, just find the first nil slot.
     for (uint64_t i = 0; i < table_size; i++) {
         if (OBJ_FIELD(global_symbol_table, i) == tagged_nil()) {
+            OBJ_CLASS((uint64_t *)receiver) = (uint64_t)global_symbol_class;
             OBJ_FIELD(global_symbol_table, i) = receiver;
             return receiver;
         }
     }
 
-    // Symbol table full (for now, return nil or error)
     return tagged_nil();
 }
 

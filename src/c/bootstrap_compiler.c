@@ -1,4 +1,5 @@
 #include "bootstrap_compiler.h"
+#include "primitives.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -594,6 +595,7 @@ enum
     BC_CG_PUSH_TEMP = 2,
     BC_CG_PUSH_SELF = 3,
     BC_CG_PUSH_THIS_CONTEXT = 17,
+    BC_CG_REVERSE_ARGS = 18,
     BC_CG_PUSH_ARG = 15,
     BC_CG_STORE_INST_VAR = 4,
     BC_CG_STORE_TEMP = 5,
@@ -648,9 +650,14 @@ static int cg_literal_index(CgState *state, BToken literal)
 
 static int cg_emit_selector_send(CgState *state, const char *selector, uint32_t argc)
 {
-    BToken selector_token = make_token(BTOK_SYMBOL);
+    BToken selector_token = make_token(BTOK_SELECTOR);
     strncpy(selector_token.text, selector, sizeof(selector_token.text) - 1);
     int selector_index = cg_literal_index(state, selector_token);
+    if (argc > 1)
+    {
+        cg_emit_byte(state, BC_CG_REVERSE_ARGS);
+        cg_emit_u32(state, argc);
+    }
     cg_emit_byte(state, BC_CG_SEND_MESSAGE);
     cg_emit_u32(state, (uint32_t)selector_index);
     cg_emit_u32(state, argc);
@@ -1706,7 +1713,7 @@ static uint64_t bc_selector_token(const char *selector)
     return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
 }
 
-static int bc_literal_token_to_oop(const BToken *token, uint64_t *out_oop)
+static int bc_literal_token_to_oop(uint64_t *om, const BToken *token, uint64_t *out_oop)
 {
     if (token->type == BTOK_INTEGER)
     {
@@ -1719,6 +1726,11 @@ static int bc_literal_token_to_oop(const BToken *token, uint64_t *out_oop)
         return 1;
     }
     if (token->type == BTOK_SYMBOL)
+    {
+        *out_oop = intern_cstring_symbol(om, token->text);
+        return *out_oop != tagged_nil();
+    }
+    if (token->type == BTOK_SELECTOR)
     {
         *out_oop = bc_selector_token(token->text);
         return 1;
@@ -1755,7 +1767,7 @@ static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, con
     for (int index = 0; index < body->literal_count; index++)
     {
         uint64_t literal_oop = 0;
-        if (!bc_literal_token_to_oop(&body->literals[index], &literal_oop))
+        if (!bc_literal_token_to_oop(om, &body->literals[index], &literal_oop))
         {
             return NULL;
         }

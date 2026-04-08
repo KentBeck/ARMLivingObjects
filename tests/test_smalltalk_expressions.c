@@ -456,6 +456,8 @@ void test_smalltalk_expressions(TestContext *ctx)
         uint64_t *undefined_object_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
         uint64_t *string_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
         OBJ_FIELD(string_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+        uint64_t *symbol_class = make_class_with_ivars(xunit_om, class_class, string_class, string_class, NULL, 0);
+        OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
         uint64_t *character_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
 
         const char *context_ivars[] = {
@@ -478,6 +480,19 @@ void test_smalltalk_expressions(TestContext *ctx)
         BClassBinding expression_spec_test_binding[1] = {
             {"ExpressionSpecTest", expression_spec_test_class},
         };
+
+        uint64_t *symbol_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 20);
+        for (int index = 0; index < 20; index++)
+        {
+            OBJ_FIELD(symbol_table, index) = tagged_nil();
+        }
+
+        uint64_t *saved_global_symbol_table = global_symbol_table;
+        uint64_t *saved_global_symbol_class = global_symbol_class;
+        uint64_t *saved_global_context_class = global_context_class;
+        global_symbol_table = symbol_table;
+        global_symbol_class = symbol_class;
+        global_context_class = context_class;
 
         ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
                   "xUnit ExpressionSpecTest source loads");
@@ -518,9 +533,6 @@ void test_smalltalk_expressions(TestContext *ctx)
         OBJ_FIELD(framework_class_table, 4) = (uint64_t)character_class;
         OBJ_FIELD(framework_class_table, 5) = (uint64_t)undefined_object_class;
 
-        uint64_t *saved_global_context_class = global_context_class;
-        global_context_class = context_class;
-
         uint64_t *result_obj = om_alloc(xunit_om, (uint64_t)test_result_class, FORMAT_FIELDS, 6);
         uint64_t *test_case_obj = om_alloc(xunit_om, (uint64_t)expression_spec_test_class, FORMAT_FIELDS, 0);
 
@@ -540,13 +552,15 @@ void test_smalltalk_expressions(TestContext *ctx)
                   "xUnit passCount is 1");
         ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 2), tag_smallint(0),
                   "xUnit failureCount is 0");
-        ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 4) != tagged_nil(), 1,
-                  "xUnit records a last selector");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)OBJ_FIELD(result_obj, 4)), (uint64_t)symbol_class,
+                  "xUnit records a Symbol last selector");
         ASSERT_EQ(ctx, send_selector0(ctx->stack, framework_class_table, xunit_om, (uint64_t)result_obj,
                                       test_result_class, "wasSuccessful"),
                   tagged_true(),
                   "xUnit migrated expression test passes");
 
+        global_symbol_table = saved_global_symbol_table;
+        global_symbol_class = saved_global_symbol_class;
         global_context_class = saved_global_context_class;
     }
 }

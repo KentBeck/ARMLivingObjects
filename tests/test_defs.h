@@ -56,6 +56,7 @@ extern uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t conte
 extern uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om);
 extern uint64_t cannot_return_selector_oop(void);
 extern uint64_t *global_symbol_table; // Declare global symbol table
+extern uint64_t *global_symbol_class;
 extern uint64_t *global_context_class;
 extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var);
 extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
@@ -241,6 +242,7 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define BC_PUSH_ARG 15
 #define BC_RETURN_NON_LOCAL 16
 #define BC_PUSH_THIS_CONTEXT 17
+#define BC_REVERSE_ARGS 18
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
 #define FRAME_METHOD -1   // FP - 1*W

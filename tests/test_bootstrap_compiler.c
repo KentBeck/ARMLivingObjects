@@ -16,6 +16,17 @@ static uint32_t read_u32(const uint8_t *bytes, int index)
            (((uint32_t)bytes[index + 3]) << 24);
 }
 
+static uint64_t selector_token(const char *selector)
+{
+    uint32_t hash = 2166136261u;
+    for (const unsigned char *current = (const unsigned char *)selector; *current != '\0'; current++)
+    {
+        hash ^= (uint32_t)(*current);
+        hash *= 16777619u;
+    }
+    return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
+}
+
 void test_bootstrap_compiler(TestContext *ctx)
 {
     {
@@ -283,7 +294,7 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, bc_codegen_method_body("^ 1 + 2", &compiled), 1,
                   "codegen binary send return");
         ASSERT_EQ(ctx, compiled.literal_count, 3, "binary send literal count");
-        ASSERT_EQ(ctx, compiled.literals[2].type, BTOK_SYMBOL, "binary selector literal type");
+        ASSERT_EQ(ctx, compiled.literals[2].type, BTOK_SELECTOR, "binary selector literal type");
         ASSERT_EQ(ctx, strcmp(compiled.literals[2].text, "+"), 0, "binary selector literal value");
         ASSERT_EQ(ctx, compiled.bytecodes[0], 0, "binary push receiver literal");
         ASSERT_EQ(ctx, compiled.bytecodes[5], 0, "binary push arg literal");
@@ -298,15 +309,17 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, bc_codegen_method_body("^ self at: 1 put: 2", &compiled), 1,
                   "codegen keyword send return");
         ASSERT_EQ(ctx, compiled.literal_count, 3, "keyword send literal count");
-        ASSERT_EQ(ctx, compiled.literals[2].type, BTOK_SYMBOL, "keyword selector literal type");
+        ASSERT_EQ(ctx, compiled.literals[2].type, BTOK_SELECTOR, "keyword selector literal type");
         ASSERT_EQ(ctx, strcmp(compiled.literals[2].text, "at:put:"), 0, "keyword selector literal value");
         ASSERT_EQ(ctx, compiled.bytecodes[0], 3, "keyword push self opcode");
         ASSERT_EQ(ctx, compiled.bytecodes[1], 0, "keyword push first arg literal opcode");
         ASSERT_EQ(ctx, compiled.bytecodes[6], 0, "keyword push second arg literal opcode");
-        ASSERT_EQ(ctx, compiled.bytecodes[11], 6, "keyword send opcode");
-        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 12), 2, "keyword selector index");
-        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 16), 2, "keyword arg count");
-        ASSERT_EQ(ctx, compiled.bytecodes[20], 7, "keyword return opcode");
+        ASSERT_EQ(ctx, compiled.bytecodes[11], BC_REVERSE_ARGS, "keyword reverse args opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 12), 2, "keyword reverse args count");
+        ASSERT_EQ(ctx, compiled.bytecodes[16], 6, "keyword send opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 17), 2, "keyword selector index");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 21), 2, "keyword arg count");
+        ASSERT_EQ(ctx, compiled.bytecodes[25], 7, "keyword return opcode");
     }
 
     {
@@ -606,5 +619,56 @@ void test_bootstrap_compiler(TestContext *ctx)
 
         uint64_t result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bar_bc, 0), ctx->class_table, ctx->om, NULL);
         ASSERT_EQ(ctx, result, tag_smallint(7), "installed methods execute via send lookup");
+    }
+
+    {
+        uint64_t *sample_meta = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(sample_meta, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(sample_meta, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(sample_meta, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(sample_meta, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *sample_class = om_alloc(ctx->om, (uint64_t)sample_meta, FORMAT_FIELDS, 4);
+        OBJ_FIELD(sample_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(sample_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(sample_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(sample_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        BClassBinding bindings[1] = {
+            {"SampleSymbol", sample_class},
+        };
+
+        const char *source =
+            "!SampleSymbol methodsFor: 'testing'!\n"
+            "literalSelector\n"
+            "    ^ #foo\n"
+            "!\n";
+
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, bindings, 1, source),
+                  1,
+                  "compile and install symbol literal method");
+
+        uint64_t *instance_md = (uint64_t *)OBJ_FIELD(sample_class, CLASS_METHOD_DICT);
+        uint64_t method_oop = md_lookup(instance_md, selector_token("literalSelector"));
+        ASSERT_EQ(ctx, method_oop != 0, 1, "symbol literal method installed");
+
+        uint64_t *sample_instance = om_alloc(ctx->om, (uint64_t)sample_class, FORMAT_FIELDS, 0);
+        uint64_t *compiled_method = (uint64_t *)method_oop;
+        uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
+
+        uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, ctx->stack, (uint64_t)sample_instance);
+        activate_method(&sp, &fp, 0, (uint64_t)compiled_method, 0, 0);
+
+        uint64_t result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), ctx->class_table, ctx->om, NULL);
+        uint64_t *as_string = om_alloc(ctx->om, (uint64_t)ctx->string_class, FORMAT_BYTES, 3);
+        memcpy((void *)&OBJ_FIELD(as_string, 0), "foo", 3);
+        uint64_t interned = prim_string_as_symbol((uint64_t)as_string);
+        ASSERT_EQ(ctx, result, interned,
+                  "installed symbol literal materializes as interned symbol");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)result), (uint64_t)ctx->symbol_class,
+                  "installed symbol literal has Symbol class");
     }
 }

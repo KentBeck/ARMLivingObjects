@@ -28,9 +28,11 @@ void test_primitives(TestContext *ctx)
     uint64_t sym1 = prim_string_as_symbol((uint64_t)s1);
     uint64_t sym2 = prim_string_as_symbol((uint64_t)s2);
     uint64_t sym3 = prim_string_as_symbol((uint64_t)s3);
-    ASSERT_EQ(ctx, sym1, (uint64_t)s1, "PRIM_STRING_AS_SYMBOL: first insert returns receiver");
+    ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)sym1), (uint64_t)ctx->symbol_class,
+              "PRIM_STRING_AS_SYMBOL: first insert returns Symbol");
     ASSERT_EQ(ctx, sym2, sym1, "PRIM_STRING_AS_SYMBOL: interned identity reused");
-    ASSERT_EQ(ctx, sym3, (uint64_t)s3, "PRIM_STRING_AS_SYMBOL: second distinct symbol inserts");
+    ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)sym3), (uint64_t)ctx->symbol_class,
+              "PRIM_STRING_AS_SYMBOL: second distinct symbol is Symbol");
 
     ASSERT_EQ(ctx, prim_symbol_eq(sym1, sym2), tagged_true(), "PRIM_SYMBOL_EQ: identical symbols true");
     ASSERT_EQ(ctx, prim_symbol_eq(sym1, sym3), tagged_false(), "PRIM_SYMBOL_EQ: distinct symbols false");
