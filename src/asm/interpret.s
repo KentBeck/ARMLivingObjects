@@ -1373,10 +1373,13 @@ _interpret:
 
     ldr     x7, [x6, #BLOCK_HOME_RECEIVER_OFS]      // home receiver (block field 0)
     ldr     x8, [x6, #BLOCK_CM_OFS]      // CM (block field 1)
+    ldr     x11, [x6, #OBJ_SIZE_OFS]
+    sub     x11, x11, #2         // copied values count
 
     // Read num_temps from CM
     ldr     x3, [x8, #CM_NUM_TEMPS_OFS]      // num_temps (tagged)
     asr     x3, x3, #SMALLINT_SHIFT         // untag
+    add     x3, x3, x11
 
     // Push home receiver as the "receiver" for activation
     ldr     x5, [x19]
@@ -1385,6 +1388,7 @@ _interpret:
     str     x5, [x19]
 
     // Activate: call _activate_method(sp_ptr, fp_ptr, saved_ip, method, num_args, num_temps)
+    stp     x6, x11, [sp, #-16]!
     mov     x5, x3             // num_temps
     mov     x4, #0             // 0 args (no-arg block)
     mov     x3, x8             // method = block's CM
@@ -1392,9 +1396,27 @@ _interpret:
     mov     x1, x20            // fp_ptr
     mov     x0, x19            // sp_ptr
     bl      _activate_method
+    ldp     x9, x10, [sp], #16
+
+    // Populate copied values into temp slots 0..copiedCount-1.
+    cbz     x10, .Lprim_block_value_copied_done
+    ldr     x6, [x20]          // new FP
+    add     x11, x9, #BLOCK_COPIED_VALUES_OFS
+    sub     x12, x6, #40
+.Lprim_block_value_copy_loop:
+    ldr     x13, [x11]
+    str     x13, [x12]
+    add     x11, x11, #8
+    sub     x12, x12, #8
+    subs    x10, x10, #1
+    b.ne    .Lprim_block_value_copy_loop
+.Lprim_block_value_copied_done:
 
     // Set IP to block CM's bytecodes
     ldr     x6, [x20]          // new FP
+    ldr     x10, [x6, #FP_FLAGS_OFS]
+    orr     x10, x10, #(1 << FRAME_FLAGS_IS_BLOCK_SHIFT)
+    str     x10, [x6, #FP_FLAGS_OFS]
     ldr     x7, [x6, #FP_METHOD_OFS]      // method (block's CM)
     ldr     x10, [x7, #CM_BYTECODES_OFS]     // CM_BYTECODES → ByteArray
     add     x23, x10, #OBJ_FIELDS_OFS      // skip header → data
@@ -1416,6 +1438,8 @@ _interpret:
 
     ldr     x7, [x6, #BLOCK_HOME_RECEIVER_OFS]      // home receiver (block field 0)
     ldr     x8, [x6, #BLOCK_CM_OFS]      // CM (block field 1)
+    ldr     x11, [x6, #OBJ_SIZE_OFS]
+    sub     x11, x11, #2         // copied values count
 
     // Replace block with home receiver on stack
     str     x7, [x5, #8]
@@ -1424,8 +1448,10 @@ _interpret:
     // Read num_temps from block's CM
     ldr     x3, [x8, #CM_NUM_TEMPS_OFS]      // num_temps (tagged)
     asr     x3, x3, #SMALLINT_SHIFT
+    add     x3, x3, x11
 
     // Activate: _activate_method(sp_ptr, fp_ptr, saved_ip, method, num_args=1, num_temps)
+    stp     x6, x11, [sp, #-16]!
     mov     x5, x3             // num_temps
     mov     x4, #1             // 1 arg
     mov     x3, x8             // method = block's CM
@@ -1433,6 +1459,21 @@ _interpret:
     mov     x1, x20            // fp_ptr
     mov     x0, x19            // sp_ptr
     bl      _activate_method
+    ldp     x9, x10, [sp], #16
+
+    // Populate copied values into temp slots 0..copiedCount-1.
+    cbz     x10, .Lprim_block_value_arg_copied_done
+    ldr     x6, [x20]          // new FP
+    add     x11, x9, #BLOCK_COPIED_VALUES_OFS
+    sub     x12, x6, #40
+.Lprim_block_value_arg_copy_loop:
+    ldr     x13, [x11]
+    str     x13, [x12]
+    add     x11, x11, #8
+    sub     x12, x12, #8
+    subs    x10, x10, #1
+    b.ne    .Lprim_block_value_arg_copy_loop
+.Lprim_block_value_arg_copied_done:
 
     // Mark frame as block
     ldr     x6, [x20]          // new FP
@@ -1546,23 +1587,32 @@ _interpret:
 
 .Lbc_push_closure:
     // PUSH_CLOSURE: read literal_index, get CM from literals,
-    // allocate Block(2 fields: home_receiver, cm), push Block.
+    // allocate Block(home_receiver, cm, copied args/temps...), push Block.
     READ_U32                    // w5 = literal index
     ldr     x6, [x20]          // FP
     ldr     x7, [x6, #FP_METHOD_OFS]      // current method
+    ldr     x11, [x6, #FP_FLAGS_OFS]
+    ubfx    x11, x11, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    ldr     x12, [x7, #CM_NUM_TEMPS_OFS]
+    asr     x12, x12, #SMALLINT_SHIFT
+    add     x13, x11, x12      // copied args + temps
     ldr     x7, [x7, #CM_LITERALS_OFS]      // CM_LITERALS → Array
     add     x7, x7, #OBJ_FIELDS_OFS        // skip Array header
     ldr     x9, [x7, x5, lsl #3]   // x9 = block CM (from literals)
     ldr     x10, [x6, #FP_RECEIVER_OFS]    // x10 = current receiver (home receiver)
-    // Allocate Block: om_alloc(om, block_class, FORMAT_FIELDS, 2)
+    // Allocate Block: om_alloc(om, block_class, FORMAT_FIELDS, 2 + copied_count)
     mov     x0, x26             // om
     ldr     x1, [x25, #CLASS_TABLE_BLOCK_OFS]     // class_table_obj field[1] = Block class
     mov     x2, #FORMAT_FIELDS
-    mov     x3, #2              // 2 fields
+    add     x3, x13, #2
     // Save volatile state
-    stp     x9, x10, [sp, #-16]!
+    sub     sp, sp, #32
+    stp     x9, x10, [sp]
+    stp     x11, x13, [sp, #16]
     bl      _om_alloc
-    ldp     x9, x10, [sp], #16
+    ldp     x9, x10, [sp]
+    ldp     x11, x13, [sp, #16]
+    add     sp, sp, #32
     // Check for OOM — if NULL, trigger GC and retry
     cbnz    x0, .Lblock_alloc_ok
 
@@ -1697,10 +1747,17 @@ _interpret:
     add     x21, x23, x28
 
     // Retry allocation
+    ldr     x6, [x20]
+    ldr     x7, [x6, #FP_METHOD_OFS]
+    ldr     x11, [x6, #FP_FLAGS_OFS]
+    ubfx    x11, x11, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    ldr     x12, [x7, #CM_NUM_TEMPS_OFS]
+    asr     x12, x12, #SMALLINT_SHIFT
+    add     x13, x11, x12
     mov     x0, x26
     ldr     x1, [x25, #CLASS_TABLE_BLOCK_OFS]     // Block class
     mov     x2, #FORMAT_FIELDS
-    mov     x3, #2
+    add     x3, x13, #2
     stp     x9, x10, [sp, #-16]!
     bl      _om_alloc
     ldp     x9, x10, [sp], #16
@@ -1709,8 +1766,39 @@ _interpret:
 
 .Lblock_alloc_ok:
     // x0 = new Block object
+    ldr     x6, [x20]          // creator FP
     str     x10, [x0, #BLOCK_HOME_RECEIVER_OFS]     // field 0 = home receiver
     str     x9, [x0, #BLOCK_CM_OFS]      // field 1 = CM
+    cbz     x13, .Lblock_copy_done
+
+    // Copy outer args then temps into the closure object.
+    mov     x14, #0
+    add     x15, x0, #BLOCK_COPIED_VALUES_OFS
+.Lblock_copy_args_loop:
+    cmp     x14, x11
+    b.ge    .Lblock_copy_temps
+    sub     x16, x11, x14
+    sub     x16, x16, #1
+    add     x17, x16, #FP_ARG_BASE_WORDS
+    ldr     x18, [x6, x17, lsl #3]
+    str     x18, [x15], #8
+    add     x14, x14, #1
+    b       .Lblock_copy_args_loop
+
+.Lblock_copy_temps:
+    mov     x14, #0
+.Lblock_copy_temps_loop:
+    cmp     x14, x12
+    b.ge    .Lblock_copy_done
+    add     x16, x14, #FP_TEMP_BASE_WORDS
+    lsl     x16, x16, #3
+    sub     x17, x6, x16
+    ldr     x18, [x17]
+    str     x18, [x15], #8
+    add     x14, x14, #1
+    b       .Lblock_copy_temps_loop
+
+.Lblock_copy_done:
     // Push Block onto stack
     ldr     x6, [x19]          // SP
     sub     x6, x6, #8

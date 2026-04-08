@@ -206,6 +206,7 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define PRIM_ERROR 29
 #define BLOCK_HOME_RECEIVER 0
 #define BLOCK_CM 1
+#define BLOCK_COPIED_BASE 2
 #define BC_PUSH_LITERAL 0
 #define BC_PUSH_INST_VAR 1
 #define BC_PUSH_TEMP 2

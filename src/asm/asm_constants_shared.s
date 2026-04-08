@@ -72,6 +72,7 @@
 // Block object fields
 .equ BLOCK_HOME_RECEIVER_OFS, 24
 .equ BLOCK_CM_OFS, 32
+.equ BLOCK_COPIED_VALUES_OFS, 40
 
 // CompiledMethod primitive field
 .equ CM_PRIMITIVE_OFS, 24

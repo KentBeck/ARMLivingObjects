@@ -131,6 +131,180 @@ void test_blocks(TestContext *ctx)
                            class_table, om, NULL);
         ASSERT_EQ(ctx, result, receiver,
                   "Block: captures self — [self] value returns receiver");
+
+        // Test: copied temp values are captured at closure creation time.
+        {
+            uint64_t *copied_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+            uint8_t *cblk = (uint8_t *)&OBJ_FIELD(copied_blk_bc, 0);
+            cblk[0] = BC_PUSH_TEMP;
+            WRITE_U32(&cblk[1], 0);
+            cblk[5] = BC_RETURN;
+
+            uint64_t *copied_blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(copied_blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(copied_blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(copied_blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(copied_blk_cm, CM_LITERALS) = tagged_nil();
+            OBJ_FIELD(copied_blk_cm, CM_BYTECODES) = (uint64_t)copied_blk_bc;
+
+            uint64_t *copied_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 40);
+            uint8_t *ccb = (uint8_t *)&OBJ_FIELD(copied_caller_bc, 0);
+            ccb[0] = BC_PUSH_LITERAL;
+            WRITE_U32(&ccb[1], 0);   // 41
+            ccb[5] = BC_STORE_TEMP;
+            WRITE_U32(&ccb[6], 0);
+            ccb[10] = BC_PUSH_CLOSURE;
+            WRITE_U32(&ccb[11], 1);  // copied block
+            ccb[15] = BC_PUSH_LITERAL;
+            WRITE_U32(&ccb[16], 2);  // 99
+            ccb[20] = BC_STORE_TEMP;
+            WRITE_U32(&ccb[21], 0);
+            ccb[25] = BC_SEND_MESSAGE;
+            WRITE_U32(&ccb[26], 3);  // #value
+            WRITE_U32(&ccb[30], 0);
+            ccb[34] = BC_HALT;
+
+            uint64_t *copied_caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+            OBJ_FIELD(copied_caller_lits, 0) = tag_smallint(41);
+            OBJ_FIELD(copied_caller_lits, 1) = (uint64_t)copied_blk_cm;
+            OBJ_FIELD(copied_caller_lits, 2) = tag_smallint(99);
+            OBJ_FIELD(copied_caller_lits, 3) = sel_value;
+            uint64_t *copied_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(copied_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(copied_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(copied_caller_cm, CM_NUM_TEMPS) = tag_smallint(1);
+            OBJ_FIELD(copied_caller_cm, CM_LITERALS) = (uint64_t)copied_caller_lits;
+            OBJ_FIELD(copied_caller_cm, CM_BYTECODES) = (uint64_t)copied_caller_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            activate_method(&sp, &fp, 0, (uint64_t)copied_caller_cm, 0, 1);
+            result = interpret(&sp, &fp,
+                               (uint8_t *)&OBJ_FIELD(copied_caller_bc, 0),
+                               class_table, om, NULL);
+            ASSERT_EQ(ctx, result, tag_smallint(41),
+                      "Block: copied temp keeps creation-time value");
+        }
+
+        // Test: a returned block still sees its copied outer value after home returns.
+        {
+            uint64_t *escaped_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+            uint8_t *eblk = (uint8_t *)&OBJ_FIELD(escaped_blk_bc, 0);
+            eblk[0] = BC_PUSH_TEMP;
+            WRITE_U32(&eblk[1], 0);
+            eblk[5] = BC_RETURN;
+
+            uint64_t *escaped_blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(escaped_blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(escaped_blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(escaped_blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(escaped_blk_cm, CM_LITERALS) = tagged_nil();
+            OBJ_FIELD(escaped_blk_cm, CM_BYTECODES) = (uint64_t)escaped_blk_bc;
+
+            uint64_t *maker_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+            uint8_t *mb = (uint8_t *)&OBJ_FIELD(maker_bc, 0);
+            mb[0] = BC_PUSH_LITERAL;
+            WRITE_U32(&mb[1], 0);   // 55
+            mb[5] = BC_STORE_TEMP;
+            WRITE_U32(&mb[6], 0);
+            mb[10] = BC_PUSH_CLOSURE;
+            WRITE_U32(&mb[11], 1);  // escaped block
+            mb[15] = BC_RETURN;
+
+            uint64_t *maker_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+            OBJ_FIELD(maker_lits, 0) = tag_smallint(55);
+            OBJ_FIELD(maker_lits, 1) = (uint64_t)escaped_blk_cm;
+            uint64_t *maker_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(maker_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(maker_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(maker_cm, CM_NUM_TEMPS) = tag_smallint(1);
+            OBJ_FIELD(maker_cm, CM_LITERALS) = (uint64_t)maker_lits;
+            OBJ_FIELD(maker_cm, CM_BYTECODES) = (uint64_t)maker_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            activate_method(&sp, &fp, 0, (uint64_t)maker_cm, 0, 1);
+            uint64_t escaped_block = interpret(&sp, &fp,
+                                               (uint8_t *)&OBJ_FIELD(maker_bc, 0),
+                                               class_table, om, NULL);
+
+            uint64_t *invoke_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+            uint8_t *ib = (uint8_t *)&OBJ_FIELD(invoke_bc, 0);
+            ib[0] = BC_PUSH_LITERAL;
+            WRITE_U32(&ib[1], 0);   // escaped block object
+            ib[5] = BC_SEND_MESSAGE;
+            WRITE_U32(&ib[6], 1);   // #value
+            WRITE_U32(&ib[10], 0);
+            ib[14] = BC_HALT;
+
+            uint64_t *invoke_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+            OBJ_FIELD(invoke_lits, 0) = escaped_block;
+            OBJ_FIELD(invoke_lits, 1) = sel_value;
+            uint64_t *invoke_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(invoke_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(invoke_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(invoke_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(invoke_cm, CM_LITERALS) = (uint64_t)invoke_lits;
+            OBJ_FIELD(invoke_cm, CM_BYTECODES) = (uint64_t)invoke_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            activate_method(&sp, &fp, 0, (uint64_t)invoke_cm, 0, 0);
+            result = interpret(&sp, &fp,
+                               (uint8_t *)&OBJ_FIELD(invoke_bc, 0),
+                               class_table, om, NULL);
+            ASSERT_EQ(ctx, result, tag_smallint(55),
+                      "Block: escaped closure keeps copied temp after home returns");
+        }
+
+        // Test: copied arguments are visible inside the block body.
+        {
+            uint64_t *arg_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+            uint8_t *ablk = (uint8_t *)&OBJ_FIELD(arg_blk_bc, 0);
+            ablk[0] = BC_PUSH_TEMP;
+            WRITE_U32(&ablk[1], 0);
+            ablk[5] = BC_RETURN;
+
+            uint64_t *arg_blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(arg_blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(arg_blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(arg_blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(arg_blk_cm, CM_LITERALS) = tagged_nil();
+            OBJ_FIELD(arg_blk_cm, CM_BYTECODES) = (uint64_t)arg_blk_bc;
+
+            uint64_t *arg_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+            uint8_t *acb = (uint8_t *)&OBJ_FIELD(arg_caller_bc, 0);
+            acb[0] = BC_PUSH_CLOSURE;
+            WRITE_U32(&acb[1], 0);
+            acb[5] = BC_SEND_MESSAGE;
+            WRITE_U32(&acb[6], 1);  // #value
+            WRITE_U32(&acb[10], 0);
+            acb[14] = BC_HALT;
+
+            uint64_t *arg_caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+            OBJ_FIELD(arg_caller_lits, 0) = (uint64_t)arg_blk_cm;
+            OBJ_FIELD(arg_caller_lits, 1) = sel_value;
+            uint64_t *arg_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(arg_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(arg_caller_cm, CM_NUM_ARGS) = tag_smallint(1);
+            OBJ_FIELD(arg_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(arg_caller_cm, CM_LITERALS) = (uint64_t)arg_caller_lits;
+            OBJ_FIELD(arg_caller_cm, CM_BYTECODES) = (uint64_t)arg_caller_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            stack_push(&sp, stack, tag_smallint(77));
+            activate_method(&sp, &fp, 0, (uint64_t)arg_caller_cm, 1, 0);
+            result = interpret(&sp, &fp,
+                               (uint8_t *)&OBJ_FIELD(arg_caller_bc, 0),
+                               class_table, om, NULL);
+            ASSERT_EQ(ctx, result, tag_smallint(77),
+                      "Block: copied outer argument is available in block body");
+        }
     }
 
     // --- True and False classes with ifTrue:ifFalse: ---

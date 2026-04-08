@@ -44,6 +44,16 @@ LSP Server
 New primitives needed by the class library. Each is a VM primitive
 dispatched by the interpreter's primitive handler.
 
+Block closure scenarios added from "Under Cover Contexts and the Big Frame-Up":
+
+- [x] Copied outer temp is captured at closure creation time
+- [x] Escaped block retains copied outer state after its home method returns
+- [x] Copied outer argument is visible inside the block body
+- [ ] Non-local return from block to home activation
+- [ ] `cannotReturn:` when a non-local return escapes a dead home activation
+- [ ] Married/widowed context semantics for long-lived block homes
+- [ ] Preserve arguments but not volatile non-argument temps for widowed contexts
+
 - [x] `basicNew` — primitive on Class: allocate fixed-size instance (reads instSize from receiver)
 - [x] `basicNew:` — primitive on Class: allocate indexable/byte instance (reads instFormat from receiver)
 - [x] `new` / `new:` — Smalltalk methods on Class: `^ self basicNew` / `^ self basicNew: size`
