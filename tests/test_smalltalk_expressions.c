@@ -186,6 +186,8 @@ void test_smalltalk_expressions(TestContext *ctx)
               (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_EQ, 1));
     md_append(ctx->om, ctx->class_class, ctx->smallint_class, "asCharacter",
               (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_AS_CHARACTER, 0));
+    md_append(ctx->om, ctx->class_class, ctx->context_class, "==",
+              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_IDENTITY_EQ, 1));
 
     md_append(ctx->om, ctx->class_class, ctx->character_class, "value",
               (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_VALUE, 0));
@@ -205,6 +207,8 @@ void test_smalltalk_expressions(TestContext *ctx)
     OBJ_FIELD(expr_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(expr_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(expr_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    md_append(ctx->om, ctx->class_class, expr_class, "thisContext",
+              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_THIS_CONTEXT, 0));
 
     BClassBinding bindings[1] = {
         {"ExprSpec", expr_class},

@@ -16,6 +16,11 @@ class
     ^ self basicClass
 !
 
+thisContext
+    <primitive: 30>
+    self error: 'thisContext primitive failed'
+!
+
 hash
     <primitive: 14>
     ^ 0

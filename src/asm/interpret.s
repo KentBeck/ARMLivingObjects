@@ -36,6 +36,7 @@
 .equ PRIM_STRING_AS_SYMBOL, 27
 .equ PRIM_SYMBOL_EQ, 28
 .equ PRIM_ERROR, 29
+.equ PRIM_THIS_CONTEXT, 30
 
 // Bytecodes (interpreter-local)
 .equ BC_PUSH_LITERAL, 0
@@ -442,6 +443,8 @@ _interpret:
     b.eq    .Lprim_symbol_eq
     cmp     x3, #PRIM_ERROR
     b.eq    .Lprim_error
+    cmp     x3, #PRIM_THIS_CONTEXT
+    b.eq    .Lprim_this_context
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -1331,6 +1334,17 @@ _interpret:
     mov     x2, x25            // class table
     bl      _debug_error
     brk     #13
+
+.Lprim_this_context:
+    // thisContext: lazily materialize and return the current activation context.
+    ldr     x6, [x20]          // current FP
+    mov     x0, x6
+    mov     x1, x26
+    bl      _ensure_frame_context_global
+    cbz     x0, .Lprimitive_failed
+    ldr     x5, [x19]          // SP
+    str     x0, [x5]           // replace receiver with context
+    b       .Ldispatch
 
 .Lprim_identity_eq:
     // ==: receiver arg → true if same value, false otherwise

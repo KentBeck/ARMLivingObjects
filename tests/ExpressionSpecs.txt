@@ -16,3 +16,4 @@ smallint asCharacter value | 65 asCharacter value | 65
 character literal value | $A value | 65
 character isLetter true | $A isLetter | true
 character isDigit true | $7 isDigit | true
+thisContext identity | (self thisContext) == (self thisContext) | true
