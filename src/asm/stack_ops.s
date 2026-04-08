@@ -1,10 +1,17 @@
 // stack_ops.s — Stack push/pop/top primitives
 // Stack grows downward, as in the Cog VM.
 
+.data
+.align 3
+.global _smalltalk_stack_limit_low
+_smalltalk_stack_limit_low:
+    .quad 0
+
 .global _stack_push
 .global _stack_pop
 .global _stack_top
 
+.text
 .align 2
 
 // stack_push(uint64_t *sp_ptr, uint64_t *stack_base, uint64_t value)
@@ -13,8 +20,13 @@
 // x2 = value to push
 // Decrements SP by 8, stores value at new SP.
 _stack_push:
+    adrp    x4, _smalltalk_stack_limit_low@PAGE
+    add     x4, x4, _smalltalk_stack_limit_low@PAGEOFF
+    str     x1, [x4]           // remember current stack's low bound
     ldr     x3, [x0]           // x3 = current SP
     sub     x3, x3, #8         // SP -= 8 (grow down)
+    cmp     x3, x1
+    b.lo    .Lstack_overflow
     str     x2, [x3]           // store value at new SP
     str     x3, [x0]           // write back updated SP
     ret
@@ -38,3 +50,5 @@ _stack_top:
     ldr     x0, [x3]           // return value at SP
     ret
 
+.Lstack_overflow:
+    brk     #13

@@ -3,6 +3,8 @@
 .include "macros.s"
 .include "asm_constants_shared.s"
 
+.extern _smalltalk_stack_limit_low
+
 .global _activate_method
 .global _frame_receiver
 .global _frame_method
@@ -42,6 +44,17 @@ _activate_method:
 
     ldr     x6, [x0]           // x6 = current smalltalk SP
     ldr     x7, [x1]           // x7 = current smalltalk FP
+
+    // Ensure the full frame fits before writing anything.
+    // Required words: saved IP, saved FP, method, flags, context, receiver, temps.
+    add     x12, x5, #6
+    lsl     x12, x12, #3
+    sub     x13, x6, x12
+    adrp    x14, _smalltalk_stack_limit_low@PAGE
+    add     x14, x14, _smalltalk_stack_limit_low@PAGEOFF
+    ldr     x14, [x14]
+    cmp     x13, x14
+    b.lo    .Lactivate_stack_overflow
 
     // Read receiver from stack: it's at SP + num_args * 8
     lsl     x8, x4, #3
@@ -97,6 +110,9 @@ _activate_method:
 
     EPILOGUE
     ret
+
+.Lactivate_stack_overflow:
+    brk     #13
 
 // frame_receiver(fp) -> uint64_t
 _frame_receiver:

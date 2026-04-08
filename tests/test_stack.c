@@ -1,5 +1,19 @@
 #include "test_defs.h"
 
+static void trap_stack_push_overflow(TestContext *ctx)
+{
+    uint64_t *sp = ctx->stack;
+    stack_push(&sp, ctx->stack, 42);
+}
+
+static void trap_activate_method_overflow(TestContext *ctx)
+{
+    uint64_t *sp = ctx->stack + 5;
+    uint64_t *fp = 0;
+    stack_push(&sp, ctx->stack, ctx->receiver);
+    activate_method(&sp, &fp, 0x1000, ctx->method, 0, 0);
+}
+
 void test_stack(TestContext *ctx)
 {
     uint64_t *om=ctx->om;
@@ -34,6 +48,12 @@ void test_stack(TestContext *ctx)
     stack_push(&sp, stack, 200);
     stack_pop(&sp);
     ASSERT_EQ(ctx, stack_top(&sp), 100, "push two values and pop one");
+
+    ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_stack_push_overflow), (uint64_t)SIGTRAP,
+              "stack_push traps on stack overflow");
+
+    ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_activate_method_overflow), (uint64_t)SIGTRAP,
+              "activate_method traps on frame overflow");
 
 
     // --- Method Activation Tests ---
