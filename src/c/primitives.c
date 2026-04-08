@@ -105,3 +105,80 @@ uint64_t prim_symbol_eq(uint64_t receiver, uint64_t arg) {
         return tagged_false();
     }
 }
+
+static uint64_t context_ip_for_frame(uint64_t *fp)
+{
+    uint64_t saved_ip = fp[FRAME_SAVED_IP];
+    uint64_t *method = (uint64_t *)fp[FRAME_METHOD];
+    if (method == NULL || !is_object_ptr((uint64_t)method))
+    {
+        return tagged_nil();
+    }
+
+    uint64_t bytecodes_oop = OBJ_FIELD(method, CM_BYTECODES);
+    if (!is_object_ptr(bytecodes_oop))
+    {
+        return tagged_nil();
+    }
+
+    uint8_t *base = (uint8_t *)&OBJ_FIELD((uint64_t *)bytecodes_oop, 0);
+    uint64_t size = OBJ_SIZE((uint64_t *)bytecodes_oop);
+    uint8_t *ip = (uint8_t *)saved_ip;
+    if (ip < base || ip > base + size)
+    {
+        return tagged_nil();
+    }
+
+    return tag_smallint((int64_t)(ip - base));
+}
+
+uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_class)
+{
+    if (fp == NULL || fp == (uint64_t *)0xCAFE)
+    {
+        return NULL;
+    }
+
+    if ((fp[FRAME_FLAGS] & 0xFF) != 0)
+    {
+        return (uint64_t *)fp[FRAME_CONTEXT];
+    }
+
+    uint64_t num_args = (fp[FRAME_FLAGS] >> 8) & 0xFF;
+    uint64_t *method = (uint64_t *)fp[FRAME_METHOD];
+    uint64_t num_temps = 0;
+    if (method != NULL && is_object_ptr((uint64_t)method))
+    {
+        num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
+    }
+
+    uint64_t field_count = CONTEXT_VAR_BASE + num_args + num_temps;
+    uint64_t *context = om_alloc(om, context_class, FORMAT_FIELDS, field_count);
+    if (context == NULL)
+    {
+        return NULL;
+    }
+
+    uint64_t *caller_fp = (uint64_t *)fp[FRAME_SAVED_FP];
+    uint64_t *sender = ensure_frame_context(caller_fp, om, context_class);
+    OBJ_FIELD(context, CONTEXT_SENDER) = sender == NULL ? tagged_nil() : (uint64_t)sender;
+    OBJ_FIELD(context, CONTEXT_IP) = context_ip_for_frame(fp);
+    OBJ_FIELD(context, CONTEXT_METHOD) = (uint64_t)method;
+    OBJ_FIELD(context, CONTEXT_RECEIVER) = fp[FRAME_RECEIVER];
+    OBJ_FIELD(context, CONTEXT_FLAGS) = tag_smallint((int64_t)fp[FRAME_FLAGS]);
+    OBJ_FIELD(context, CONTEXT_NUM_ARGS) = tag_smallint((int64_t)num_args);
+    OBJ_FIELD(context, CONTEXT_NUM_TEMPS) = tag_smallint((int64_t)num_temps);
+
+    for (uint64_t i = 0; i < num_args; i++)
+    {
+        OBJ_FIELD(context, CONTEXT_VAR_BASE + i) = frame_arg(fp, i);
+    }
+    for (uint64_t i = 0; i < num_temps; i++)
+    {
+        OBJ_FIELD(context, CONTEXT_VAR_BASE + num_args + i) = frame_temp(fp, i);
+    }
+
+    fp[FRAME_CONTEXT] = (uint64_t)context;
+    fp[FRAME_FLAGS] |= 1;
+    return context;
+}

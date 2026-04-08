@@ -52,6 +52,7 @@ extern uint64_t prim_string_eq(uint64_t receiver, uint64_t arg);
 extern uint64_t prim_string_hash_fnv(uint64_t receiver);
 extern uint64_t prim_string_as_symbol(uint64_t receiver);
 extern uint64_t prim_symbol_eq(uint64_t receiver, uint64_t arg);
+extern uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_class);
 extern uint64_t *global_symbol_table; // Declare global symbol table
 extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var);
 extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
@@ -207,6 +208,14 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define BLOCK_HOME_RECEIVER 0
 #define BLOCK_CM 1
 #define BLOCK_COPIED_BASE 2
+#define CONTEXT_SENDER 0
+#define CONTEXT_IP 1
+#define CONTEXT_METHOD 2
+#define CONTEXT_RECEIVER 3
+#define CONTEXT_FLAGS 4
+#define CONTEXT_NUM_ARGS 5
+#define CONTEXT_NUM_TEMPS 6
+#define CONTEXT_VAR_BASE 7
 #define BC_PUSH_LITERAL 0
 #define BC_PUSH_INST_VAR 1
 #define BC_PUSH_TEMP 2
@@ -252,6 +261,7 @@ typedef struct
     uint64_t *character_class;
     uint64_t *string_class;
     uint64_t *symbol_class;
+    uint64_t *context_class;
     uint64_t *symbol_table;
     uint64_t *test_class;
     uint64_t receiver;

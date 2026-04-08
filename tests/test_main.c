@@ -217,6 +217,12 @@ int main()
     OBJ_FIELD(symbol_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
 
+    uint64_t *context_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(context_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(context_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(context_class, CLASS_INST_SIZE) = tag_smallint(CONTEXT_VAR_BASE);
+    OBJ_FIELD(context_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
     uint64_t *symbol_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 20);
     for (int i = 0; i < 20; i++)
     {
@@ -314,6 +320,7 @@ int main()
     ctx.character_class = character_class;
     ctx.string_class = string_class;
     ctx.symbol_class = symbol_class;
+    ctx.context_class = context_class;
     ctx.symbol_table = symbol_table_obj;
     global_symbol_table = symbol_table_obj; // Initialize the global symbol table
     ctx.test_class = test_class;

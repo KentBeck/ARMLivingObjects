@@ -153,6 +153,75 @@ void test_stack(TestContext *ctx)
     // Test: decode has_context from flags byte 0
     ASSERT_EQ(ctx, frame_has_context(fp), 0, "frame_has_context is 0 initially");
 
+    // Test: materialize and cache a real heap context for the current frame.
+    {
+        uint64_t local_stack[STACK_WORDS];
+        uint64_t *ctx_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+        uint64_t *ctx_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(ctx_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(ctx_cm, CM_NUM_ARGS) = tag_smallint(2);
+        OBJ_FIELD(ctx_cm, CM_NUM_TEMPS) = tag_smallint(1);
+        OBJ_FIELD(ctx_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(ctx_cm, CM_BYTECODES) = (uint64_t)ctx_bc;
+
+        uint64_t *ctx_sp = (uint64_t *)((uint8_t *)local_stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *ctx_fp = 0;
+        stack_push(&ctx_sp, local_stack, receiver);
+        stack_push(&ctx_sp, local_stack, arg0);
+        stack_push(&ctx_sp, local_stack, arg1);
+        activate_method(&ctx_sp, &ctx_fp, 0, (uint64_t)ctx_cm, 2, 1);
+        frame_store_temp(ctx_fp, 0, 0xDEAD);
+
+        uint64_t *frame_ctx = ensure_frame_context(ctx_fp, om, (uint64_t)ctx->context_class);
+        ASSERT_EQ(ctx, frame_ctx != NULL, 1, "ensure_frame_context allocates a context");
+        ASSERT_EQ(ctx, frame_has_context(ctx_fp), 1, "ensure_frame_context marks frame has_context");
+        ASSERT_EQ(ctx, ctx_fp[FRAME_CONTEXT], (uint64_t)frame_ctx, "ensure_frame_context stores frame slot");
+        ASSERT_EQ(ctx, OBJ_CLASS(frame_ctx), (uint64_t)ctx->context_class, "context object has context class");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_METHOD), (uint64_t)ctx_cm, "context stores method");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_RECEIVER), receiver, "context stores receiver");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_ARGS), tag_smallint(2), "context stores arg count");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_TEMPS), tag_smallint(1), "context stores temp count");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 0), arg1, "context stores arg 0 in frame order");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 1), arg0, "context stores arg 1 in frame order");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 2), 0xDEAD, "context stores temp values");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_SENDER), tagged_nil(), "top-level context sender is nil");
+        ASSERT_EQ(ctx, (uint64_t)ensure_frame_context(ctx_fp, om, (uint64_t)ctx->context_class), (uint64_t)frame_ctx,
+                  "ensure_frame_context reuses cached context");
+    }
+
+    // Test: materializing a child frame recursively materializes its sender.
+    {
+        uint64_t local_stack[STACK_WORDS];
+        uint64_t *sp2 = (uint64_t *)((uint8_t *)local_stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *active_fp = (uint64_t *)0xCAFE;
+        uint64_t outer_receiver = receiver;
+        uint64_t inner_receiver = tag_smallint(314);
+        uint64_t *sender_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+        uint64_t *sender_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(sender_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(sender_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(sender_cm, CM_NUM_TEMPS) = tag_smallint(1);
+        OBJ_FIELD(sender_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(sender_cm, CM_BYTECODES) = (uint64_t)sender_bc;
+
+        stack_push(&sp2, local_stack, outer_receiver);
+        activate_method(&sp2, &active_fp, 0, (uint64_t)sender_cm, 0, 1);
+        uint64_t *outer_fp = active_fp;
+        frame_store_temp(outer_fp, 0, tag_smallint(99));
+
+        stack_push(&sp2, local_stack, inner_receiver);
+        activate_method(&sp2, &active_fp, 0, method, 0, 0);
+
+        uint64_t *inner_ctx = ensure_frame_context(active_fp, om, (uint64_t)ctx->context_class);
+        uint64_t *outer_ctx = (uint64_t *)OBJ_FIELD(inner_ctx, CONTEXT_SENDER);
+        ASSERT_EQ(ctx, inner_ctx != NULL, 1, "child ensure_frame_context allocates context");
+        ASSERT_EQ(ctx, outer_ctx != NULL, 1, "child ensure_frame_context allocates sender context");
+        ASSERT_EQ(ctx, outer_fp[FRAME_CONTEXT], (uint64_t)outer_ctx, "sender frame caches outer context");
+        ASSERT_EQ(ctx, OBJ_FIELD(inner_ctx, CONTEXT_RECEIVER), inner_receiver, "child context stores child receiver");
+        ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_RECEIVER), outer_receiver, "sender context stores outer receiver");
+        ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_VAR_BASE), tag_smallint(99), "sender context stores outer temp");
+    }
+
     // --- Section 4: Temporary Variable Access ---
     // Use the 2-arg, 1-temp frame from above (still in fp)
 
