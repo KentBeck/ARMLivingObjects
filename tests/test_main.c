@@ -2,6 +2,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+static uint64_t *make_byte_string(uint64_t *om, uint64_t *string_class, const char *text)
+{
+    size_t len = strlen(text);
+    uint64_t *string = om_alloc(om, (uint64_t)string_class, FORMAT_BYTES, (uint64_t)len);
+    if (len > 0)
+    {
+        memcpy(&OBJ_FIELD(string, 0), text, len);
+    }
+    return string;
+}
+
 static uint64_t debug_oop_class(uint64_t oop, uint64_t *class_table)
 {
     if ((oop & 1) == 0)
@@ -217,11 +228,22 @@ int main()
     OBJ_FIELD(symbol_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
 
-    uint64_t *context_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    uint64_t *context_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
     OBJ_FIELD(context_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(context_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(context_class, CLASS_INST_SIZE) = tag_smallint(CONTEXT_VAR_BASE);
     OBJ_FIELD(context_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    uint64_t *context_ivars = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, CONTEXT_VAR_BASE);
+    OBJ_FIELD(context_ivars, 0) = (uint64_t)make_byte_string(om, string_class, "sender");
+    OBJ_FIELD(context_ivars, 1) = (uint64_t)make_byte_string(om, string_class, "ip");
+    OBJ_FIELD(context_ivars, 2) = (uint64_t)make_byte_string(om, string_class, "method");
+    OBJ_FIELD(context_ivars, 3) = (uint64_t)make_byte_string(om, string_class, "receiver");
+    OBJ_FIELD(context_ivars, 4) = (uint64_t)make_byte_string(om, string_class, "home");
+    OBJ_FIELD(context_ivars, 5) = (uint64_t)make_byte_string(om, string_class, "closure");
+    OBJ_FIELD(context_ivars, 6) = (uint64_t)make_byte_string(om, string_class, "flags");
+    OBJ_FIELD(context_ivars, 7) = (uint64_t)make_byte_string(om, string_class, "numArgs");
+    OBJ_FIELD(context_ivars, 8) = (uint64_t)make_byte_string(om, string_class, "numTemps");
+    OBJ_FIELD(context_class, CLASS_INST_VARS) = (uint64_t)context_ivars;
 
     uint64_t *symbol_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 20);
     for (int i = 0; i < 20; i++)

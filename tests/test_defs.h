@@ -173,6 +173,7 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define CLASS_METHOD_DICT 1
 #define CLASS_INST_SIZE 2
 #define CLASS_INST_FORMAT 3 // tagged SmallInt: 0=fields, 1=indexable, 2=bytes
+#define CLASS_INST_VARS 4
 #define CM_PRIMITIVE 0
 #define CM_NUM_ARGS 1
 #define CM_NUM_TEMPS 2

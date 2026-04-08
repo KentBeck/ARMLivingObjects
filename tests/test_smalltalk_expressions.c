@@ -2,6 +2,19 @@
 #include "bootstrap_compiler.h"
 #include <ctype.h>
 
+static int read_file(const char *path, char *buf, size_t cap)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+    {
+        return 0;
+    }
+    size_t n = fread(buf, 1, cap - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    return 1;
+}
+
 typedef enum
 {
     EXPR_EXPECT_SMALLINT = 0,
@@ -174,6 +187,18 @@ static uint64_t *make_primitive_cm(uint64_t *om, uint64_t *class_class, int prim
 
 void test_smalltalk_expressions(TestContext *ctx)
 {
+    char context_src[2048];
+    const char *object_testing_src =
+        "!Object methodsFor: 'testing'!\n"
+        "isNil\n"
+        "    ^ false\n"
+        "!\n";
+    const char *undefined_object_testing_src =
+        "!UndefinedObject methodsFor: 'testing'!\n"
+        "isNil\n"
+        "    ^ true\n"
+        "!\n";
+
     md_append(ctx->om, ctx->class_class, ctx->smallint_class, "+",
               (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_ADD, 1));
     md_append(ctx->om, ctx->class_class, ctx->smallint_class, "-",
@@ -203,7 +228,7 @@ void test_smalltalk_expressions(TestContext *ctx)
     OBJ_FIELD(expr_meta, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
     uint64_t *expr_class = om_alloc(ctx->om, (uint64_t)expr_meta, FORMAT_FIELDS, 4);
-    OBJ_FIELD(expr_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(expr_class, CLASS_SUPERCLASS) = (uint64_t)ctx->test_class;
     OBJ_FIELD(expr_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(expr_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(expr_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
@@ -211,6 +236,30 @@ void test_smalltalk_expressions(TestContext *ctx)
     BClassBinding bindings[1] = {
         {"ExprSpec", expr_class},
     };
+    BClassBinding runtime_bindings[3] = {
+        {"Object", ctx->test_class},
+        {"Context", ctx->context_class},
+        {"UndefinedObject", ctx->undefined_object_class},
+    };
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Context.st", context_src, sizeof(context_src)), 1,
+              "expression Context source loads");
+    ASSERT_EQ(ctx,
+              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, runtime_bindings, 3, object_testing_src),
+              1,
+              "expression Object methods install");
+    ASSERT_EQ(ctx,
+              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, runtime_bindings, 3, context_src),
+              1,
+              "expression Context methods install");
+    ASSERT_EQ(ctx,
+              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, runtime_bindings, 3, undefined_object_testing_src),
+              1,
+              "expression UndefinedObject methods install");
+    ASSERT_EQ(ctx, class_lookup(ctx->context_class, selector_token("receiver")) != 0, 1,
+              "expression runtime: Context understands receiver");
+    ASSERT_EQ(ctx, class_lookup(expr_class, selector_token("isNil")) != 0, 1,
+              "expression runtime: ExprSpec receiver understands isNil");
 
     ExpressionSpec specs[128];
     int spec_count = 0;

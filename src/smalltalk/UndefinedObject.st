@@ -4,3 +4,8 @@
 printString
     ^ 'nil'
 !
+
+!UndefinedObject methodsFor: 'testing'!
+isNil
+    ^ true
+!

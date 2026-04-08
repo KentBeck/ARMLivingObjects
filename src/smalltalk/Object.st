@@ -16,6 +16,10 @@ class
     ^ self basicClass
 !
 
+isNil
+    ^ false
+!
+
 hash
     <primitive: 14>
     ^ 0

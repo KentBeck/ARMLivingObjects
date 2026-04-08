@@ -1692,6 +1692,7 @@ void test_dispatch(TestContext *ctx)
                   "thisContext: context receiver is the active receiver");
         ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)result, CONTEXT_METHOD), (uint64_t)tc_caller_cm,
                   "thisContext: context method is the active method");
+
     }
 
     // --- class method: ^ self basicClass ---

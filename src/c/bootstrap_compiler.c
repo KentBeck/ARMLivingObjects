@@ -8,12 +8,18 @@ extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t f
 extern uint64_t tag_smallint(int64_t value);
 extern uint64_t tag_character(uint64_t code_point);
 extern uint64_t tagged_nil(void);
+extern uint64_t tagged_true(void);
+extern uint64_t tagged_false(void);
 
 enum
 {
     BC_FORMAT_INDEXABLE = 1,
     BC_FORMAT_BYTES = 2,
+    BC_CLASS_SUPERCLASS = 0,
     BC_CLASS_METHOD_DICT = 1,
+    BC_CLASS_INST_SIZE = 2,
+    BC_CLASS_INST_FORMAT = 3,
+    BC_CLASS_INST_VARS = 4,
     BC_CM_PRIMITIVE = 0,
     BC_CM_NUM_ARGS = 1,
     BC_CM_NUM_TEMPS = 2,
@@ -604,6 +610,7 @@ typedef struct
     BCompiledBody *compiled;
     int saw_return;
     int in_block;
+    uint64_t *target_class;
 } CgState;
 
 static void cg_emit_byte(CgState *state, uint8_t value)
@@ -660,8 +667,98 @@ static int cg_temp_index(BMethodBody *body, const char *name)
     return -1;
 }
 
+static int bc_name_matches_string_oop(uint64_t oop, const char *name)
+{
+    if ((oop & 3) != 0 || oop == 0)
+    {
+        return 0;
+    }
+
+    uint64_t *string = (uint64_t *)oop;
+    size_t len = strlen(name);
+    if (BC_OBJ_SIZE(string) != len)
+    {
+        return 0;
+    }
+
+    return memcmp((const void *)&BC_OBJ_FIELD(string, 0), name, len) == 0;
+}
+
+static int bc_class_total_inst_var_count(uint64_t *klass)
+{
+    if (klass == NULL || ((uint64_t)klass & 3) != 0)
+    {
+        return 0;
+    }
+
+    int total = 0;
+    uint64_t super_oop = BC_OBJ_FIELD(klass, BC_CLASS_SUPERCLASS);
+    if ((super_oop & 3) == 0 && super_oop != 0)
+    {
+        total += bc_class_total_inst_var_count((uint64_t *)super_oop);
+    }
+
+    if (BC_OBJ_SIZE(klass) > BC_CLASS_INST_VARS)
+    {
+        uint64_t ivars_oop = BC_OBJ_FIELD(klass, BC_CLASS_INST_VARS);
+        if ((ivars_oop & 3) == 0 && ivars_oop != 0)
+        {
+            total += (int)BC_OBJ_SIZE((uint64_t *)ivars_oop);
+        }
+    }
+
+    return total;
+}
+
+static int bc_class_inst_var_index(uint64_t *klass, const char *name)
+{
+    if (klass == NULL || ((uint64_t)klass & 3) != 0)
+    {
+        return -1;
+    }
+
+    int inherited_count = 0;
+    uint64_t super_oop = BC_OBJ_FIELD(klass, BC_CLASS_SUPERCLASS);
+    if ((super_oop & 3) == 0 && super_oop != 0)
+    {
+        int super_index = bc_class_inst_var_index((uint64_t *)super_oop, name);
+        if (super_index >= 0)
+        {
+            return super_index;
+        }
+        inherited_count = bc_class_total_inst_var_count((uint64_t *)super_oop);
+    }
+
+    if (BC_OBJ_SIZE(klass) <= BC_CLASS_INST_VARS)
+    {
+        return -1;
+    }
+
+    uint64_t ivars_oop = BC_OBJ_FIELD(klass, BC_CLASS_INST_VARS);
+    if ((ivars_oop & 3) != 0 || ivars_oop == 0)
+    {
+        return -1;
+    }
+
+    uint64_t *ivars = (uint64_t *)ivars_oop;
+    for (uint64_t index = 0; index < BC_OBJ_SIZE(ivars); index++)
+    {
+        if (bc_name_matches_string_oop(BC_OBJ_FIELD(ivars, index), name))
+        {
+            return inherited_count + (int)index;
+        }
+    }
+
+    return -1;
+}
+
 static int cg_inst_var_index(CgState *state, const char *name)
 {
+    if (state->target_class != NULL)
+    {
+        return bc_class_inst_var_index(state->target_class, name);
+    }
+
     for (int index = 0; index < state->compiled->inst_var_count; index++)
     {
         if (strcmp(state->compiled->inst_var_names[index], name) == 0)
@@ -755,20 +852,20 @@ static int cg_skip_block_literal(BParser *parser)
     return 1;
 }
 
-static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block);
+static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block, uint64_t *target_class);
 
 static int cg_compile_and_store_block(CgState *state, const char *raw_source, int block_index)
 {
     BCompiledBody compiled_block;
     char implicit_source[1024];
 
-    if (!bc_codegen_body(raw_source, &compiled_block, 1))
+    if (!bc_codegen_body(raw_source, &compiled_block, 1, state->target_class))
     {
         if (!cg_build_implicit_return_source(raw_source, implicit_source, sizeof(implicit_source)))
         {
             return 0;
         }
-        if (!bc_codegen_body(implicit_source, &compiled_block, 1))
+        if (!bc_codegen_body(implicit_source, &compiled_block, 1, state->target_class))
         {
             return 0;
         }
@@ -796,6 +893,14 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         if (strcmp(token.text, "thisContext") == 0)
         {
             cg_emit_byte(state, BC_CG_PUSH_THIS_CONTEXT);
+            return 1;
+        }
+        if (strcmp(token.text, "nil") == 0 || strcmp(token.text, "true") == 0 ||
+            strcmp(token.text, "false") == 0)
+        {
+            int index = cg_literal_index(state, token);
+            cg_emit_byte(state, BC_CG_PUSH_LITERAL);
+            cg_emit_u32(state, (uint32_t)index);
             return 1;
         }
 
@@ -1137,13 +1242,14 @@ static int cg_parse_statements(CgState *state)
     }
 }
 
-static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block)
+static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block, uint64_t *target_class)
 {
     CgState state;
     memset(compiled, 0, sizeof(*compiled));
     memset(&state, 0, sizeof(state));
     state.compiled = compiled;
     state.in_block = in_block;
+    state.target_class = target_class;
     bp_init(&state.parser, source);
 
     if (!cg_parse_temp_decls(&state))
@@ -1163,7 +1269,7 @@ static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_b
 
 int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
 {
-    return bc_codegen_body(source, compiled, 0);
+    return bc_codegen_body(source, compiled, 0, NULL);
 }
 
 int bc_parse_method_header(const char *source, BMethodHeader *header)
@@ -1586,6 +1692,24 @@ static int bc_literal_token_to_oop(const BToken *token, uint64_t *out_oop)
         *out_oop = bc_selector_token(token->text);
         return 1;
     }
+    if (token->type == BTOK_IDENTIFIER)
+    {
+        if (strcmp(token->text, "nil") == 0)
+        {
+            *out_oop = tagged_nil();
+            return 1;
+        }
+        if (strcmp(token->text, "true") == 0)
+        {
+            *out_oop = tagged_true();
+            return 1;
+        }
+        if (strcmp(token->text, "false") == 0)
+        {
+            *out_oop = tagged_false();
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -1709,13 +1833,107 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
                                           const BClassBinding *classes, int class_count,
                                           const char *source)
 {
-    BCompiledMethodDef methods[128];
-    int method_count = 0;
+    BMethodChunk chunks[128];
+    int chunk_count = 0;
 
-    if (!bc_compile_source_methods(source, methods, 128, &method_count))
+    if (!bc_parse_method_chunks(source, chunks, 128, &chunk_count))
     {
         return 0;
     }
 
-    return bc_install_compiled_methods(om, class_class, classes, class_count, methods, method_count);
+    for (int index = 0; index < chunk_count; index++)
+    {
+        const BMethodChunk *chunk = &chunks[index];
+        const BClassBinding *binding = bc_find_class_binding(classes, class_count, chunk->class_name);
+        if (binding == NULL)
+        {
+            return 0;
+        }
+
+        BCompiledMethodDef method;
+        memset(&method, 0, sizeof(method));
+        strncpy(method.class_name, chunk->class_name, sizeof(method.class_name) - 1);
+        method.class_side = chunk->class_side;
+        method.primitive_index = -1;
+
+        uint64_t *target_class = bc_target_class_for_method(binding, &method);
+        if (target_class == NULL)
+        {
+            return 0;
+        }
+
+        const char *method_source = chunk->method_source;
+        const char *newline = strchr(method_source, '\n');
+        char header_source[256];
+        const char *body_source = "";
+
+        if (newline != NULL)
+        {
+            uint64_t header_len = (uint64_t)(newline - method_source);
+            if (header_len >= sizeof(header_source))
+            {
+                return 0;
+            }
+            memcpy(header_source, method_source, (size_t)header_len);
+            header_source[header_len] = '\0';
+            body_source = newline + 1;
+        }
+        else
+        {
+            uint64_t header_len = strlen(method_source);
+            if (header_len >= sizeof(header_source))
+            {
+                return 0;
+            }
+            memcpy(header_source, method_source, (size_t)header_len + 1);
+        }
+
+        if (!bc_parse_method_header(header_source, &method.header))
+        {
+            return 0;
+        }
+
+        while (*body_source == ' ' || *body_source == '\t' || *body_source == '\n' || *body_source == '\r')
+        {
+            body_source++;
+        }
+
+        int primitive_index = -1;
+        if (sscanf(body_source, "<primitive: %d>", &primitive_index) == 1)
+        {
+            method.primitive_index = primitive_index;
+
+            const char *primitive_end = strchr(body_source, '>');
+            if (primitive_end != NULL)
+            {
+                body_source = primitive_end + 1;
+                while (*body_source == ' ' || *body_source == '\t' || *body_source == '\n' || *body_source == '\r')
+                {
+                    body_source++;
+                }
+                if (*body_source != '\0' && !bc_codegen_body(body_source, &method.body, 0, target_class))
+                {
+                    return 0;
+                }
+            }
+        }
+        else if (!bc_codegen_body(body_source, &method.body, 0, target_class))
+        {
+            return 0;
+        }
+
+        uint64_t selector_oop = bc_selector_token(method.header.selector);
+        uint64_t *compiled_method = bc_materialize_compiled_method(om, class_class, &method);
+        if (compiled_method == NULL)
+        {
+            return 0;
+        }
+
+        if (bc_append_method_dict(om, class_class, target_class, selector_oop, (uint64_t)compiled_method) == NULL)
+        {
+            return 0;
+        }
+    }
+
+    return 1;
 }

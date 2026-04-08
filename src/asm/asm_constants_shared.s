@@ -35,6 +35,7 @@
 .equ CLASS_METHOD_DICT_OFS, 32
 .equ CLASS_INST_SIZE_OFS, 40
 .equ CLASS_INST_FORMAT_OFS, 48
+.equ CLASS_INST_VARS_OFS, 56
 
 // CompiledMethod field offsets
 .equ CM_NUM_TEMPS_OFS, 40
@@ -77,6 +78,7 @@
 .equ BLOCK_COPIED_VALUES_OFS, 48
 
 // Context object fields
+.equ CONTEXT_RECEIVER_OFS, 48
 .equ CONTEXT_HOME_OFS, 56
 .equ CONTEXT_CLOSURE_OFS, 64
 

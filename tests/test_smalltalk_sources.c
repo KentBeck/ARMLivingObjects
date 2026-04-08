@@ -27,6 +27,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char read_stream_src[8192];
     char write_stream_src[8192];
     char undefined_object_src[2048];
+    char context_src[2048];
     char expr_specs_src[4096];
     BCompiledMethodDef methods[64];
     int method_count = 0;
@@ -39,9 +40,11 @@ void test_smalltalk_sources(TestContext *ctx)
               "Object>>error: uses primitive 29");
     ASSERT_EQ(ctx, strstr(object_src, "== anObject\n    <primitive: 12>\n    ^ false") != NULL, 1,
               "Object>>== has explicit fallback body");
+    ASSERT_EQ(ctx, strstr(object_src, "isNil\n    ^ false") != NULL, 1,
+              "Object>>isNil exists");
     ASSERT_EQ(ctx, bc_compile_source_methods(object_src, methods, 64, &method_count), 1,
               "Object.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 8, "Object.st method count");
+    ASSERT_EQ(ctx, method_count, 9, "Object.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Class.st exists");
@@ -155,9 +158,19 @@ void test_smalltalk_sources(TestContext *ctx)
               "UndefinedObject has printString");
     ASSERT_EQ(ctx, strstr(undefined_object_src, "^ 'nil'") != NULL, 1,
               "UndefinedObject>>printString returns 'nil'");
+    ASSERT_EQ(ctx, strstr(undefined_object_src, "isNil\n    ^ true") != NULL, 1,
+              "UndefinedObject>>isNil returns true");
     ASSERT_EQ(ctx, bc_compile_source_methods(undefined_object_src, methods, 64, &method_count), 1,
               "UndefinedObject.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 1, "UndefinedObject.st method count");
+    ASSERT_EQ(ctx, method_count, 2, "UndefinedObject.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Context.st", context_src, sizeof(context_src)), 1,
+              "src/smalltalk/Context.st exists");
+    ASSERT_EQ(ctx, strstr(context_src, "receiver\n    ^ receiver") != NULL, 1,
+              "Context>>receiver is a normal ivar accessor");
+    ASSERT_EQ(ctx, bc_compile_source_methods(context_src, methods, 64, &method_count), 1,
+              "Context.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 1, "Context.st method count");
 
     ASSERT_EQ(ctx, read_file("tests/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
               "tests/ExpressionSpecs.txt exists");
@@ -165,4 +178,6 @@ void test_smalltalk_sources(TestContext *ctx)
               "Expression specs include arithmetic baseline");
     ASSERT_EQ(ctx, strstr(expr_specs_src, "nested send helper | self bar | 7") != NULL, 1,
               "Expression specs include nested send baseline");
+    ASSERT_EQ(ctx, strstr(expr_specs_src, "thisContext receiver isNil | thisContext receiver isNil | false") != NULL, 1,
+              "Expression specs include thisContext receiver isNil");
 }
