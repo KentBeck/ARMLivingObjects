@@ -4,6 +4,22 @@
 uint64_t *global_symbol_table; // Define global symbol table
 uint64_t *global_context_class;
 
+static uint64_t selector_token_from_cstring(const char *selector)
+{
+    uint32_t hash = 2166136261u;
+    for (const unsigned char *current = (const unsigned char *)selector; *current != '\0'; current++)
+    {
+        hash ^= (uint32_t)(*current);
+        hash *= 16777619u;
+    }
+    return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
+}
+
+uint64_t cannot_return_selector_oop(void)
+{
+    return selector_token_from_cstring("cannotReturn:");
+}
+
 // Helper to get raw byte pointer and size from a FORMAT_BYTES object
 static inline void get_byte_obj_data(uint64_t obj_ptr, uint8_t **data, uint64_t *size) {
     uint64_t *obj = (uint64_t *)obj_ptr;
@@ -175,6 +191,7 @@ uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_clas
     OBJ_FIELD(context, CONTEXT_RECEIVER) = fp[FRAME_RECEIVER];
     OBJ_FIELD(context, CONTEXT_HOME) =
         closure_oop == 0 ? tagged_nil() : OBJ_FIELD((uint64_t *)closure_oop, BLOCK_HOME_CONTEXT);
+    OBJ_FIELD(context, CONTEXT_CLOSURE) = closure_oop == 0 ? tagged_nil() : closure_oop;
     OBJ_FIELD(context, CONTEXT_FLAGS) = tag_smallint((int64_t)fp[FRAME_FLAGS]);
     OBJ_FIELD(context, CONTEXT_NUM_ARGS) = tag_smallint((int64_t)num_args);
     OBJ_FIELD(context, CONTEXT_NUM_TEMPS) = tag_smallint((int64_t)num_temps);

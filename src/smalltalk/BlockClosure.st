@@ -10,3 +10,7 @@ value: anArg
     <primitive: 16>
     self error: 'value: primitive failed'
 !
+
+cannotReturn: aValue
+    self error: 'cannot return from terminated block'
+!

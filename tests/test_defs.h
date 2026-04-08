@@ -54,6 +54,7 @@ extern uint64_t prim_string_as_symbol(uint64_t receiver);
 extern uint64_t prim_symbol_eq(uint64_t receiver, uint64_t arg);
 extern uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_class);
 extern uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om);
+extern uint64_t cannot_return_selector_oop(void);
 extern uint64_t *global_symbol_table; // Declare global symbol table
 extern uint64_t *global_context_class;
 extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var);
@@ -216,10 +217,11 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define CONTEXT_METHOD 2
 #define CONTEXT_RECEIVER 3
 #define CONTEXT_HOME 4
-#define CONTEXT_FLAGS 5
-#define CONTEXT_NUM_ARGS 6
-#define CONTEXT_NUM_TEMPS 7
-#define CONTEXT_VAR_BASE 8
+#define CONTEXT_CLOSURE 5
+#define CONTEXT_FLAGS 6
+#define CONTEXT_NUM_ARGS 7
+#define CONTEXT_NUM_TEMPS 8
+#define CONTEXT_VAR_BASE 9
 #define BC_PUSH_LITERAL 0
 #define BC_PUSH_INST_VAR 1
 #define BC_PUSH_TEMP 2

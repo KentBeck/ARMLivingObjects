@@ -29,6 +29,7 @@ void test_blocks(TestContext *ctx)
     // Install Block>>value (primitive PRIM_BLOCK_VALUE)
     {
         uint64_t sel_value = tag_smallint(60);
+        uint64_t sel_cannot_return = cannot_return_selector_oop();
         uint64_t *value_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
         uint64_t *value_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
         OBJ_FIELD(value_cm, CM_PRIMITIVE) = tag_smallint(PRIM_BLOCK_VALUE);
@@ -37,9 +38,24 @@ void test_blocks(TestContext *ctx)
         OBJ_FIELD(value_cm, CM_LITERALS) = tagged_nil();
         OBJ_FIELD(value_cm, CM_BYTECODES) = (uint64_t)value_bc;
 
-        uint64_t *blk_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        uint64_t *cannot_return_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+        uint8_t *crb = (uint8_t *)&OBJ_FIELD(cannot_return_bc, 0);
+        crb[0] = BC_PUSH_ARG;
+        WRITE_U32(&crb[1], 0);
+        crb[5] = BC_RETURN;
+
+        uint64_t *cannot_return_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(cannot_return_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(cannot_return_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(cannot_return_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(cannot_return_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(cannot_return_cm, CM_BYTECODES) = (uint64_t)cannot_return_bc;
+
+        uint64_t *blk_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
         OBJ_FIELD(blk_md, 0) = sel_value;
         OBJ_FIELD(blk_md, 1) = (uint64_t)value_cm;
+        OBJ_FIELD(blk_md, 2) = sel_cannot_return;
+        OBJ_FIELD(blk_md, 3) = (uint64_t)cannot_return_cm;
         OBJ_FIELD(block_class, CLASS_METHOD_DICT) = (uint64_t)blk_md;
 
         // Test: PUSH_CLOSURE creates a Block, send #value, block returns 77
@@ -293,6 +309,76 @@ void test_blocks(TestContext *ctx)
                                class_table, om, NULL);
             ASSERT_EQ(ctx, result, tag_smallint(55),
                       "Block: escaped closure keeps copied temp after home returns");
+        }
+
+        // Test: escaped non-local return sends cannotReturn: to the closure.
+        {
+            uint64_t *escaped_nlr_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+            uint8_t *enrb = (uint8_t *)&OBJ_FIELD(escaped_nlr_blk_bc, 0);
+            enrb[0] = BC_PUSH_LITERAL;
+            WRITE_U32(&enrb[1], 0);
+            enrb[5] = BC_RETURN_NON_LOCAL;
+
+            uint64_t *escaped_nlr_blk_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(escaped_nlr_blk_lits, 0) = tag_smallint(123);
+            uint64_t *escaped_nlr_blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(escaped_nlr_blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(escaped_nlr_blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(escaped_nlr_blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(escaped_nlr_blk_cm, CM_LITERALS) = (uint64_t)escaped_nlr_blk_lits;
+            OBJ_FIELD(escaped_nlr_blk_cm, CM_BYTECODES) = (uint64_t)escaped_nlr_blk_bc;
+
+            uint64_t *escaped_maker_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+            uint8_t *emb = (uint8_t *)&OBJ_FIELD(escaped_maker_bc, 0);
+            emb[0] = BC_PUSH_CLOSURE;
+            WRITE_U32(&emb[1], 0);
+            emb[5] = BC_RETURN;
+
+            uint64_t *escaped_maker_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(escaped_maker_lits, 0) = (uint64_t)escaped_nlr_blk_cm;
+            uint64_t *escaped_maker_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(escaped_maker_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(escaped_maker_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(escaped_maker_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(escaped_maker_cm, CM_LITERALS) = (uint64_t)escaped_maker_lits;
+            OBJ_FIELD(escaped_maker_cm, CM_BYTECODES) = (uint64_t)escaped_maker_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            activate_method(&sp, &fp, 0, (uint64_t)escaped_maker_cm, 0, 0);
+            uint64_t escaped_nlr_block = interpret(&sp, &fp,
+                                                   (uint8_t *)&OBJ_FIELD(escaped_maker_bc, 0),
+                                                   class_table, om, NULL);
+
+            uint64_t *escaped_invoke_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+            uint8_t *eib = (uint8_t *)&OBJ_FIELD(escaped_invoke_bc, 0);
+            eib[0] = BC_PUSH_LITERAL;
+            WRITE_U32(&eib[1], 0);
+            eib[5] = BC_SEND_MESSAGE;
+            WRITE_U32(&eib[6], 1);
+            WRITE_U32(&eib[10], 0);
+            eib[14] = BC_HALT;
+
+            uint64_t *escaped_invoke_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+            OBJ_FIELD(escaped_invoke_lits, 0) = escaped_nlr_block;
+            OBJ_FIELD(escaped_invoke_lits, 1) = sel_value;
+            uint64_t *escaped_invoke_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(escaped_invoke_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(escaped_invoke_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(escaped_invoke_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(escaped_invoke_cm, CM_LITERALS) = (uint64_t)escaped_invoke_lits;
+            OBJ_FIELD(escaped_invoke_cm, CM_BYTECODES) = (uint64_t)escaped_invoke_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            activate_method(&sp, &fp, 0, (uint64_t)escaped_invoke_cm, 0, 0);
+            result = interpret(&sp, &fp,
+                               (uint8_t *)&OBJ_FIELD(escaped_invoke_bc, 0),
+                               class_table, om, NULL);
+            ASSERT_EQ(ctx, result, tag_smallint(123),
+                      "Block: escaped non-local return sends cannotReturn:");
         }
 
         // Test: copied arguments are visible inside the block body.

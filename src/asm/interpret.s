@@ -4,6 +4,7 @@
 .include "asm_constants_shared.s"
 
 .extern _ensure_frame_context_global
+.extern _cannot_return_selector_oop
 
 // Primitive IDs (interpreter-local)
 .equ PRIM_SMALLINT_ADD, 1
@@ -1564,6 +1565,16 @@ _interpret:
     ldr     x10, [x9, #BLOCK_HOME_CONTEXT_OFS]
 
 .Lbnlr_find_home:
+    mov     x15, xzr
+    tst     x8, #FRAME_FLAGS_HAS_CONTEXT_MASK
+    b.eq    .Lbnlr_closure_from_flag
+    ldr     x15, [x9, #CONTEXT_CLOSURE_OFS]
+    b       .Lbnlr_walk_setup
+.Lbnlr_closure_from_flag:
+    tst     x8, #FRAME_FLAGS_BLOCK_CLOSURE_MASK
+    b.eq    .Lbnlr_walk_setup
+    mov     x15, x9
+.Lbnlr_walk_setup:
     mov     x11, x7
 .Lbnlr_walk:
     cmp     x11, #0
@@ -1603,7 +1614,29 @@ _interpret:
     b       .Ldispatch
 
 .Lbnlr_cannot_return:
+    cbz     x15, .Lbnlr_cannot_return_trap
+    str     x15, [sp, #-16]!
+    bl      _cannot_return_selector_oop
+    ldr     x15, [sp], #16
+    mov     x14, x0            // selector = #cannotReturn:
+    mov     x0, x15            // receiver = closure
+    mov     x10, #1            // one argument
+    adr     x21, .Lbnlr_after_cannot_return_bc
+    ldr     x6, [x19]          // current SP at return value
+    ldr     x12, [x6]          // preserve argument value
+    sub     x6, x6, #8
+    str     x12, [x6]
+    str     x15, [x6, #8]
+    str     x6, [x19]
+    b       .Llookup_method_for_receiver
+
+.Lbnlr_cannot_return_trap:
     brk     #14
+
+.align 2
+.Lbnlr_after_cannot_return_bc:
+    .byte   BC_RETURN_STACK_TOP
+.align 2
 
 .Lbc_jump:
     READ_U32                    // x5 = absolute offset from bytecodes base

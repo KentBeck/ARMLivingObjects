@@ -78,6 +78,7 @@
 
 // Context object fields
 .equ CONTEXT_HOME_OFS, 56
+.equ CONTEXT_CLOSURE_OFS, 64
 
 // CompiledMethod primitive field
 .equ CM_PRIMITIVE_OFS, 24
