@@ -383,6 +383,53 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
+        const char *source =
+            "!Sample methodsFor: 'testing'!\n"
+            "with: arg\n"
+            "    ^ arg\n"
+            "!\n";
+        BMethodChunk chunks[4];
+        int chunk_count = 0;
+        BCompiledMethodDef methods[4];
+        int method_count = 0;
+
+        ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 4, &chunk_count), 1,
+                  "parse direct arg-read chunk");
+        ASSERT_EQ(ctx, bc_compile_method_chunks(chunks, chunk_count, methods, 4, &method_count), 1,
+                  "compile direct arg-read chunk");
+        ASSERT_EQ(ctx, method_count, 1, "direct arg-read method count");
+        ASSERT_EQ(ctx, methods[0].body.bytecode_count, 6, "direct arg-read bytecode count");
+        ASSERT_EQ(ctx, methods[0].body.bytecodes[0], BC_PUSH_ARG, "direct arg-read uses push arg");
+        ASSERT_EQ(ctx, read_u32(methods[0].body.bytecodes, 1), 0, "direct arg-read uses arg 0");
+        ASSERT_EQ(ctx, methods[0].body.bytecodes[5], BC_RETURN, "direct arg-read returns argument");
+    }
+
+    {
+        const char *source =
+            "!Sample methodsFor: 'testing'!\n"
+            "with: arg\n"
+            "    ^ [ arg ] value\n"
+            "!\n";
+        BMethodChunk chunks[4];
+        int chunk_count = 0;
+        BCompiledMethodDef methods[4];
+        int method_count = 0;
+
+        ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 4, &chunk_count), 1,
+                  "parse block outer-arg chunk");
+        ASSERT_EQ(ctx, bc_compile_method_chunks(chunks, chunk_count, methods, 4, &method_count), 1,
+                  "compile block outer-arg chunk");
+        ASSERT_EQ(ctx, method_count, 1, "block outer-arg method count");
+        ASSERT_EQ(ctx, methods[0].body.block_count, 1, "block outer-arg compiles one block");
+        ASSERT_EQ(ctx, methods[0].body.blocks[0].bytecodes[0], BC_PUSH_ARG,
+                  "block outer-arg uses push arg");
+        ASSERT_EQ(ctx, read_u32(methods[0].body.blocks[0].bytecodes, 1), 0,
+                  "block outer-arg uses outer arg 0");
+        ASSERT_EQ(ctx, methods[0].body.blocks[0].bytecodes[5], BC_RETURN,
+                  "block outer-arg returns captured argument");
+    }
+
+    {
         BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 1,
                   "implicit return for final expression");

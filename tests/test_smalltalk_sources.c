@@ -28,6 +28,10 @@ void test_smalltalk_sources(TestContext *ctx)
     char write_stream_src[8192];
     char undefined_object_src[2048];
     char context_src[2048];
+    char test_result_src[4096];
+    char test_case_src[4096];
+    char test_suite_src[4096];
+    char expression_spec_test_src[2048];
     char expr_specs_src[4096];
     BCompiledMethodDef methods[64];
     int method_count = 0;
@@ -180,4 +184,38 @@ void test_smalltalk_sources(TestContext *ctx)
               "Expression specs include nested send baseline");
     ASSERT_EQ(ctx, strstr(expr_specs_src, "thisContext receiver isNil | thisContext receiver isNil | false") != NULL, 1,
               "Expression specs include thisContext receiver isNil");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/TestResult.st", test_result_src, sizeof(test_result_src)), 1,
+              "src/smalltalk/TestResult.st exists");
+    ASSERT_EQ(ctx, strstr(test_result_src, "recordFailure: aCase selector: aSelector reason: aSymbol") != NULL, 1,
+              "TestResult records failure metadata");
+    ASSERT_EQ(ctx, bc_compile_source_methods(test_result_src, methods, 64, &method_count), 1,
+              "TestResult.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 10, "TestResult.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/TestCase.st", test_case_src, sizeof(test_case_src)), 1,
+              "src/smalltalk/TestCase.st exists");
+    ASSERT_EQ(ctx, strstr(test_case_src, "assert: aBoolean description: aSymbol") != NULL, 1,
+              "TestCase has assertion protocol");
+    ASSERT_EQ(ctx, bc_compile_source_methods(test_case_src, methods, 64, &method_count), 1,
+              "TestCase.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 13, "TestCase.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/TestSuite.st", test_suite_src, sizeof(test_suite_src)), 1,
+              "src/smalltalk/TestSuite.st exists");
+    ASSERT_EQ(ctx, strstr(test_suite_src, "runOn: aResult startingAt: index") != NULL, 1,
+              "TestSuite recursively runs tests");
+    ASSERT_EQ(ctx, bc_compile_source_methods(test_suite_src, methods, 64, &method_count), 1,
+              "TestSuite.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 6, "TestSuite.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
+              "src/smalltalk/ExpressionSpecTest.st exists");
+    ASSERT_EQ(ctx, strstr(expression_spec_test_src, "testThisContextReceiverIsNil") != NULL, 1,
+              "ExpressionSpecTest has migrated xUnit test");
+    ASSERT_EQ(ctx, strstr(expression_spec_test_src, "runOn: aResult") != NULL, 1,
+              "ExpressionSpecTest has minimal in-image runner");
+    ASSERT_EQ(ctx, bc_compile_source_methods(expression_spec_test_src, methods, 64, &method_count), 1,
+              "ExpressionSpecTest.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 2, "ExpressionSpecTest.st method count");
 }

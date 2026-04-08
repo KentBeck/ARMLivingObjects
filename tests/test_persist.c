@@ -1,5 +1,26 @@
 #include "test_defs.h"
+#include "bootstrap_compiler.h"
 #include <string.h>
+
+static uint64_t selector_token(const char *selector)
+{
+    uint32_t hash = 2166136261u;
+    for (const unsigned char *current = (const unsigned char *)selector; *current != '\0'; current++)
+    {
+        hash ^= (uint32_t)(*current);
+        hash *= 16777619u;
+    }
+    return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
+}
+
+static uint64_t *make_test_string(uint64_t *om, uint64_t *string_class, const char *text)
+{
+    uint64_t size = (uint64_t)strlen(text);
+    uint64_t *obj = om_alloc(om, (uint64_t)string_class, FORMAT_BYTES, size);
+    uint8_t *data = (uint8_t *)&OBJ_FIELD(obj, 0);
+    memcpy(data, text, size);
+    return obj;
+}
 
 void test_persist(TestContext *ctx)
 {
@@ -395,5 +416,87 @@ void test_persist(TestContext *ctx)
                   "persist checkpoint: field 0 = 100");
         ASSERT_EQ(ctx, OBJ_FIELD(r7, 1), tag_smallint(200),
                   "persist checkpoint: field 1 = 200");
+    }
+
+    // --- Reload an image and execute a selector from the loaded heap ---
+    {
+        static uint8_t src8[32768] __attribute__((aligned(8)));
+        uint64_t s8[2];
+        om_init(src8, sizeof(src8), s8);
+
+        uint64_t *image_class = om_alloc(s8, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(image_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(image_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(image_class, CLASS_INST_SIZE) = tag_smallint(1);
+        OBJ_FIELD(image_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *image_ivars = om_alloc(s8, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(image_ivars, 0) = (uint64_t)make_test_string(s8, ctx->string_class, "slot0");
+        OBJ_FIELD(image_class, CLASS_INST_VARS) = (uint64_t)image_ivars;
+
+        BClassBinding bindings[1] = {
+            {"ImageThing", image_class},
+        };
+        const char *source =
+            "!ImageThing methodsFor: 'testing'!\n"
+            "answer\n"
+            "    ^ slot0\n"
+            "!\n";
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(s8, class_class, bindings, 1, source),
+                  1,
+                  "persist image-exec: source methods install");
+
+        uint64_t *receiver = om_alloc(s8, (uint64_t)image_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(receiver, 0) = tag_smallint(42);
+
+        // Root manifest for future image entrypoints: receiver, class, selector.
+        uint64_t *roots = om_alloc(s8, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(roots, 0) = (uint64_t)receiver;
+        OBJ_FIELD(roots, 1) = (uint64_t)image_class;
+        OBJ_FIELD(roots, 2) = selector_token("answer");
+
+        uint64_t used8 = s8[0] - (uint64_t)src8;
+        uint64_t roots_off = (uint64_t)roots - (uint64_t)src8;
+
+        static uint8_t img8[32768];
+        memcpy(img8, src8, used8);
+        image_pointers_to_offsets(img8, used8, (uint64_t)src8);
+
+        static uint8_t ld8[32768] __attribute__((aligned(8)));
+        memcpy(ld8, img8, used8);
+        image_offsets_to_pointers(ld8, used8, (uint64_t)ld8);
+
+        uint64_t *loaded_roots = (uint64_t *)((uint64_t)ld8 + roots_off);
+        uint64_t *loaded_receiver = (uint64_t *)OBJ_FIELD(loaded_roots, 0);
+        uint64_t *loaded_class = (uint64_t *)OBJ_FIELD(loaded_roots, 1);
+        uint64_t selector = OBJ_FIELD(loaded_roots, 2);
+
+        ASSERT_EQ(ctx, OBJ_FIELD(loaded_class, CLASS_INST_VARS) != 0, 1,
+                  "persist image-exec: class keeps ivar-name array");
+        uint64_t *loaded_ivars = (uint64_t *)OBJ_FIELD(loaded_class, CLASS_INST_VARS);
+        ASSERT_EQ(ctx, OBJ_SIZE(loaded_ivars), 1,
+                  "persist image-exec: ivar-name array size preserved");
+        uint64_t *loaded_slot0 = (uint64_t *)OBJ_FIELD(loaded_ivars, 0);
+        ASSERT_EQ(ctx, OBJ_SIZE(loaded_slot0), 5,
+                  "persist image-exec: ivar-name string size preserved");
+        ASSERT_EQ(ctx, memcmp((uint8_t *)&OBJ_FIELD(loaded_slot0, 0), "slot0", 5) == 0, 1,
+                  "persist image-exec: ivar-name string bytes preserved");
+
+        uint64_t method_oop = class_lookup(loaded_class, selector);
+        ASSERT_EQ(ctx, method_oop != 0, 1,
+                  "persist image-exec: method lookup succeeds after reload");
+
+        uint64_t *compiled_method = (uint64_t *)method_oop;
+        uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
+        uint64_t stack[STACK_WORDS];
+        uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)loaded_receiver);
+        activate_method(&sp, &fp, 0, (uint64_t)compiled_method, 0, 0);
+
+        uint64_t result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), ctx->class_table, s8, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(42),
+                  "persist image-exec: loaded image method returns expected value");
     }
 }

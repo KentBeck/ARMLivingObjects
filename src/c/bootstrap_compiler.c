@@ -594,6 +594,7 @@ enum
     BC_CG_PUSH_TEMP = 2,
     BC_CG_PUSH_SELF = 3,
     BC_CG_PUSH_THIS_CONTEXT = 17,
+    BC_CG_PUSH_ARG = 15,
     BC_CG_STORE_INST_VAR = 4,
     BC_CG_STORE_TEMP = 5,
     BC_CG_SEND_MESSAGE = 6,
@@ -608,6 +609,7 @@ typedef struct
     BParser parser;
     BMethodBody body;
     BCompiledBody *compiled;
+    const BMethodHeader *header;
     int saw_return;
     int in_block;
     uint64_t *target_class;
@@ -664,6 +666,24 @@ static int cg_temp_index(BMethodBody *body, const char *name)
             return index;
         }
     }
+    return -1;
+}
+
+static int cg_arg_index(const BMethodHeader *header, const char *name)
+{
+    if (header == NULL)
+    {
+        return -1;
+    }
+
+    for (int index = 0; index < header->arg_count; index++)
+    {
+        if (strcmp(header->arg_names[index], name) == 0)
+        {
+            return index;
+        }
+    }
+
     return -1;
 }
 
@@ -852,20 +872,21 @@ static int cg_skip_block_literal(BParser *parser)
     return 1;
 }
 
-static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block, uint64_t *target_class);
+static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block,
+                           const BMethodHeader *header, uint64_t *target_class);
 
 static int cg_compile_and_store_block(CgState *state, const char *raw_source, int block_index)
 {
     BCompiledBody compiled_block;
     char implicit_source[1024];
 
-    if (!bc_codegen_body(raw_source, &compiled_block, 1, state->target_class))
+    if (!bc_codegen_body(raw_source, &compiled_block, 1, state->header, state->target_class))
     {
         if (!cg_build_implicit_return_source(raw_source, implicit_source, sizeof(implicit_source)))
         {
             return 0;
         }
-        if (!bc_codegen_body(implicit_source, &compiled_block, 1, state->target_class))
+        if (!bc_codegen_body(implicit_source, &compiled_block, 1, state->header, state->target_class))
         {
             return 0;
         }
@@ -908,6 +929,14 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         if (index >= 0)
         {
             cg_emit_byte(state, BC_CG_PUSH_TEMP);
+            cg_emit_u32(state, (uint32_t)index);
+            return 1;
+        }
+
+        index = cg_arg_index(state->header, token.text);
+        if (index >= 0)
+        {
+            cg_emit_byte(state, BC_CG_PUSH_ARG);
             cg_emit_u32(state, (uint32_t)index);
             return 1;
         }
@@ -1242,12 +1271,14 @@ static int cg_parse_statements(CgState *state)
     }
 }
 
-static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block, uint64_t *target_class)
+static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block,
+                           const BMethodHeader *header, uint64_t *target_class)
 {
     CgState state;
     memset(compiled, 0, sizeof(*compiled));
     memset(&state, 0, sizeof(state));
     state.compiled = compiled;
+    state.header = header;
     state.in_block = in_block;
     state.target_class = target_class;
     bp_init(&state.parser, source);
@@ -1269,7 +1300,7 @@ static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_b
 
 int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
 {
-    return bc_codegen_body(source, compiled, 0, NULL);
+    return bc_codegen_body(source, compiled, 0, NULL, NULL);
 }
 
 int bc_parse_method_header(const char *source, BMethodHeader *header)
@@ -1614,13 +1645,13 @@ int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,
                 {
                     body_source++;
                 }
-                if (*body_source != '\0' && !bc_codegen_method_body(body_source, &method->body))
+                if (*body_source != '\0' && !bc_codegen_body(body_source, &method->body, 0, &method->header, NULL))
                 {
                     return 0;
                 }
             }
         }
-        else if (!bc_codegen_method_body(body_source, &method->body))
+        else if (!bc_codegen_body(body_source, &method->body, 0, &method->header, NULL))
         {
             return 0;
         }
@@ -1911,13 +1942,13 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
                 {
                     body_source++;
                 }
-                if (*body_source != '\0' && !bc_codegen_body(body_source, &method.body, 0, target_class))
+                if (*body_source != '\0' && !bc_codegen_body(body_source, &method.body, 0, &method.header, target_class))
                 {
                     return 0;
                 }
             }
         }
-        else if (!bc_codegen_body(body_source, &method.body, 0, target_class))
+        else if (!bc_codegen_body(body_source, &method.body, 0, &method.header, target_class))
         {
             return 0;
         }

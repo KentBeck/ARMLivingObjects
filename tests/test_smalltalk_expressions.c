@@ -185,18 +185,124 @@ static uint64_t *make_primitive_cm(uint64_t *om, uint64_t *class_class, int prim
     return cm;
 }
 
+static uint64_t *make_byte_string(uint64_t *om, uint64_t *string_class, const char *text)
+{
+    uint64_t size = (uint64_t)strlen(text);
+    uint64_t *obj = om_alloc(om, (uint64_t)string_class, FORMAT_BYTES, size);
+    memcpy((uint8_t *)&OBJ_FIELD(obj, 0), text, size);
+    return obj;
+}
+
+static uint64_t *make_class_with_ivars(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
+                                       uint64_t *superclass, const char **ivars, uint64_t ivar_count)
+{
+    uint64_t *klass = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(klass, CLASS_SUPERCLASS) = superclass ? (uint64_t)superclass : tagged_nil();
+    OBJ_FIELD(klass, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(klass, CLASS_INST_SIZE) = tag_smallint((int64_t)ivar_count);
+    OBJ_FIELD(klass, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    if (ivar_count == 0)
+    {
+        OBJ_FIELD(klass, CLASS_INST_VARS) = tagged_nil();
+        return klass;
+    }
+
+    uint64_t *ivar_array = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, ivar_count);
+    for (uint64_t index = 0; index < ivar_count; index++)
+    {
+        OBJ_FIELD(ivar_array, index) = (uint64_t)make_byte_string(om, string_class, ivars[index]);
+    }
+    OBJ_FIELD(klass, CLASS_INST_VARS) = (uint64_t)ivar_array;
+    return klass;
+}
+
+static uint64_t send_selector0(uint64_t *stack, uint64_t *class_table, uint64_t *om,
+                               uint64_t receiver, uint64_t *receiver_class, const char *selector)
+{
+    uint64_t method_oop = class_lookup(receiver_class, selector_token(selector));
+    uint64_t *compiled_method = (uint64_t *)method_oop;
+    uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
+    uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    uint64_t *fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, receiver);
+    activate_method(&sp, &fp, 0, (uint64_t)compiled_method, 0, 0);
+    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), class_table, om, NULL);
+}
+
+static uint64_t send_selector1(uint64_t *stack, uint64_t *class_table, uint64_t *om,
+                               uint64_t receiver, uint64_t *receiver_class, const char *selector,
+                               uint64_t arg)
+{
+    uint64_t method_oop = class_lookup(receiver_class, selector_token(selector));
+    uint64_t *compiled_method = (uint64_t *)method_oop;
+    uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
+    uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    uint64_t *fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, receiver);
+    stack_push(&sp, stack, arg);
+    activate_method(&sp, &fp, 0, (uint64_t)compiled_method, 1, 0);
+    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), class_table, om, NULL);
+}
+
 void test_smalltalk_expressions(TestContext *ctx)
 {
     char context_src[2048];
+    char expression_spec_test_src[2048];
     const char *object_testing_src =
         "!Object methodsFor: 'testing'!\n"
         "isNil\n"
         "    ^ false\n"
         "!\n";
+    const char *object_framework_src =
+        "!Object methodsFor: 'testing'!\n"
+        "isNil\n"
+        "    ^ false\n"
+        "!\n"
+        "!Object methodsFor: 'message sending'!\n"
+        "perform: aSelector\n"
+        "    <primitive: 17>\n"
+        "    ^ self\n"
+        "!\n"
+        "!Object methodsFor: 'convenience'!\n"
+        "yourself\n"
+        "    ^ self\n"
+        "!\n";
     const char *undefined_object_testing_src =
         "!UndefinedObject methodsFor: 'testing'!\n"
         "isNil\n"
         "    ^ true\n"
+        "!\n";
+    const char *test_result_runtime_src =
+        "!TestResult methodsFor: 'initialization'!\n"
+        "initialize\n"
+        "    runCount := 0.\n"
+        "    passCount := 0.\n"
+        "    failureCount := 0.\n"
+        "    lastFailure := nil.\n"
+        "    lastSelector := nil.\n"
+        "    lastReason := nil.\n"
+        "    ^ self\n"
+        "!\n"
+        "!TestResult methodsFor: 'recording'!\n"
+        "recordPass: aCase selector: aSelector\n"
+        "    runCount := runCount + 1.\n"
+        "    passCount := passCount + 1.\n"
+        "    lastFailure := nil.\n"
+        "    lastSelector := aSelector.\n"
+        "    lastReason := nil.\n"
+        "    ^ aCase\n"
+        "!\n"
+        "recordFailure: aCase selector: aSelector reason: aSymbol\n"
+        "    runCount := runCount + 1.\n"
+        "    failureCount := failureCount + 1.\n"
+        "    lastFailure := aCase.\n"
+        "    lastSelector := aSelector.\n"
+        "    lastReason := aSymbol.\n"
+        "    ^ aCase\n"
+        "!\n"
+        "!TestResult methodsFor: 'accessing'!\n"
+        "wasSuccessful\n"
+        "    ^ failureCount = 0\n"
         "!\n";
 
     md_append(ctx->om, ctx->class_class, ctx->smallint_class, "+",
@@ -327,5 +433,120 @@ void test_smalltalk_expressions(TestContext *ctx)
         {
             ASSERT_EQ(ctx, result, tagged_false(), specs[index].name);
         }
+    }
+
+    {
+        static uint8_t xunit_om_buffer[262144] __attribute__((aligned(8)));
+        uint64_t xunit_om[2];
+        const char *test_result_ivars[] = {
+            "runCount", "passCount", "failureCount", "lastFailure", "lastSelector", "lastReason"
+        };
+        om_init(xunit_om_buffer, sizeof(xunit_om_buffer), xunit_om);
+
+        uint64_t *class_class = om_alloc(xunit_om, 0, FORMAT_FIELDS, 5);
+        OBJ_CLASS(class_class) = (uint64_t)class_class;
+        OBJ_FIELD(class_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(class_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(class_class, CLASS_INST_SIZE) = tag_smallint(5);
+        OBJ_FIELD(class_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(class_class, CLASS_INST_VARS) = tagged_nil();
+
+        uint64_t *smallint_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *block_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *undefined_object_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *string_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
+        OBJ_FIELD(string_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+        uint64_t *character_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
+
+        const char *context_ivars[] = {
+            "sender", "ip", "method", "receiver", "home", "closure", "flags", "numArgs", "numTemps"
+        };
+        uint64_t *context_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL,
+                                                        context_ivars, CONTEXT_VAR_BASE);
+        uint64_t *object_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
+        uint64_t *test_result_class = make_class_with_ivars(xunit_om, class_class, string_class,
+                                                            object_class, test_result_ivars, 6);
+        uint64_t *expression_spec_test_class = make_class_with_ivars(xunit_om, class_class, string_class,
+                                                                     object_class, NULL, 0);
+
+        BClassBinding framework_runtime_bindings[4] = {
+            {"Object", object_class},
+            {"Context", context_class},
+            {"UndefinedObject", undefined_object_class},
+            {"TestResult", test_result_class},
+        };
+        BClassBinding expression_spec_test_binding[1] = {
+            {"ExpressionSpecTest", expression_spec_test_class},
+        };
+
+        ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
+                  "xUnit ExpressionSpecTest source loads");
+
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(xunit_om, class_class, framework_runtime_bindings, 4, object_framework_src),
+                  1,
+                  "xUnit Object methods install");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(xunit_om, class_class, framework_runtime_bindings, 4, context_src),
+                  1,
+                  "xUnit Context methods install");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(xunit_om, class_class, framework_runtime_bindings, 4, undefined_object_testing_src),
+                  1,
+                  "xUnit UndefinedObject methods install");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(xunit_om, class_class, framework_runtime_bindings, 4, test_result_runtime_src),
+                  1,
+                  "xUnit TestResult methods install");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(xunit_om, class_class, expression_spec_test_binding, 1, expression_spec_test_src),
+                  1,
+                  "xUnit ExpressionSpecTest methods install");
+
+        md_append(xunit_om, class_class, smallint_class, "+",
+                  (uint64_t)make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_ADD, 1));
+        md_append(xunit_om, class_class, smallint_class, "<",
+                  (uint64_t)make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_LT, 1));
+        md_append(xunit_om, class_class, smallint_class, "=",
+                  (uint64_t)make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_EQ, 1));
+
+        uint64_t *framework_class_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
+        OBJ_FIELD(framework_class_table, 0) = (uint64_t)smallint_class;
+        OBJ_FIELD(framework_class_table, 1) = (uint64_t)block_class;
+        OBJ_FIELD(framework_class_table, 2) = 0;
+        OBJ_FIELD(framework_class_table, 3) = 0;
+        OBJ_FIELD(framework_class_table, 4) = (uint64_t)character_class;
+        OBJ_FIELD(framework_class_table, 5) = (uint64_t)undefined_object_class;
+
+        uint64_t *saved_global_context_class = global_context_class;
+        global_context_class = context_class;
+
+        uint64_t *result_obj = om_alloc(xunit_om, (uint64_t)test_result_class, FORMAT_FIELDS, 6);
+        uint64_t *test_case_obj = om_alloc(xunit_om, (uint64_t)expression_spec_test_class, FORMAT_FIELDS, 0);
+
+        send_selector0(ctx->stack, framework_class_table, xunit_om, (uint64_t)result_obj, test_result_class, "initialize");
+        ASSERT_EQ(ctx, send_selector0(ctx->stack, framework_class_table, xunit_om, (uint64_t)test_case_obj,
+                                      expression_spec_test_class, "testThisContextReceiverIsNil"),
+                  tagged_false(),
+                  "xUnit migrated test method returns false");
+        uint64_t run_result = send_selector1(ctx->stack, framework_class_table, xunit_om, (uint64_t)test_case_obj,
+                                             expression_spec_test_class, "runOn:", (uint64_t)result_obj);
+
+        ASSERT_EQ(ctx, run_result, (uint64_t)result_obj,
+                  "xUnit suite returns the result object");
+        ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 0), tag_smallint(1),
+                  "xUnit runCount is 1");
+        ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 1), tag_smallint(1),
+                  "xUnit passCount is 1");
+        ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 2), tag_smallint(0),
+                  "xUnit failureCount is 0");
+        ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 4) != tagged_nil(), 1,
+                  "xUnit records a last selector");
+        ASSERT_EQ(ctx, send_selector0(ctx->stack, framework_class_table, xunit_om, (uint64_t)result_obj,
+                                      test_result_class, "wasSuccessful"),
+                  tagged_true(),
+                  "xUnit migrated expression test passes");
+
+        global_context_class = saved_global_context_class;
     }
 }
