@@ -53,6 +53,7 @@
 .equ BC_HALT, 13
 .equ BC_PUSH_CLOSURE, 14
 .equ BC_PUSH_ARG, 15
+.equ BC_RETURN_NON_LOCAL, 16
 
 // Other interpreter-local constants
 .equ ASCII_A_UPPER, 65
@@ -151,6 +152,7 @@ _interpret:
     .long   .Lbc_halt            - .Ldispatch_table  // 13
     .long   .Lbc_push_closure    - .Ldispatch_table  // 14
     .long   .Lbc_push_arg        - .Ldispatch_table  // 15
+    .long   .Lbc_return_non_local- .Ldispatch_table  // 16
 
 // --- Bytecode handlers ---
 // Each reads operands from [x21] (IP), advances IP, operates on stack via x19/x20.
@@ -1414,11 +1416,16 @@ _interpret:
     b.ne    .Lprim_block_value_copy_loop
 .Lprim_block_value_copied_done:
 
-    // Set IP to block CM's bytecodes
+    // Mark frame as block and retain the closure in the frame slot until/unless
+    // the frame is materialized into a real Context.
     ldr     x6, [x20]          // new FP
     ldr     x10, [x6, #FP_FLAGS_OFS]
     orr     x10, x10, #(1 << FRAME_FLAGS_IS_BLOCK_SHIFT)
+    orr     x10, x10, #FRAME_FLAGS_BLOCK_CLOSURE_MASK
     str     x10, [x6, #FP_FLAGS_OFS]
+    str     x9, [x6, #FP_CONTEXT_OFS]
+
+    // Set IP to block CM's bytecodes
     ldr     x7, [x6, #FP_METHOD_OFS]      // method (block's CM)
     ldr     x10, [x7, #CM_BYTECODES_OFS]     // CM_BYTECODES → ByteArray
     add     x23, x10, #OBJ_FIELDS_OFS      // skip header → data
@@ -1477,11 +1484,14 @@ _interpret:
     b.ne    .Lprim_block_value_arg_copy_loop
 .Lprim_block_value_arg_copied_done:
 
-    // Mark frame as block
+    // Mark frame as block and retain the closure in the frame slot until/unless
+    // the frame is materialized into a real Context.
     ldr     x6, [x20]          // new FP
     ldr     x10, [x6, #FP_FLAGS_OFS]    // flags
     orr     x10, x10, #(1 << FRAME_FLAGS_IS_BLOCK_SHIFT) // is_block = 1
+    orr     x10, x10, #FRAME_FLAGS_BLOCK_CLOSURE_MASK
     str     x10, [x6, #FP_FLAGS_OFS]
+    str     x9, [x6, #FP_CONTEXT_OFS]
 
     // Set IP to block CM's bytecodes
     ldr     x7, [x6, #FP_METHOD_OFS]      // method from frame
@@ -1532,6 +1542,68 @@ _interpret:
     ldr     x15, [x13, #CM_BYTECODES_OFS]    // CM_BYTECODES (field 4) → ByteArray pointer
     add     x23, x15, #OBJ_FIELDS_OFS      // skip ByteArray header → data
     b       .Ldispatch
+
+.Lbc_return_non_local:
+    // Return from the current block to its lexical home activation.
+    ldr     x6, [x19]          // SP
+    ldr     x0, [x6]           // return value
+    ldr     x7, [x20]          // current FP
+    ldr     x8, [x7, #FP_FLAGS_OFS]
+
+    // Recover the block's home context from either the live closure or the
+    // materialized Context for this frame.
+    tst     x8, #FRAME_FLAGS_HAS_CONTEXT_MASK
+    b.eq    .Lbnlr_from_closure
+    ldr     x9, [x7, #FP_CONTEXT_OFS]
+    ldr     x10, [x9, #CONTEXT_HOME_OFS]
+    b       .Lbnlr_find_home
+.Lbnlr_from_closure:
+    tst     x8, #FRAME_FLAGS_BLOCK_CLOSURE_MASK
+    b.eq    .Lbnlr_cannot_return
+    ldr     x9, [x7, #FP_CONTEXT_OFS]
+    ldr     x10, [x9, #BLOCK_HOME_CONTEXT_OFS]
+
+.Lbnlr_find_home:
+    mov     x11, x7
+.Lbnlr_walk:
+    cmp     x11, #0
+    b.eq    .Lbnlr_cannot_return
+    mov     x12, #0xCAFE
+    cmp     x11, x12
+    b.eq    .Lbnlr_cannot_return
+    ldr     x12, [x11, #FP_FLAGS_OFS]
+    tst     x12, #FRAME_FLAGS_HAS_CONTEXT_MASK
+    b.eq    .Lbnlr_next
+    ldr     x13, [x11, #FP_CONTEXT_OFS]
+    cmp     x13, x10
+    b.eq    .Lbnlr_unwind
+.Lbnlr_next:
+    ldr     x11, [x11]
+    b       .Lbnlr_walk
+
+.Lbnlr_unwind:
+    ldr     x9, [x11, #FP_FLAGS_OFS]
+    ubfx    x9, x9, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
+    add     x9, x9, #FP_ARG_BASE_WORDS
+    lsl     x9, x9, #3
+    add     x12, x11, x9       // new SP = home FP + (2+num_args)*8
+    str     x0, [x12]          // result replaces home receiver
+    ldr     x13, [x11]         // caller FP of home frame
+    ldr     x14, [x11, #FP_SAVED_IP_OFS]
+    str     x12, [x19]
+    str     x13, [x20]
+
+    cmp     x11, x24
+    b.eq    .Lexit
+
+    mov     x21, x14
+    ldr     x15, [x13, #FP_METHOD_OFS]
+    ldr     x16, [x15, #CM_BYTECODES_OFS]
+    add     x23, x16, #OBJ_FIELDS_OFS
+    b       .Ldispatch
+
+.Lbnlr_cannot_return:
+    brk     #14
 
 .Lbc_jump:
     READ_U32                    // x5 = absolute offset from bytecodes base

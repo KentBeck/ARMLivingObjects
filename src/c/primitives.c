@@ -135,14 +135,21 @@ static uint64_t context_ip_for_frame(uint64_t *fp)
 
 uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_class)
 {
+    uint64_t closure_oop = 0;
+
     if (fp == NULL || fp == (uint64_t *)0xCAFE)
     {
         return NULL;
     }
 
-    if ((fp[FRAME_FLAGS] & 0xFF) != 0)
+    if ((fp[FRAME_FLAGS] & FRAME_FLAGS_HAS_CONTEXT_MASK) != 0)
     {
         return (uint64_t *)fp[FRAME_CONTEXT];
+    }
+
+    if ((fp[FRAME_FLAGS] & FRAME_FLAGS_BLOCK_CLOSURE_MASK) != 0)
+    {
+        closure_oop = fp[FRAME_CONTEXT];
     }
 
     uint64_t num_args = (fp[FRAME_FLAGS] >> 8) & 0xFF;
@@ -166,6 +173,8 @@ uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_clas
     OBJ_FIELD(context, CONTEXT_IP) = context_ip_for_frame(fp);
     OBJ_FIELD(context, CONTEXT_METHOD) = (uint64_t)method;
     OBJ_FIELD(context, CONTEXT_RECEIVER) = fp[FRAME_RECEIVER];
+    OBJ_FIELD(context, CONTEXT_HOME) =
+        closure_oop == 0 ? tagged_nil() : OBJ_FIELD((uint64_t *)closure_oop, BLOCK_HOME_CONTEXT);
     OBJ_FIELD(context, CONTEXT_FLAGS) = tag_smallint((int64_t)fp[FRAME_FLAGS]);
     OBJ_FIELD(context, CONTEXT_NUM_ARGS) = tag_smallint((int64_t)num_args);
     OBJ_FIELD(context, CONTEXT_NUM_TEMPS) = tag_smallint((int64_t)num_temps);
@@ -180,7 +189,8 @@ uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_clas
     }
 
     fp[FRAME_CONTEXT] = (uint64_t)context;
-    fp[FRAME_FLAGS] |= 1;
+    fp[FRAME_FLAGS] &= ~FRAME_FLAGS_BLOCK_CLOSURE_MASK;
+    fp[FRAME_FLAGS] |= FRAME_FLAGS_HAS_CONTEXT_MASK;
     return context;
 }
 

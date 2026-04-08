@@ -179,6 +179,7 @@ void test_stack(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_CLASS(frame_ctx), (uint64_t)ctx->context_class, "context object has context class");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_METHOD), (uint64_t)ctx_cm, "context stores method");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_RECEIVER), receiver, "context stores receiver");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_HOME), tagged_nil(), "method context has nil lexical home");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_ARGS), tag_smallint(2), "context stores arg count");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_TEMPS), tag_smallint(1), "context stores temp count");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 0), arg1, "context stores arg 0 in frame order");

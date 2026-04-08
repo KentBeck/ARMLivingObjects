@@ -340,6 +340,56 @@ void test_blocks(TestContext *ctx)
             ASSERT_EQ(ctx, result, tag_smallint(77),
                       "Block: copied outer argument is available in block body");
         }
+
+        // Test: explicit ^ inside a block performs a non-local return to the home method.
+        {
+            uint64_t *nlr_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);
+            uint8_t *nrb = (uint8_t *)&OBJ_FIELD(nlr_blk_bc, 0);
+            nrb[0] = BC_PUSH_LITERAL;
+            WRITE_U32(&nrb[1], 0);
+            nrb[5] = BC_RETURN_NON_LOCAL;
+
+            uint64_t *nlr_blk_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(nlr_blk_lits, 0) = tag_smallint(88);
+            uint64_t *nlr_blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(nlr_blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(nlr_blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(nlr_blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(nlr_blk_cm, CM_LITERALS) = (uint64_t)nlr_blk_lits;
+            OBJ_FIELD(nlr_blk_cm, CM_BYTECODES) = (uint64_t)nlr_blk_bc;
+
+            uint64_t *nlr_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 32);
+            uint8_t *ncb = (uint8_t *)&OBJ_FIELD(nlr_caller_bc, 0);
+            ncb[0] = BC_PUSH_CLOSURE;
+            WRITE_U32(&ncb[1], 0);
+            ncb[5] = BC_SEND_MESSAGE;
+            WRITE_U32(&ncb[6], 1);   // #value
+            WRITE_U32(&ncb[10], 0);
+            ncb[14] = BC_PUSH_LITERAL;
+            WRITE_U32(&ncb[15], 2);  // unreachable 99
+            ncb[19] = BC_RETURN;
+
+            uint64_t *nlr_caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+            OBJ_FIELD(nlr_caller_lits, 0) = (uint64_t)nlr_blk_cm;
+            OBJ_FIELD(nlr_caller_lits, 1) = sel_value;
+            OBJ_FIELD(nlr_caller_lits, 2) = tag_smallint(99);
+            uint64_t *nlr_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(nlr_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(nlr_caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(nlr_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(nlr_caller_cm, CM_LITERALS) = (uint64_t)nlr_caller_lits;
+            OBJ_FIELD(nlr_caller_cm, CM_BYTECODES) = (uint64_t)nlr_caller_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            activate_method(&sp, &fp, 0, (uint64_t)nlr_caller_cm, 0, 0);
+            result = interpret(&sp, &fp,
+                               (uint8_t *)&OBJ_FIELD(nlr_caller_bc, 0),
+                               class_table, om, NULL);
+            ASSERT_EQ(ctx, result, tag_smallint(88),
+                      "Block: explicit ^ returns from the home method");
+        }
     }
 
     // --- True and False classes with ifTrue:ifFalse: ---

@@ -591,6 +591,7 @@ enum
     BC_CG_STORE_TEMP = 5,
     BC_CG_SEND_MESSAGE = 6,
     BC_CG_RETURN = 7,
+    BC_CG_RETURN_NON_LOCAL = 16,
     BC_CG_PUSH_CLOSURE = 14,
     BC_CG_POP = 11
 };
@@ -601,6 +602,7 @@ typedef struct
     BMethodBody body;
     BCompiledBody *compiled;
     int saw_return;
+    int in_block;
 } CgState;
 
 static void cg_emit_byte(CgState *state, uint8_t value)
@@ -752,18 +754,20 @@ static int cg_skip_block_literal(BParser *parser)
     return 1;
 }
 
+static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block);
+
 static int cg_compile_and_store_block(CgState *state, const char *raw_source, int block_index)
 {
     BCompiledBody compiled_block;
     char implicit_source[1024];
 
-    if (!bc_codegen_method_body(raw_source, &compiled_block))
+    if (!bc_codegen_body(raw_source, &compiled_block, 1))
     {
         if (!cg_build_implicit_return_source(raw_source, implicit_source, sizeof(implicit_source)))
         {
             return 0;
         }
-        if (!bc_codegen_method_body(implicit_source, &compiled_block))
+        if (!bc_codegen_body(implicit_source, &compiled_block, 1))
         {
             return 0;
         }
@@ -1032,7 +1036,7 @@ static int cg_parse_statements(CgState *state)
             {
                 return 0;
             }
-            cg_emit_byte(state, BC_CG_RETURN);
+            cg_emit_byte(state, state->in_block ? BC_CG_RETURN_NON_LOCAL : BC_CG_RETURN);
             state->saw_return = 1;
 
             BToken eof = bp_next(&state->parser);
@@ -1127,12 +1131,13 @@ static int cg_parse_statements(CgState *state)
     }
 }
 
-int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
+static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block)
 {
     CgState state;
     memset(compiled, 0, sizeof(*compiled));
     memset(&state, 0, sizeof(state));
     state.compiled = compiled;
+    state.in_block = in_block;
     bp_init(&state.parser, source);
 
     if (!cg_parse_temp_decls(&state))
@@ -1148,6 +1153,11 @@ int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
     compiled->temp_count = state.body.temp_count;
 
     return state.saw_return;
+}
+
+int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
+{
+    return bc_codegen_body(source, compiled, 0);
 }
 
 int bc_parse_method_header(const char *source, BMethodHeader *header)

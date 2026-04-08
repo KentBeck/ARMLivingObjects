@@ -215,10 +215,11 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define CONTEXT_IP 1
 #define CONTEXT_METHOD 2
 #define CONTEXT_RECEIVER 3
-#define CONTEXT_FLAGS 4
-#define CONTEXT_NUM_ARGS 5
-#define CONTEXT_NUM_TEMPS 6
-#define CONTEXT_VAR_BASE 7
+#define CONTEXT_HOME 4
+#define CONTEXT_FLAGS 5
+#define CONTEXT_NUM_ARGS 6
+#define CONTEXT_NUM_TEMPS 7
+#define CONTEXT_VAR_BASE 8
 #define BC_PUSH_LITERAL 0
 #define BC_PUSH_INST_VAR 1
 #define BC_PUSH_TEMP 2
@@ -235,6 +236,7 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define BC_HALT 13
 #define BC_PUSH_CLOSURE 14
 #define BC_PUSH_ARG 15
+#define BC_RETURN_NON_LOCAL 16
 #define FRAME_SAVED_IP 1  // FP + 1*W
 #define FRAME_SAVED_FP 0  // FP + 0
 #define FRAME_METHOD -1   // FP - 1*W
@@ -242,6 +244,8 @@ extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_
 #define FRAME_CONTEXT -3  // FP - 3*W
 #define FRAME_RECEIVER -4 // FP - 4*W
 #define FRAME_TEMP0 -5    // FP - 5*W
+#define FRAME_FLAGS_HAS_CONTEXT_MASK 0x1
+#define FRAME_FLAGS_BLOCK_CLOSURE_MASK 0x2
 #define STACK_WORDS 4096
 
 #define OM_SIZE (1024 * 1024)

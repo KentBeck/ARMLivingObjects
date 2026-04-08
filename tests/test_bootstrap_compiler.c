@@ -375,6 +375,15 @@ void test_bootstrap_compiler(TestContext *ctx)
 
     {
         BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ [ ^ 1 ] value", &compiled), 1,
+                  "codegen explicit return inside block");
+        ASSERT_EQ(ctx, compiled.block_count, 1, "non-local-return source compiles one block");
+        ASSERT_EQ(ctx, compiled.blocks[0].bytecodes[5], BC_RETURN_NON_LOCAL,
+                  "block ^ emits non-local return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 1,
                   "implicit return for final expression");
         ASSERT_EQ(ctx, compiled.bytecode_count, 2, "implicit return bytecode count");
