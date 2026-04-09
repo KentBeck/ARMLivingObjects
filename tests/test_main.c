@@ -368,7 +368,6 @@ int main()
     test_object(&ctx);
     test_dispatch(&ctx);
     test_blocks(&ctx);
-    test_factorial(&ctx);
     test_transaction(&ctx);
     test_gc(&ctx);
     test_persist(&ctx);

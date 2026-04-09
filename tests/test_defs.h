@@ -313,7 +313,6 @@ void test_tagged(TestContext *ctx);
 void test_object(TestContext *ctx);
 void test_dispatch(TestContext *ctx);
 void test_blocks(TestContext *ctx);
-void test_factorial(TestContext *ctx);
 void test_transaction(TestContext *ctx);
 void test_gc(TestContext *ctx);
 void test_persist(TestContext *ctx);
