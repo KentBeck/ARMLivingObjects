@@ -1,17 +1,7 @@
 #include "test_defs.h"
 #include "bootstrap_compiler.h"
+#include "primitives.h"
 #include <string.h>
-
-static uint64_t selector_token(const char *selector)
-{
-    uint32_t hash = 2166136261u;
-    for (const unsigned char *current = (const unsigned char *)selector; *current != '\0'; current++)
-    {
-        hash ^= (uint32_t)(*current);
-        hash *= 16777619u;
-    }
-    return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
-}
 
 static uint64_t *make_test_string(uint64_t *om, uint64_t *string_class, const char *text)
 {
@@ -437,6 +427,15 @@ void test_persist(TestContext *ctx)
         BClassBinding bindings[1] = {
             {"ImageThing", image_class},
         };
+        uint64_t *image_symbol_table = om_alloc(s8, (uint64_t)class_class, FORMAT_INDEXABLE, 64);
+        for (int i = 0; i < 64; i++)
+        {
+            OBJ_FIELD(image_symbol_table, i) = tagged_nil();
+        }
+        uint64_t *saved_global_symbol_table = global_symbol_table;
+        uint64_t *saved_global_symbol_class = global_symbol_class;
+        global_symbol_table = image_symbol_table;
+        global_symbol_class = ctx->symbol_class;
         const char *source =
             "!ImageThing methodsFor: 'testing'!\n"
             "answer\n"
@@ -446,6 +445,9 @@ void test_persist(TestContext *ctx)
                   bc_compile_and_install_source_methods(s8, class_class, bindings, 1, source),
                   1,
                   "persist image-exec: source methods install");
+        uint64_t answer_selector = intern_cstring_symbol(s8, "answer");
+        global_symbol_table = saved_global_symbol_table;
+        global_symbol_class = saved_global_symbol_class;
 
         uint64_t *receiver = om_alloc(s8, (uint64_t)image_class, FORMAT_FIELDS, 1);
         OBJ_FIELD(receiver, 0) = tag_smallint(42);
@@ -454,7 +456,7 @@ void test_persist(TestContext *ctx)
         uint64_t *roots = om_alloc(s8, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
         OBJ_FIELD(roots, 0) = (uint64_t)receiver;
         OBJ_FIELD(roots, 1) = (uint64_t)image_class;
-        OBJ_FIELD(roots, 2) = selector_token("answer");
+        OBJ_FIELD(roots, 2) = answer_selector;
 
         uint64_t used8 = s8[0] - (uint64_t)src8;
         uint64_t roots_off = (uint64_t)roots - (uint64_t)src8;

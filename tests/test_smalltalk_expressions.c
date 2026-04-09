@@ -1,5 +1,6 @@
 #include "test_defs.h"
 #include "bootstrap_compiler.h"
+#include "primitives.h"
 #include <ctype.h>
 
 static int read_file(const char *path, char *buf, size_t cap)
@@ -144,15 +145,9 @@ static int load_expression_specs(const char *path, ExpressionSpec *specs, int ma
     return 1;
 }
 
-static uint64_t selector_token(const char *selector)
+static uint64_t selector_oop(uint64_t *om, const char *selector)
 {
-    uint32_t hash = 2166136261u;
-    for (const unsigned char *current = (const unsigned char *)selector; *current != '\0'; current++)
-    {
-        hash ^= (uint32_t)(*current);
-        hash *= 16777619u;
-    }
-    return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
+    return intern_cstring_symbol(om, selector);
 }
 
 static void md_append(uint64_t *om, uint64_t *class_class, uint64_t *klass, const char *selector, uint64_t method)
@@ -166,7 +161,7 @@ static void md_append(uint64_t *om, uint64_t *class_class, uint64_t *klass, cons
     {
         OBJ_FIELD(new_md, index) = OBJ_FIELD(old_md, index);
     }
-    OBJ_FIELD(new_md, old_size) = selector_token(selector);
+    OBJ_FIELD(new_md, old_size) = selector_oop(om, selector);
     OBJ_FIELD(new_md, old_size + 1) = method;
     OBJ_FIELD(klass, CLASS_METHOD_DICT) = (uint64_t)new_md;
 }
@@ -219,7 +214,7 @@ static uint64_t *make_class_with_ivars(uint64_t *om, uint64_t *class_class, uint
 static uint64_t send_selector0(uint64_t *stack, uint64_t *class_table, uint64_t *om,
                                uint64_t receiver, uint64_t *receiver_class, const char *selector)
 {
-    uint64_t method_oop = class_lookup(receiver_class, selector_token(selector));
+    uint64_t method_oop = class_lookup(receiver_class, selector_oop(om, selector));
     uint64_t *compiled_method = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
@@ -233,7 +228,7 @@ static uint64_t send_selector1(uint64_t *stack, uint64_t *class_table, uint64_t 
                                uint64_t receiver, uint64_t *receiver_class, const char *selector,
                                uint64_t arg)
 {
-    uint64_t method_oop = class_lookup(receiver_class, selector_token(selector));
+    uint64_t method_oop = class_lookup(receiver_class, selector_oop(om, selector));
     uint64_t *compiled_method = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
@@ -362,9 +357,9 @@ void test_smalltalk_expressions(TestContext *ctx)
               bc_compile_and_install_source_methods(ctx->om, ctx->class_class, runtime_bindings, 3, undefined_object_testing_src),
               1,
               "expression UndefinedObject methods install");
-    ASSERT_EQ(ctx, class_lookup(ctx->context_class, selector_token("receiver")) != 0, 1,
+    ASSERT_EQ(ctx, class_lookup(ctx->context_class, selector_oop(ctx->om, "receiver")) != 0, 1,
               "expression runtime: Context understands receiver");
-    ASSERT_EQ(ctx, class_lookup(expr_class, selector_token("isNil")) != 0, 1,
+    ASSERT_EQ(ctx, class_lookup(expr_class, selector_oop(ctx->om, "isNil")) != 0, 1,
               "expression runtime: ExprSpec receiver understands isNil");
 
     ExpressionSpec specs[128];
@@ -407,8 +402,10 @@ void test_smalltalk_expressions(TestContext *ctx)
                   specs[index].name);
 
         uint64_t *instance_md = (uint64_t *)OBJ_FIELD(expr_class, CLASS_METHOD_DICT);
-        uint64_t method_oop = md_lookup(instance_md, selector_token(selector));
+        uint64_t selector_value = selector_oop(ctx->om, selector);
+        uint64_t method_oop = md_lookup(instance_md, selector_value);
         ASSERT_EQ(ctx, method_oop != 0, 1, "expression method installed");
+        ASSERT_EQ(ctx, is_object_ptr(method_oop), 1, "expression method is object");
 
         uint64_t *expr_receiver = om_alloc(ctx->om, (uint64_t)expr_class, FORMAT_FIELDS, 0);
         uint64_t *compiled_method = (uint64_t *)method_oop;
@@ -481,8 +478,8 @@ void test_smalltalk_expressions(TestContext *ctx)
             {"ExpressionSpecTest", expression_spec_test_class},
         };
 
-        uint64_t *symbol_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 20);
-        for (int index = 0; index < 20; index++)
+        uint64_t *symbol_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
+        for (int index = 0; index < 256; index++)
         {
             OBJ_FIELD(symbol_table, index) = tagged_nil();
         }

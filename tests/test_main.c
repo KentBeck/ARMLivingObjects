@@ -122,7 +122,9 @@ static void debug_print_oop(FILE *stream, uint64_t oop)
 
 void debug_mnu(uint64_t selector)
 {
-    fprintf(stderr, "MNU: selector=%lld (untagged=%lld)\n", selector, selector >> 2);
+    fprintf(stderr, "MNU: selector=");
+    debug_print_oop(stderr, selector);
+    fprintf(stderr, " raw=%lld\n", selector);
 }
 
 void debug_oom(void)
@@ -245,8 +247,8 @@ int main()
     OBJ_FIELD(context_ivars, 8) = (uint64_t)make_byte_string(om, string_class, "numTemps");
     OBJ_FIELD(context_class, CLASS_INST_VARS) = (uint64_t)context_ivars;
 
-    uint64_t *symbol_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 20);
-    for (int i = 0; i < 20; i++)
+    uint64_t *symbol_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
+    for (int i = 0; i < 256; i++)
     {
         OBJ_FIELD(symbol_table_obj, i) = tagged_nil();
     }
@@ -377,6 +379,7 @@ int main()
     test_symbol_dispatch(&ctx);
     test_bootstrap_compiler(&ctx);
     test_smalltalk_expressions(&ctx);
+    test_expression_fixtures(&ctx);
 
     printf("\n%d passed, %d failed\n", ctx.passes, ctx.failures);
     return ctx.failures > 0 ? 1 : 0;

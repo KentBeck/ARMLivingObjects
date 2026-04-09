@@ -937,7 +937,7 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         index = cg_arg_index(state->header, token.text);
         if (index >= 0)
         {
-            cg_emit_byte(state, BC_CG_PUSH_ARG);
+            cg_emit_byte(state, state->in_block ? BC_CG_PUSH_TEMP : BC_CG_PUSH_ARG);
             cg_emit_u32(state, (uint32_t)index);
             return 1;
         }
@@ -1026,6 +1026,72 @@ static int cg_parse_primary(CgState *state)
     return cg_emit_primary_token(state, token);
 }
 
+static int cg_parse_unary_expression(CgState *state)
+{
+    if (!cg_parse_primary(state))
+    {
+        return 0;
+    }
+
+    while (1)
+    {
+        BToken token = bp_next(&state->parser);
+        if (token.type != BTOK_IDENTIFIER)
+        {
+            bp_unread(&state->parser, token);
+            return 1;
+        }
+
+        if (!cg_emit_selector_send(state, token.text, 0))
+        {
+            return 0;
+        }
+    }
+}
+
+static int cg_parse_binary_expression(CgState *state)
+{
+    if (!cg_parse_unary_expression(state))
+    {
+        return 0;
+    }
+
+    while (1)
+    {
+        BToken token = bp_next(&state->parser);
+        if (!(token.type == BTOK_SPECIAL && is_binary_selector_char(token.text[0]) && token.text[1] == '\0'))
+        {
+            bp_unread(&state->parser, token);
+            return 1;
+        }
+
+        char selector[4];
+        selector[0] = token.text[0];
+        selector[1] = '\0';
+
+        BToken maybe_second = bp_next(&state->parser);
+        if (maybe_second.type == BTOK_SPECIAL && is_binary_selector_char(maybe_second.text[0]) &&
+            maybe_second.text[1] == '\0')
+        {
+            selector[1] = maybe_second.text[0];
+            selector[2] = '\0';
+        }
+        else
+        {
+            bp_unread(&state->parser, maybe_second);
+        }
+
+        if (!cg_parse_unary_expression(state))
+        {
+            return 0;
+        }
+        if (!cg_emit_selector_send(state, selector, 1))
+        {
+            return 0;
+        }
+    }
+}
+
 static int cg_parse_expression_continuation(CgState *state)
 {
     while (1)
@@ -1076,7 +1142,7 @@ static int cg_parse_expression_continuation(CgState *state)
                 bp_unread(&state->parser, maybe_second);
             }
 
-            if (!cg_parse_primary(state))
+            if (!cg_parse_unary_expression(state))
             {
                 return 0;
             }
@@ -1097,7 +1163,7 @@ static int cg_parse_expression_continuation(CgState *state)
             while (1)
             {
                 strncat(selector, current.text, sizeof(selector) - strlen(selector) - 1);
-                if (!cg_parse_primary(state))
+                if (!cg_parse_binary_expression(state))
                 {
                     return 0;
                 }
@@ -1124,7 +1190,7 @@ static int cg_parse_expression_continuation(CgState *state)
 
 static int cg_parse_expression(CgState *state)
 {
-    if (!cg_parse_primary(state))
+    if (!cg_parse_binary_expression(state))
     {
         return 0;
     }
@@ -1726,8 +1792,8 @@ static int bc_literal_token_to_oop(uint64_t *om, const BToken *token, uint64_t *
     }
     if (token->type == BTOK_SELECTOR)
     {
-        *out_oop = bc_selector_token(token->text);
-        return 1;
+        *out_oop = intern_cstring_symbol(om, token->text);
+        return *out_oop != tagged_nil();
     }
     if (token->type == BTOK_IDENTIFIER)
     {
@@ -1750,6 +1816,72 @@ static int bc_literal_token_to_oop(uint64_t *om, const BToken *token, uint64_t *
     return 0;
 }
 
+static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_class, const BCompiledBlock *block);
+
+static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_class, const BCompiledBlock *block)
+{
+    uint64_t *literals = bc_build_block_literal_array(om, class_class, block);
+    if (block->literal_count > 0 && literals == NULL)
+    {
+        return NULL;
+    }
+
+    uint64_t bytecode_size = block->bytecode_count > 0 ? (uint64_t)block->bytecode_count : 1;
+    uint64_t *bytecodes = om_alloc(om, (uint64_t)class_class, BC_FORMAT_BYTES, bytecode_size);
+    if (bytecodes == NULL)
+    {
+        return NULL;
+    }
+    if (block->bytecode_count > 0)
+    {
+        memcpy(&BC_OBJ_FIELD(bytecodes, 0), block->bytecodes, (size_t)block->bytecode_count);
+    }
+    else
+    {
+        ((uint8_t *)&BC_OBJ_FIELD(bytecodes, 0))[0] = 0;
+    }
+
+    uint64_t *compiled_method = om_alloc(om, (uint64_t)class_class, 0, 5);
+    if (compiled_method == NULL)
+    {
+        return NULL;
+    }
+    BC_OBJ_FIELD(compiled_method, BC_CM_PRIMITIVE) = tag_smallint(0);
+    BC_OBJ_FIELD(compiled_method, BC_CM_NUM_ARGS) = tag_smallint(0);
+    BC_OBJ_FIELD(compiled_method, BC_CM_NUM_TEMPS) = tag_smallint(0);
+    BC_OBJ_FIELD(compiled_method, BC_CM_LITERALS) = literals ? (uint64_t)literals : tagged_nil();
+    BC_OBJ_FIELD(compiled_method, BC_CM_BYTECODES) = (uint64_t)bytecodes;
+    return compiled_method;
+}
+
+static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_class, const BCompiledBlock *block)
+{
+    if (block->literal_count == 0)
+    {
+        return NULL;
+    }
+
+    uint64_t *literals = om_alloc(om, (uint64_t)class_class, BC_FORMAT_INDEXABLE, (uint64_t)block->literal_count);
+    if (literals == NULL)
+    {
+        return NULL;
+    }
+    for (int index = 0; index < block->literal_count; index++)
+    {
+        uint64_t literal_oop = 0;
+        if (block->literals[index].type == BTOK_BLOCK_LITERAL)
+        {
+            return NULL;
+        }
+        if (!bc_literal_token_to_oop(om, &block->literals[index], &literal_oop))
+        {
+            return NULL;
+        }
+        BC_OBJ_FIELD(literals, index) = literal_oop;
+    }
+    return literals;
+}
+
 static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, const BCompiledBody *body)
 {
     if (body->literal_count == 0)
@@ -1761,7 +1893,21 @@ static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, con
     for (int index = 0; index < body->literal_count; index++)
     {
         uint64_t literal_oop = 0;
-        if (!bc_literal_token_to_oop(om, &body->literals[index], &literal_oop))
+        if (body->literals[index].type == BTOK_BLOCK_LITERAL)
+        {
+            int block_index = (int)body->literals[index].int_value;
+            if (block_index < 0 || block_index >= body->block_count)
+            {
+                return NULL;
+            }
+            uint64_t *compiled_block = bc_materialize_compiled_block(om, class_class, &body->blocks[block_index]);
+            if (compiled_block == NULL)
+            {
+                return NULL;
+            }
+            literal_oop = (uint64_t)compiled_block;
+        }
+        else if (!bc_literal_token_to_oop(om, &body->literals[index], &literal_oop))
         {
             return NULL;
         }
@@ -1850,7 +1996,11 @@ int bc_install_compiled_methods(uint64_t *om, uint64_t *class_class,
             return 0;
         }
 
-        uint64_t selector_oop = bc_selector_token(method->header.selector);
+        uint64_t selector_oop = intern_cstring_symbol(om, method->header.selector);
+        if (selector_oop == tagged_nil())
+        {
+            return 0;
+        }
         uint64_t *compiled_method = bc_materialize_compiled_method(om, class_class, method);
         if (compiled_method == NULL)
         {
@@ -1959,7 +2109,11 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
             return 0;
         }
 
-        uint64_t selector_oop = bc_selector_token(method.header.selector);
+        uint64_t selector_oop = intern_cstring_symbol(om, method.header.selector);
+        if (selector_oop == tagged_nil())
+        {
+            return 0;
+        }
         uint64_t *compiled_method = bc_materialize_compiled_method(om, class_class, &method);
         if (compiled_method == NULL)
         {

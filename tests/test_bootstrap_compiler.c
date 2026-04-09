@@ -1,5 +1,6 @@
 #include "test_defs.h"
 #include "bootstrap_compiler.h"
+#include "primitives.h"
 
 static void assert_tok(TestContext *ctx, BTokenizer *tokenizer, BTokenType type, const char *text)
 {
@@ -14,17 +15,6 @@ static uint32_t read_u32(const uint8_t *bytes, int index)
            (((uint32_t)bytes[index + 1]) << 8) |
            (((uint32_t)bytes[index + 2]) << 16) |
            (((uint32_t)bytes[index + 3]) << 24);
-}
-
-static uint64_t selector_token(const char *selector)
-{
-    uint32_t hash = 2166136261u;
-    for (const unsigned char *current = (const unsigned char *)selector; *current != '\0'; current++)
-    {
-        hash ^= (uint32_t)(*current);
-        hash *= 16777619u;
-    }
-    return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
 }
 
 void test_bootstrap_compiler(TestContext *ctx)
@@ -432,10 +422,10 @@ void test_bootstrap_compiler(TestContext *ctx)
                   "compile block outer-arg chunk");
         ASSERT_EQ(ctx, method_count, 1, "block outer-arg method count");
         ASSERT_EQ(ctx, methods[0].body.block_count, 1, "block outer-arg compiles one block");
-        ASSERT_EQ(ctx, methods[0].body.blocks[0].bytecodes[0], BC_PUSH_ARG,
-                  "block outer-arg uses push arg");
+        ASSERT_EQ(ctx, methods[0].body.blocks[0].bytecodes[0], BC_PUSH_TEMP,
+                  "block outer-arg uses copied temp");
         ASSERT_EQ(ctx, read_u32(methods[0].body.blocks[0].bytecodes, 1), 0,
-                  "block outer-arg uses outer arg 0");
+                  "block outer-arg uses copied arg slot 0");
         ASSERT_EQ(ctx, methods[0].body.blocks[0].bytecodes[5], BC_RETURN,
                   "block outer-arg returns captured argument");
     }
@@ -648,7 +638,7 @@ void test_bootstrap_compiler(TestContext *ctx)
                   "compile and install symbol literal method");
 
         uint64_t *instance_md = (uint64_t *)OBJ_FIELD(sample_class, CLASS_METHOD_DICT);
-        uint64_t method_oop = md_lookup(instance_md, selector_token("literalSelector"));
+        uint64_t method_oop = md_lookup(instance_md, intern_cstring_symbol(ctx->om, "literalSelector"));
         ASSERT_EQ(ctx, method_oop != 0, 1, "symbol literal method installed");
 
         uint64_t *sample_instance = om_alloc(ctx->om, (uint64_t)sample_class, FORMAT_FIELDS, 0);

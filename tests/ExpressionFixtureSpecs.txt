@@ -1,0 +1,50 @@
+# Format:
+# === name
+# class: Name < Superclass
+# receiver-class: Name
+# setup:
+# !Name methodsFor: 'category'!
+# selector
+#     ...
+# !
+# expression: self ...
+# expected: integer|true|false
+
+=== factorial 1
+class: FactorialHelper < Object
+receiver-class: FactorialHelper
+setup:
+!FactorialHelper methodsFor: 'math'!
+factorial: n
+    ^ (n = 1)
+        ifTrue: [1]
+        ifFalse: [n * (self factorial: n - 1)]
+!
+expression: self factorial: 1
+expected: 1
+
+=== factorial 5
+class: FactorialHelper < Object
+receiver-class: FactorialHelper
+setup:
+!FactorialHelper methodsFor: 'math'!
+factorial: n
+    ^ (n = 1)
+        ifTrue: [1]
+        ifFalse: [n * (self factorial: n - 1)]
+!
+expression: self factorial: 5
+expected: 120
+
+=== factorial 10
+class: FactorialHelper < Object
+receiver-class: FactorialHelper
+setup:
+!FactorialHelper methodsFor: 'math'!
+factorial: n
+    ^ (n = 1)
+        ifTrue: [1]
+        ifFalse: [n * (self factorial: n - 1)]
+!
+expression: self factorial: 10
+expected: 3628800

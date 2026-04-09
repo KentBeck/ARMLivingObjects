@@ -1,6 +1,13 @@
 #include "test_defs.h"
 #include "bootstrap_compiler.h"
 
+typedef struct
+{
+    const char *path;
+    const char *label;
+    int should_compile;
+} SmalltalkSourceFile;
+
 static int read_file(const char *path, char *buf, size_t cap)
 {
     FILE *f = fopen(path, "rb");
@@ -14,14 +21,72 @@ static int read_file(const char *path, char *buf, size_t cap)
     return 1;
 }
 
+static int first_failing_chunk_selector(const char *source, char *out_selector, size_t out_cap)
+{
+    BMethodChunk chunks[128];
+    BCompiledMethodDef methods[128];
+    int chunk_count = 0;
+    int method_count = 0;
+
+    if (!bc_parse_method_chunks(source, chunks, 128, &chunk_count))
+    {
+        return 0;
+    }
+
+    for (int index = 0; index < chunk_count; index++)
+    {
+        if (!bc_compile_method_chunks(&chunks[index], 1, methods, 128, &method_count))
+        {
+            const char *method_source = chunks[index].method_source;
+            const char *newline = strchr(method_source, '\n');
+            size_t header_len = newline ? (size_t)(newline - method_source) : strlen(method_source);
+            if (header_len >= out_cap)
+            {
+                header_len = out_cap - 1;
+            }
+            memcpy(out_selector, method_source, header_len);
+            out_selector[header_len] = '\0';
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 void test_smalltalk_sources(TestContext *ctx)
 {
+    static const SmalltalkSourceFile corpus_files[] = {
+        {"src/smalltalk/Array.st", "Array.st corpus compile", 1},
+        {"src/smalltalk/Association.st", "Association.st corpus compile", 1},
+        {"src/smalltalk/BlockClosure.st", "BlockClosure.st corpus compile", 1},
+        {"src/smalltalk/Character.st", "Character.st corpus compile", 1},
+        {"src/smalltalk/Class.st", "Class.st corpus compile", 1},
+        {"src/smalltalk/Collection.st", "Collection.st corpus compile", 0},
+        {"src/smalltalk/Context.st", "Context.st corpus compile", 1},
+        {"src/smalltalk/Dictionary.st", "Dictionary.st corpus compile", 0},
+        {"src/smalltalk/ExpressionSpecTest.st", "ExpressionSpecTest.st corpus compile", 1},
+        {"src/smalltalk/False.st", "False.st corpus compile", 1},
+        {"src/smalltalk/Object.st", "Object.st corpus compile", 1},
+        {"src/smalltalk/ReadStream.st", "ReadStream.st corpus compile", 1},
+        {"src/smalltalk/SmallInteger.st", "SmallInteger.st corpus compile", 1},
+        {"src/smalltalk/String.st", "String.st corpus compile", 0},
+        {"src/smalltalk/Symbol.st", "Symbol.st corpus compile", 1},
+        {"src/smalltalk/SystemDictionary.st", "SystemDictionary.st corpus compile", 1},
+        {"src/smalltalk/TestCase.st", "TestCase.st corpus compile", 1},
+        {"src/smalltalk/TestResult.st", "TestResult.st corpus compile", 1},
+        {"src/smalltalk/TestSuite.st", "TestSuite.st corpus compile", 1},
+        {"src/smalltalk/True.st", "True.st corpus compile", 1},
+        {"src/smalltalk/UndefinedObject.st", "UndefinedObject.st corpus compile", 1},
+        {"src/smalltalk/WriteStream.st", "WriteStream.st corpus compile", 1},
+    };
+    char corpus_src[32768];
     char class_src[4096];
     char object_src[4096];
     char string_src[8192];
     char symbol_src[2048];
     char array_src[4096];
     char association_src[4096];
+    char collection_src[4096];
     char dictionary_src[12288];
     char system_dictionary_src[4096];
     char read_stream_src[8192];
@@ -33,8 +98,19 @@ void test_smalltalk_sources(TestContext *ctx)
     char test_suite_src[4096];
     char expression_spec_test_src[2048];
     char expr_specs_src[4096];
+    char expr_fixture_specs_src[8192];
+    char failing_selector[256];
     BCompiledMethodDef methods[64];
     int method_count = 0;
+
+    for (uint64_t index = 0; index < sizeof(corpus_files) / sizeof(corpus_files[0]); index++)
+    {
+        ASSERT_EQ(ctx, read_file(corpus_files[index].path, corpus_src, sizeof(corpus_src)), 1,
+                  corpus_files[index].path);
+        ASSERT_EQ(ctx, bc_compile_source_methods(corpus_src, methods, 64, &method_count),
+                  corpus_files[index].should_compile,
+                  corpus_files[index].label);
+    }
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Object.st", object_src, sizeof(object_src)), 1,
               "src/smalltalk/Object.st exists");
@@ -77,6 +153,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "String>>printString prints chars via asCharacter printChar");
     ASSERT_EQ(ctx, strstr(string_src, "= aString\n    <primitive: 25>\n    false") != NULL, 1,
               "String>>= has explicit false fallback");
+    ASSERT_EQ(ctx, first_failing_chunk_selector(string_src, failing_selector, sizeof(failing_selector)), 1,
+              "String.st exposes first failing chunk");
+    ASSERT_EQ(ctx, strcmp(failing_selector, "printString"), 0,
+              "String.st first failing chunk is printString");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Symbol.st", symbol_src, sizeof(symbol_src)), 1,
               "src/smalltalk/Symbol.st exists");
@@ -102,6 +182,17 @@ void test_smalltalk_sources(TestContext *ctx)
               "Array.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 3, "Array.st method count");
 
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Collection.st", collection_src, sizeof(collection_src)), 1,
+              "src/smalltalk/Collection.st exists");
+    ASSERT_EQ(ctx, strstr(collection_src, "basicAt: index") != NULL, 1,
+              "Collection has basicAt:");
+    ASSERT_EQ(ctx, strstr(collection_src, "basicAt: index put: value") != NULL, 1,
+              "Collection has basicAt:put:");
+    ASSERT_EQ(ctx, first_failing_chunk_selector(collection_src, failing_selector, sizeof(failing_selector)), 1,
+              "Collection.st exposes first failing chunk");
+    ASSERT_EQ(ctx, strcmp(failing_selector, "at: index"), 0,
+              "Collection.st first failing chunk is at: index");
+
     ASSERT_EQ(ctx, read_file("src/smalltalk/Association.st", association_src, sizeof(association_src)), 1,
               "src/smalltalk/Association.st exists");
     ASSERT_EQ(ctx, strstr(association_src, "key: aKey value: aValue") != NULL, 1,
@@ -124,6 +215,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "Dictionary appends association in storage array");
     ASSERT_EQ(ctx, strstr(dictionary_src, "at: aKey ifAbsent: aBlock") != NULL, 1,
               "Dictionary supports at:ifAbsent:");
+    ASSERT_EQ(ctx, first_failing_chunk_selector(dictionary_src, failing_selector, sizeof(failing_selector)), 1,
+              "Dictionary.st exposes first failing chunk");
+    ASSERT_EQ(ctx, strcmp(failing_selector, "ensureStorage"), 0,
+              "Dictionary.st first failing chunk is ensureStorage");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/SystemDictionary.st", system_dictionary_src, sizeof(system_dictionary_src)), 1,
               "src/smalltalk/SystemDictionary.st exists");
@@ -184,6 +279,15 @@ void test_smalltalk_sources(TestContext *ctx)
               "Expression specs include nested send baseline");
     ASSERT_EQ(ctx, strstr(expr_specs_src, "thisContext receiver isNil | thisContext receiver isNil | false") != NULL, 1,
               "Expression specs include thisContext receiver isNil");
+
+    ASSERT_EQ(ctx, read_file("tests/ExpressionFixtureSpecs.txt", expr_fixture_specs_src, sizeof(expr_fixture_specs_src)), 1,
+              "tests/ExpressionFixtureSpecs.txt exists");
+    ASSERT_EQ(ctx, strstr(expr_fixture_specs_src, "class: FactorialHelper < Object") != NULL, 1,
+              "Expression fixture specs declare factorial helper class");
+    ASSERT_EQ(ctx, strstr(expr_fixture_specs_src, "ifTrue: [1]") != NULL, 1,
+              "Expression fixture specs include factorial setup");
+    ASSERT_EQ(ctx, strstr(expr_fixture_specs_src, "expression: self factorial: 10") != NULL, 1,
+              "Expression fixture specs include higher-level factorial expression");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/TestResult.st", test_result_src, sizeof(test_result_src)), 1,
               "src/smalltalk/TestResult.st exists");
