@@ -17,6 +17,50 @@ static uint32_t read_u32(const uint8_t *bytes, int index)
            (((uint32_t)bytes[index + 3]) << 24);
 }
 
+static void smalltalk_at_put(uint64_t *om, uint64_t *array_class, uint64_t *association_class,
+                             const char *name, uint64_t value)
+{
+    uint64_t key = intern_cstring_symbol(om, name);
+    uint64_t associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
+    uint64_t tally = OBJ_FIELD(global_smalltalk_dictionary, 1) == tagged_nil()
+                         ? 0
+                         : (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
+
+    if (associations_oop == tagged_nil())
+    {
+        uint64_t *associations = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, 8);
+        for (uint64_t index = 0; index < 8; index++)
+        {
+            OBJ_FIELD(associations, index) = tagged_nil();
+        }
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)associations;
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+        associations_oop = (uint64_t)associations;
+    }
+
+    uint64_t *associations = (uint64_t *)associations_oop;
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        uint64_t assoc_oop = OBJ_FIELD(associations, index);
+        if (!is_object_ptr(assoc_oop))
+        {
+            continue;
+        }
+        uint64_t *assoc = (uint64_t *)assoc_oop;
+        if (OBJ_FIELD(assoc, 0) == key)
+        {
+            OBJ_FIELD(assoc, 1) = value;
+            return;
+        }
+    }
+
+    uint64_t *assoc = om_alloc(om, (uint64_t)association_class, FORMAT_FIELDS, 2);
+    OBJ_FIELD(assoc, 0) = key;
+    OBJ_FIELD(assoc, 1) = value;
+    OBJ_FIELD(associations, tally) = (uint64_t)assoc;
+    OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint((int64_t)(tally + 1));
+}
+
 void test_bootstrap_compiler(TestContext *ctx)
 {
     {
@@ -78,6 +122,17 @@ void test_bootstrap_compiler(TestContext *ctx)
 
         BToken eof = bt_next(&tokenizer);
         ASSERT_EQ(ctx, eof.type, BTOK_EOF, "tokenizer EOF after literal array");
+    }
+
+    {
+        BTokenizer tokenizer;
+        bt_init(&tokenizer, "#(2 #+ 3)");
+
+        assert_tok(ctx, &tokenizer, BTOK_SPECIAL, "#(");
+        assert_tok(ctx, &tokenizer, BTOK_INTEGER, "2");
+        assert_tok(ctx, &tokenizer, BTOK_SYMBOL, "+");
+        assert_tok(ctx, &tokenizer, BTOK_INTEGER, "3");
+        assert_tok(ctx, &tokenizer, BTOK_SPECIAL, ")");
     }
 
     {
@@ -342,6 +397,19 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, compiled.inst_var_count, 2, "multiple ivar count");
         ASSERT_EQ(ctx, strcmp(compiled.inst_var_names[0], "foo"), 0, "first ivar name");
         ASSERT_EQ(ctx, strcmp(compiled.inst_var_names[1], "bar"), 0, "second ivar name");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("^ #(1 #+ 3)", &compiled), 1,
+                  "codegen literal array expression");
+        ASSERT_EQ(ctx, compiled.literal_count, 1, "literal array stored as one composite literal");
+        ASSERT_EQ(ctx, compiled.literals[0].type, BTOK_LITERAL_ARRAY, "literal array literal token type");
+        ASSERT_EQ(ctx, strcmp(compiled.literals[0].text, "#(1 #+ 3)"), 0,
+                  "literal array literal source text");
+        ASSERT_EQ(ctx, compiled.bytecodes[0], BC_PUSH_LITERAL, "literal array push literal opcode");
+        ASSERT_EQ(ctx, read_u32(compiled.bytecodes, 1), 0, "literal array push literal index");
+        ASSERT_EQ(ctx, compiled.bytecodes[5], BC_RETURN, "literal array return opcode");
     }
 
     {
@@ -658,5 +726,89 @@ void test_bootstrap_compiler(TestContext *ctx)
                   "installed symbol literal materializes as interned symbol");
         ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)result), (uint64_t)ctx->symbol_class,
                   "installed symbol literal has Symbol class");
+    }
+
+    {
+        uint64_t *saved_smalltalk = global_smalltalk_dictionary;
+
+        uint64_t *association_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(association_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(association_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(association_class, CLASS_INST_VARS) = tagged_nil();
+
+        uint64_t *dictionary_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(dictionary_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(dictionary_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(dictionary_class, CLASS_INST_VARS) = tagged_nil();
+
+        uint64_t *array_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        OBJ_FIELD(array_class, CLASS_INST_VARS) = tagged_nil();
+
+        uint64_t *sample_global_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(sample_global_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(sample_global_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(sample_global_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(sample_global_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *sample_ref_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(sample_ref_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(sample_ref_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(sample_ref_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(sample_ref_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        global_smalltalk_dictionary = om_alloc(ctx->om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+
+        const char *source =
+            "!SampleRef methodsFor: 'testing'!\n"
+            "one\n"
+            "    ^ SampleGlobal\n"
+            "!\n"
+            "two\n"
+            "    ^ SampleGlobal\n"
+            "!\n";
+
+        smalltalk_at_put(ctx->om, array_class, association_class, "Array", (uint64_t)array_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Association", (uint64_t)association_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "SampleGlobal", (uint64_t)sample_global_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "SampleRef", (uint64_t)sample_ref_class);
+
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, source),
+                  1,
+                  "compile and install global reference methods through Smalltalk");
+
+        uint64_t *instance_md = (uint64_t *)OBJ_FIELD(sample_ref_class, CLASS_METHOD_DICT);
+        uint64_t one_oop = md_lookup(instance_md, intern_cstring_symbol(ctx->om, "one"));
+        uint64_t two_oop = md_lookup(instance_md, intern_cstring_symbol(ctx->om, "two"));
+        ASSERT_EQ(ctx, one_oop != 0, 1, "first global reference method installed");
+        ASSERT_EQ(ctx, two_oop != 0, 1, "second global reference method installed");
+
+        uint64_t *one_literals = (uint64_t *)OBJ_FIELD((uint64_t *)one_oop, CM_LITERALS);
+        uint64_t *two_literals = (uint64_t *)OBJ_FIELD((uint64_t *)two_oop, CM_LITERALS);
+        ASSERT_EQ(ctx, one_literals != NULL, 1, "first global reference method has literals");
+        ASSERT_EQ(ctx, two_literals != NULL, 1, "second global reference method has literals");
+        ASSERT_EQ(ctx, OBJ_FIELD(one_literals, 0), OBJ_FIELD(two_literals, 0),
+                  "global reference literals reuse Smalltalk association");
+
+        uint64_t *association = (uint64_t *)OBJ_FIELD(one_literals, 0);
+        ASSERT_EQ(ctx, OBJ_FIELD(association, 0), intern_cstring_symbol(ctx->om, "SampleGlobal"),
+                  "global association key is symbolized class name");
+        ASSERT_EQ(ctx, OBJ_FIELD(association, 1), (uint64_t)sample_global_class,
+                  "global association value is bound class");
+        ASSERT_EQ(ctx, OBJ_FIELD(global_smalltalk_dictionary, 1), tag_smallint(5),
+                  "Smalltalk dictionary stores seeded global associations");
+
+        global_smalltalk_dictionary = saved_smalltalk;
     }
 }

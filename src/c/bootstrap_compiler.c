@@ -25,12 +25,23 @@ enum
     BC_CM_NUM_ARGS = 1,
     BC_CM_NUM_TEMPS = 2,
     BC_CM_LITERALS = 3,
-    BC_CM_BYTECODES = 4
+    BC_CM_BYTECODES = 4,
+    BC_ASSOC_KEY = 0,
+    BC_ASSOC_VALUE = 1,
+    BC_DICT_ASSOCIATIONS = 0,
+    BC_DICT_TALLY = 1
 };
 
 #define BC_OBJ_FIELD(obj, n) ((obj)[3 + (n)])
 #define BC_OBJ_SIZE(obj) ((obj)[2])
 #define BC_OBJ_CLASS(obj) ((obj)[0])
+
+static const BClassBinding *bc_find_class_binding(const BClassBinding *classes, int class_count,
+                                                  const char *class_name);
+static uint64_t *bc_lookup_smalltalk_global(const char *name);
+static uint64_t *bc_lookup_class_named(const BClassBinding *classes, int class_count, const char *class_name);
+static const BClassBinding *bc_active_class_bindings = NULL;
+static int bc_active_class_count = 0;
 
 static char peek(BTokenizer *tokenizer)
 {
@@ -207,12 +218,26 @@ BToken bt_next(BTokenizer *tokenizer)
         BToken token = make_token(BTOK_SYMBOL);
         int text_index = 0;
         advance(tokenizer); // '#'
-        while (isalnum((unsigned char)peek(tokenizer)) || peek(tokenizer) == '_' || peek(tokenizer) == ':')
+        if (isalnum((unsigned char)peek(tokenizer)) || peek(tokenizer) == '_' || peek(tokenizer) == ':')
         {
-            char c = advance(tokenizer);
-            if (text_index < (int)sizeof(token.text) - 1)
+            while (isalnum((unsigned char)peek(tokenizer)) || peek(tokenizer) == '_' || peek(tokenizer) == ':')
             {
-                token.text[text_index++] = c;
+                char c = advance(tokenizer);
+                if (text_index < (int)sizeof(token.text) - 1)
+                {
+                    token.text[text_index++] = c;
+                }
+            }
+        }
+        else
+        {
+            while (is_binary_selector_char(peek(tokenizer)))
+            {
+                char c = advance(tokenizer);
+                if (text_index < (int)sizeof(token.text) - 1)
+                {
+                    token.text[text_index++] = c;
+                }
             }
         }
         token.text[text_index] = '\0';
@@ -601,6 +626,7 @@ enum
     BC_CG_SEND_MESSAGE = 6,
     BC_CG_RETURN = 7,
     BC_CG_RETURN_NON_LOCAL = 16,
+    BC_CG_PUSH_GLOBAL = 18,
     BC_CG_PUSH_CLOSURE = 14,
     BC_CG_POP = 11
 };
@@ -873,6 +899,44 @@ static int cg_skip_block_literal(BParser *parser)
     return 1;
 }
 
+static int cg_capture_literal_array(CgState *state, uint64_t start, char *out, size_t cap)
+{
+    int depth = 1;
+    while (depth > 0)
+    {
+        BToken token = bp_next(&state->parser);
+        if (token.type == BTOK_EOF)
+        {
+            return 0;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "#(") == 0)
+        {
+            depth++;
+            continue;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ")") == 0)
+        {
+            depth--;
+            continue;
+        }
+    }
+
+    uint64_t end = state->parser.tokenizer.index;
+    if (end <= start)
+    {
+        return 0;
+    }
+    uint64_t length = end - start;
+    if (length >= cap)
+    {
+        return 0;
+    }
+
+    memcpy(out, state->parser.tokenizer.source + start, (size_t)length);
+    out[length] = '\0';
+    return 1;
+}
+
 static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block,
                            const BMethodHeader *header, uint64_t *target_class);
 
@@ -950,7 +1014,12 @@ static int cg_emit_primary_token(CgState *state, BToken token)
             return 1;
         }
 
-        return 0;
+        BToken global_token = make_token(BTOK_CLASS_REF);
+        strncpy(global_token.text, token.text, sizeof(global_token.text) - 1);
+        int global_index = cg_literal_index(state, global_token);
+        cg_emit_byte(state, BC_CG_PUSH_GLOBAL);
+        cg_emit_u32(state, (uint32_t)global_index);
+        return 1;
     }
 
     if (token.type == BTOK_INTEGER || token.type == BTOK_CHARACTER || token.type == BTOK_STRING ||
@@ -970,6 +1039,20 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         }
         BToken close = bp_next(&state->parser);
         return close.type == BTOK_SPECIAL && strcmp(close.text, ")") == 0;
+    }
+
+    if (token.type == BTOK_SPECIAL && strcmp(token.text, "#(") == 0)
+    {
+        BToken literal_array = make_token(BTOK_LITERAL_ARRAY);
+        uint64_t start = state->parser.tokenizer.index >= 2 ? state->parser.tokenizer.index - 2 : 0;
+        if (!cg_capture_literal_array(state, start, literal_array.text, sizeof(literal_array.text)))
+        {
+            return 0;
+        }
+        int index = cg_literal_index(state, literal_array);
+        cg_emit_byte(state, BC_CG_PUSH_LITERAL);
+        cg_emit_u32(state, (uint32_t)index);
+        return 1;
     }
 
     if (token.type == BTOK_SPECIAL && strcmp(token.text, "[") == 0)
@@ -1762,18 +1845,262 @@ static const BClassBinding *bc_find_class_binding(const BClassBinding *classes, 
     return NULL;
 }
 
-static uint64_t bc_selector_token(const char *selector)
+static uint64_t *bc_lookup_smalltalk_global(const char *name)
 {
-    uint32_t hash = 2166136261u;
-    for (const unsigned char *current = (const unsigned char *)selector; *current != '\0'; current++)
+    if (global_smalltalk_dictionary == NULL || !is_object_ptr((uint64_t)global_smalltalk_dictionary) ||
+        name == NULL)
     {
-        hash ^= (uint32_t)(*current);
-        hash *= 16777619u;
+        return NULL;
     }
-    return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
+
+    uint64_t key_oop = lookup_cstring_symbol(name);
+    if (key_oop == tagged_nil())
+    {
+        return NULL;
+    }
+
+    uint64_t associations_oop = BC_OBJ_FIELD(global_smalltalk_dictionary, BC_DICT_ASSOCIATIONS);
+    uint64_t tally_oop = BC_OBJ_FIELD(global_smalltalk_dictionary, BC_DICT_TALLY);
+    if (!is_object_ptr(associations_oop) || tally_oop == tagged_nil())
+    {
+        return NULL;
+    }
+
+    uint64_t *associations = (uint64_t *)associations_oop;
+    uint64_t tally = (uint64_t)untag_smallint(tally_oop);
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        uint64_t association_oop = BC_OBJ_FIELD(associations, index);
+        if (!is_object_ptr(association_oop))
+        {
+            continue;
+        }
+        uint64_t *association = (uint64_t *)association_oop;
+        if (BC_OBJ_FIELD(association, BC_ASSOC_KEY) == key_oop)
+        {
+            uint64_t value = BC_OBJ_FIELD(association, BC_ASSOC_VALUE);
+            return is_object_ptr(value) ? (uint64_t *)value : NULL;
+        }
+    }
+
+    return NULL;
 }
 
-static int bc_literal_token_to_oop(uint64_t *om, const BToken *token, uint64_t *out_oop)
+static uint64_t *bc_lookup_class_named(const BClassBinding *classes, int class_count, const char *class_name)
+{
+    const BClassBinding *binding = bc_find_class_binding(classes, class_count, class_name);
+    if (binding != NULL)
+    {
+        return binding->klass;
+    }
+    return bc_lookup_smalltalk_global(class_name);
+}
+
+static uint64_t *bc_make_byte_string(uint64_t *om, uint64_t *string_class, const char *text)
+{
+    size_t len = strlen(text);
+    uint64_t *string = om_alloc(om, (uint64_t)string_class, BC_FORMAT_BYTES, (uint64_t)len);
+    if (string == NULL)
+    {
+        return NULL;
+    }
+    if (len > 0)
+    {
+        memcpy(&BC_OBJ_FIELD(string, 0), text, len);
+    }
+    return string;
+}
+
+static int bc_global_association_oop(uint64_t *om, uint64_t array_class, uint64_t association_class,
+                                     const char *name, uint64_t value, uint64_t *out_oop)
+{
+    if (global_smalltalk_dictionary == NULL || !is_object_ptr((uint64_t)global_smalltalk_dictionary) ||
+        array_class == 0 || association_class == 0)
+    {
+        return 0;
+    }
+
+    uint64_t key_oop = intern_cstring_symbol(om, name);
+    if (key_oop == tagged_nil())
+    {
+        return 0;
+    }
+
+    uint64_t associations_oop = BC_OBJ_FIELD(global_smalltalk_dictionary, BC_DICT_ASSOCIATIONS);
+    uint64_t tally_oop = BC_OBJ_FIELD(global_smalltalk_dictionary, BC_DICT_TALLY);
+    uint64_t tally = tally_oop == tagged_nil() ? 0 : (uint64_t)untag_smallint(tally_oop);
+
+    if (associations_oop == tagged_nil())
+    {
+        uint64_t *new_associations = om_alloc(om, array_class, FORMAT_INDEXABLE, 8);
+        if (new_associations == NULL)
+        {
+            return 0;
+        }
+        for (uint64_t index = 0; index < 8; index++)
+        {
+            BC_OBJ_FIELD(new_associations, index) = tagged_nil();
+        }
+        BC_OBJ_FIELD(global_smalltalk_dictionary, BC_DICT_ASSOCIATIONS) = (uint64_t)new_associations;
+        BC_OBJ_FIELD(global_smalltalk_dictionary, BC_DICT_TALLY) = tag_smallint(0);
+        associations_oop = (uint64_t)new_associations;
+    }
+
+    if (!is_object_ptr(associations_oop))
+    {
+        return 0;
+    }
+    uint64_t *associations = (uint64_t *)associations_oop;
+
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        uint64_t association_oop = BC_OBJ_FIELD(associations, index);
+        if (!is_object_ptr(association_oop))
+        {
+            continue;
+        }
+
+        uint64_t *association = (uint64_t *)association_oop;
+        if (BC_OBJ_FIELD(association, BC_ASSOC_KEY) == key_oop)
+        {
+            BC_OBJ_FIELD(association, BC_ASSOC_VALUE) = value;
+            *out_oop = association_oop;
+            return 1;
+        }
+    }
+
+    if (tally >= BC_OBJ_SIZE(associations))
+    {
+        uint64_t new_size = BC_OBJ_SIZE(associations) == 0 ? 8 : BC_OBJ_SIZE(associations) * 2;
+        uint64_t *grown = om_alloc(om, array_class, FORMAT_INDEXABLE, new_size);
+        if (grown == NULL)
+        {
+            return 0;
+        }
+        for (uint64_t index = 0; index < new_size; index++)
+        {
+            BC_OBJ_FIELD(grown, index) = index < BC_OBJ_SIZE(associations)
+                                             ? BC_OBJ_FIELD(associations, index)
+                                             : tagged_nil();
+        }
+        BC_OBJ_FIELD(global_smalltalk_dictionary, BC_DICT_ASSOCIATIONS) = (uint64_t)grown;
+        associations = grown;
+    }
+
+    uint64_t *association = om_alloc(om, association_class, FORMAT_FIELDS, 2);
+    if (association == NULL)
+    {
+        return 0;
+    }
+    BC_OBJ_FIELD(association, BC_ASSOC_KEY) = key_oop;
+    BC_OBJ_FIELD(association, BC_ASSOC_VALUE) = value;
+    BC_OBJ_FIELD(associations, tally) = (uint64_t)association;
+    BC_OBJ_FIELD(global_smalltalk_dictionary, BC_DICT_TALLY) = tag_smallint((int64_t)(tally + 1));
+
+    *out_oop = (uint64_t)association;
+    return 1;
+}
+
+static int bc_literal_token_to_oop(uint64_t *om, uint64_t *string_class, uint64_t *array_class,
+                                   uint64_t *association_class, const BToken *token, uint64_t *out_oop);
+
+static int bc_materialize_literal_array_oop(uint64_t *om, uint64_t *string_class, uint64_t *array_class,
+                                            uint64_t *association_class, const char *source, uint64_t *out_oop)
+{
+    BTokenizer tokenizer;
+    bt_init(&tokenizer, source);
+
+    BToken open = bt_next(&tokenizer);
+    if (open.type != BTOK_SPECIAL || strcmp(open.text, "#(") != 0)
+    {
+        return 0;
+    }
+
+    BToken items[16];
+    int item_count = 0;
+    while (1)
+    {
+        BToken token = bt_next(&tokenizer);
+        if (token.type == BTOK_EOF)
+        {
+            return 0;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ")") == 0)
+        {
+            break;
+        }
+        if (item_count >= 16)
+        {
+            return 0;
+        }
+
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "#(") == 0)
+        {
+            uint64_t nested_start = tokenizer.index >= 2 ? tokenizer.index - 2 : 0;
+            int depth = 1;
+            while (depth > 0)
+            {
+                BToken nested = bt_next(&tokenizer);
+                if (nested.type == BTOK_EOF)
+                {
+                    return 0;
+                }
+                if (nested.type == BTOK_SPECIAL && strcmp(nested.text, "#(") == 0)
+                {
+                    depth++;
+                }
+                else if (nested.type == BTOK_SPECIAL && strcmp(nested.text, ")") == 0)
+                {
+                    depth--;
+                }
+            }
+
+            BToken literal_array = make_token(BTOK_LITERAL_ARRAY);
+            uint64_t nested_len = tokenizer.index - nested_start;
+            if (nested_len >= sizeof(literal_array.text))
+            {
+                return 0;
+            }
+            memcpy(literal_array.text, source + nested_start, (size_t)nested_len);
+            literal_array.text[nested_len] = '\0';
+            items[item_count++] = literal_array;
+            continue;
+        }
+
+        items[item_count++] = token;
+    }
+
+    uint64_t *array = om_alloc(om, (uint64_t)array_class, BC_FORMAT_INDEXABLE, (uint64_t)item_count);
+    if (array == NULL)
+    {
+        return 0;
+    }
+
+    for (int index = 0; index < item_count; index++)
+    {
+        uint64_t element = 0;
+        if (items[index].type == BTOK_LITERAL_ARRAY)
+        {
+            if (!bc_materialize_literal_array_oop(om, string_class, array_class, association_class,
+                                                  items[index].text, &element))
+            {
+                return 0;
+            }
+        }
+        else if (!bc_literal_token_to_oop(om, string_class, array_class, association_class,
+                                          &items[index], &element))
+        {
+            return 0;
+        }
+        BC_OBJ_FIELD(array, index) = element;
+    }
+
+    *out_oop = (uint64_t)array;
+    return 1;
+}
+
+static int bc_literal_token_to_oop(uint64_t *om, uint64_t *string_class, uint64_t *array_class,
+                                   uint64_t *association_class, const BToken *token, uint64_t *out_oop)
 {
     if (token->type == BTOK_INTEGER)
     {
@@ -1785,6 +2112,15 @@ static int bc_literal_token_to_oop(uint64_t *om, const BToken *token, uint64_t *
         *out_oop = tag_character((uint64_t)token->int_value);
         return 1;
     }
+    if (token->type == BTOK_STRING)
+    {
+        if (string_class == NULL)
+        {
+            return 0;
+        }
+        *out_oop = (uint64_t)bc_make_byte_string(om, string_class, token->text);
+        return *out_oop != 0;
+    }
     if (token->type == BTOK_SYMBOL)
     {
         *out_oop = intern_cstring_symbol(om, token->text);
@@ -1794,6 +2130,16 @@ static int bc_literal_token_to_oop(uint64_t *om, const BToken *token, uint64_t *
     {
         *out_oop = intern_cstring_symbol(om, token->text);
         return *out_oop != tagged_nil();
+    }
+    if (token->type == BTOK_CLASS_REF)
+    {
+        uint64_t *klass = bc_lookup_class_named(bc_active_class_bindings, bc_active_class_count, token->text);
+        if (klass == NULL || association_class == NULL)
+        {
+            return 0;
+        }
+        return bc_global_association_oop(om, (uint64_t)array_class, (uint64_t)association_class, token->text,
+                                         (uint64_t)klass, out_oop);
     }
     if (token->type == BTOK_IDENTIFIER)
     {
@@ -1816,11 +2162,21 @@ static int bc_literal_token_to_oop(uint64_t *om, const BToken *token, uint64_t *
     return 0;
 }
 
-static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_class, const BCompiledBlock *block);
+static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
+                                              uint64_t *array_class,
+                                              uint64_t *association_class,
+                                              const BCompiledBlock *block);
+static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
+                                        uint64_t *array_class, uint64_t *association_class,
+                                        const BCompiledBody *body);
 
-static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_class, const BCompiledBlock *block)
+static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
+                                               uint64_t *array_class,
+                                               uint64_t *association_class,
+                                               const BCompiledBlock *block)
 {
-    uint64_t *literals = bc_build_block_literal_array(om, class_class, block);
+    uint64_t *literals = bc_build_block_literal_array(om, class_class, string_class, array_class,
+                                                      association_class, block);
     if (block->literal_count > 0 && literals == NULL)
     {
         return NULL;
@@ -1854,7 +2210,10 @@ static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_cla
     return compiled_method;
 }
 
-static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_class, const BCompiledBlock *block)
+static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
+                                              uint64_t *array_class,
+                                              uint64_t *association_class,
+                                              const BCompiledBlock *block)
 {
     if (block->literal_count == 0)
     {
@@ -1873,7 +2232,8 @@ static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_clas
         {
             return NULL;
         }
-        if (!bc_literal_token_to_oop(om, &block->literals[index], &literal_oop))
+        if (!bc_literal_token_to_oop(om, string_class, array_class, association_class,
+                                     &block->literals[index], &literal_oop))
         {
             return NULL;
         }
@@ -1882,7 +2242,9 @@ static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_clas
     return literals;
 }
 
-static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, const BCompiledBody *body)
+static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
+                                        uint64_t *array_class, uint64_t *association_class,
+                                        const BCompiledBody *body)
 {
     if (body->literal_count == 0)
     {
@@ -1900,14 +2262,26 @@ static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, con
             {
                 return NULL;
             }
-            uint64_t *compiled_block = bc_materialize_compiled_block(om, class_class, &body->blocks[block_index]);
+            uint64_t *compiled_block = bc_materialize_compiled_block(om, class_class, string_class,
+                                                                     array_class,
+                                                                     association_class, &body->blocks[block_index]);
             if (compiled_block == NULL)
             {
                 return NULL;
             }
             literal_oop = (uint64_t)compiled_block;
         }
-        else if (!bc_literal_token_to_oop(om, &body->literals[index], &literal_oop))
+        else if (body->literals[index].type == BTOK_LITERAL_ARRAY)
+        {
+            if (array_class == NULL ||
+                !bc_materialize_literal_array_oop(om, string_class, array_class, association_class,
+                                                  body->literals[index].text, &literal_oop))
+            {
+                return NULL;
+            }
+        }
+        else if (!bc_literal_token_to_oop(om, string_class, array_class, association_class,
+                                          &body->literals[index], &literal_oop))
         {
             return NULL;
         }
@@ -1934,23 +2308,26 @@ static uint64_t *bc_append_method_dict(uint64_t *om, uint64_t *class_class, uint
     return new_md;
 }
 
-static uint64_t *bc_target_class_for_method(const BClassBinding *binding, const BCompiledMethodDef *method)
+static uint64_t *bc_target_class_for_method(uint64_t *klass, const BCompiledMethodDef *method)
 {
     if (!method->class_side)
     {
-        return binding->klass;
+        return klass;
     }
-    if (((uint64_t)binding->klass & 3) != 0)
+    if (((uint64_t)klass & 3) != 0)
     {
         return NULL;
     }
-    return (uint64_t *)BC_OBJ_CLASS(binding->klass);
+    return (uint64_t *)BC_OBJ_CLASS(klass);
 }
 
 static uint64_t *bc_materialize_compiled_method(uint64_t *om, uint64_t *class_class,
+                                                uint64_t *string_class, uint64_t *array_class,
+                                                uint64_t *association_class,
                                                 const BCompiledMethodDef *method)
 {
-    uint64_t *literals = bc_build_literal_array(om, class_class, &method->body);
+    uint64_t *literals = bc_build_literal_array(om, class_class, string_class, array_class,
+                                                association_class, &method->body);
     if (method->body.literal_count > 0 && literals == NULL)
     {
         return NULL;
@@ -1981,38 +2358,59 @@ int bc_install_compiled_methods(uint64_t *om, uint64_t *class_class,
                                 const BClassBinding *classes, int class_count,
                                 const BCompiledMethodDef *methods, int method_count)
 {
+    const BClassBinding *saved_bindings = bc_active_class_bindings;
+    int saved_binding_count = bc_active_class_count;
+    uint64_t *string_class = bc_lookup_class_named(classes, class_count, "String");
+    uint64_t *array_class = bc_lookup_class_named(classes, class_count, "Array");
+    uint64_t *association_class = bc_lookup_class_named(classes, class_count, "Association");
+    bc_active_class_bindings = classes;
+    bc_active_class_count = class_count;
+
     for (int index = 0; index < method_count; index++)
     {
         const BCompiledMethodDef *method = &methods[index];
-        const BClassBinding *binding = bc_find_class_binding(classes, class_count, method->class_name);
-        if (binding == NULL)
+        uint64_t *klass = bc_lookup_class_named(classes, class_count, method->class_name);
+        if (klass == NULL)
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
 
-        uint64_t *target_class = bc_target_class_for_method(binding, method);
+        uint64_t *target_class = bc_target_class_for_method(klass, method);
         if (target_class == NULL)
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
 
         uint64_t selector_oop = intern_cstring_symbol(om, method->header.selector);
         if (selector_oop == tagged_nil())
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
-        uint64_t *compiled_method = bc_materialize_compiled_method(om, class_class, method);
+        uint64_t *compiled_method = bc_materialize_compiled_method(om, class_class, string_class,
+                                                                   array_class, association_class, method);
         if (compiled_method == NULL)
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
 
         if (bc_append_method_dict(om, class_class, target_class, selector_oop, (uint64_t)compiled_method) == NULL)
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
     }
 
+    bc_active_class_bindings = saved_bindings;
+    bc_active_class_count = saved_binding_count;
     return 1;
 }
 
@@ -2022,18 +2420,29 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
 {
     BMethodChunk chunks[128];
     int chunk_count = 0;
+    const BClassBinding *saved_bindings = bc_active_class_bindings;
+    int saved_binding_count = bc_active_class_count;
+    uint64_t *string_class = bc_lookup_class_named(classes, class_count, "String");
+    uint64_t *array_class = bc_lookup_class_named(classes, class_count, "Array");
+    uint64_t *association_class = bc_lookup_class_named(classes, class_count, "Association");
+    bc_active_class_bindings = classes;
+    bc_active_class_count = class_count;
 
     if (!bc_parse_method_chunks(source, chunks, 128, &chunk_count))
     {
+        bc_active_class_bindings = saved_bindings;
+        bc_active_class_count = saved_binding_count;
         return 0;
     }
 
     for (int index = 0; index < chunk_count; index++)
     {
         const BMethodChunk *chunk = &chunks[index];
-        const BClassBinding *binding = bc_find_class_binding(classes, class_count, chunk->class_name);
-        if (binding == NULL)
+        uint64_t *klass = bc_lookup_class_named(classes, class_count, chunk->class_name);
+        if (klass == NULL)
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
 
@@ -2043,9 +2452,11 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
         method.class_side = chunk->class_side;
         method.primitive_index = -1;
 
-        uint64_t *target_class = bc_target_class_for_method(binding, &method);
+        uint64_t *target_class = bc_target_class_for_method(klass, &method);
         if (target_class == NULL)
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
 
@@ -2077,6 +2488,8 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
 
         if (!bc_parse_method_header(header_source, &method.header))
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
 
@@ -2100,31 +2513,44 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
                 }
                 if (*body_source != '\0' && !bc_codegen_body(body_source, &method.body, 0, &method.header, target_class))
                 {
+                    bc_active_class_bindings = saved_bindings;
+                    bc_active_class_count = saved_binding_count;
                     return 0;
                 }
             }
         }
         else if (!bc_codegen_body(body_source, &method.body, 0, &method.header, target_class))
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
 
         uint64_t selector_oop = intern_cstring_symbol(om, method.header.selector);
         if (selector_oop == tagged_nil())
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
-        uint64_t *compiled_method = bc_materialize_compiled_method(om, class_class, &method);
+        uint64_t *compiled_method = bc_materialize_compiled_method(om, class_class, string_class,
+                                                                   array_class, association_class, &method);
         if (compiled_method == NULL)
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
 
         if (bc_append_method_dict(om, class_class, target_class, selector_oop, (uint64_t)compiled_method) == NULL)
         {
+            bc_active_class_bindings = saved_bindings;
+            bc_active_class_count = saved_binding_count;
             return 0;
         }
     }
 
+    bc_active_class_bindings = saved_bindings;
+    bc_active_class_count = saved_binding_count;
     return 1;
 }

@@ -4,6 +4,7 @@
 uint64_t *global_symbol_table; // Define global symbol table
 uint64_t *global_symbol_class;
 uint64_t *global_context_class;
+uint64_t *global_smalltalk_dictionary;
 
 static uint64_t selector_token_from_cstring(const char *selector)
 {
@@ -28,7 +29,7 @@ static inline void get_byte_obj_data(uint64_t obj_ptr, uint8_t **data, uint64_t 
     *size = OBJ_SIZE(obj);
 }
 
-uint64_t intern_cstring_symbol(uint64_t *om, const char *text)
+uint64_t lookup_cstring_symbol(const char *text)
 {
     if (global_symbol_table == NULL || global_symbol_class == NULL || text == NULL)
     {
@@ -57,6 +58,25 @@ uint64_t intern_cstring_symbol(uint64_t *om, const char *text)
             return existing_symbol;
         }
     }
+
+    return tagged_nil();
+}
+
+uint64_t intern_cstring_symbol(uint64_t *om, const char *text)
+{
+    if (global_symbol_table == NULL || global_symbol_class == NULL || text == NULL)
+    {
+        return tagged_nil();
+    }
+
+    uint64_t existing = lookup_cstring_symbol(text);
+    if (existing != tagged_nil())
+    {
+        return existing;
+    }
+
+    uint64_t text_size = (uint64_t)strlen(text);
+    uint64_t table_size = OBJ_SIZE(global_symbol_table);
 
     uint64_t *symbol_obj = om_alloc(om, (uint64_t)global_symbol_class, FORMAT_BYTES, text_size);
     if (symbol_obj == NULL)

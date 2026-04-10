@@ -335,6 +335,102 @@ static uint64_t *find_bound_class(const BClassBinding *bindings, int binding_cou
     return NULL;
 }
 
+static uint64_t *smalltalk_lookup_class(const char *name)
+{
+    if (global_smalltalk_dictionary == NULL || !is_object_ptr((uint64_t)global_smalltalk_dictionary))
+    {
+        return NULL;
+    }
+
+    uint64_t key = lookup_cstring_symbol(name);
+    if (key == tagged_nil())
+    {
+        return NULL;
+    }
+
+    uint64_t associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
+    uint64_t tally_oop = OBJ_FIELD(global_smalltalk_dictionary, 1);
+    if (!is_object_ptr(associations_oop) || tally_oop == tagged_nil())
+    {
+        return NULL;
+    }
+
+    uint64_t *associations = (uint64_t *)associations_oop;
+    uint64_t tally = (uint64_t)untag_smallint(tally_oop);
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        uint64_t assoc_oop = OBJ_FIELD(associations, index);
+        if (!is_object_ptr(assoc_oop))
+        {
+            continue;
+        }
+        uint64_t *assoc = (uint64_t *)assoc_oop;
+        if (OBJ_FIELD(assoc, 0) == key)
+        {
+            return is_object_ptr(OBJ_FIELD(assoc, 1)) ? (uint64_t *)OBJ_FIELD(assoc, 1) : NULL;
+        }
+    }
+    return NULL;
+}
+
+static void smalltalk_at_put(uint64_t *om, uint64_t *array_class, uint64_t *association_class,
+                             const char *name, uint64_t value)
+{
+    uint64_t key = intern_cstring_symbol(om, name);
+    uint64_t associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
+    uint64_t tally = OBJ_FIELD(global_smalltalk_dictionary, 1) == tagged_nil()
+                         ? 0
+                         : (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
+
+    if (associations_oop == tagged_nil())
+    {
+        uint64_t *associations = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, 8);
+        for (uint64_t index = 0; index < 8; index++)
+        {
+            OBJ_FIELD(associations, index) = tagged_nil();
+        }
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)associations;
+        associations_oop = (uint64_t)associations;
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+    }
+
+    uint64_t *associations = (uint64_t *)associations_oop;
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        uint64_t assoc_oop = OBJ_FIELD(associations, index);
+        if (!is_object_ptr(assoc_oop))
+        {
+            continue;
+        }
+        uint64_t *assoc = (uint64_t *)assoc_oop;
+        if (OBJ_FIELD(assoc, 0) == key)
+        {
+            OBJ_FIELD(assoc, 1) = value;
+            return;
+        }
+    }
+
+    if (tally >= OBJ_SIZE(associations))
+    {
+        uint64_t new_size = OBJ_SIZE(associations) * 2;
+        uint64_t *grown = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, new_size);
+        for (uint64_t index = 0; index < new_size; index++)
+        {
+            OBJ_FIELD(grown, index) = index < OBJ_SIZE(associations)
+                                          ? OBJ_FIELD(associations, index)
+                                          : tagged_nil();
+        }
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)grown;
+        associations = grown;
+    }
+
+    uint64_t *assoc = om_alloc(om, (uint64_t)association_class, FORMAT_FIELDS, 2);
+    OBJ_FIELD(assoc, 0) = key;
+    OBJ_FIELD(assoc, 1) = value;
+    OBJ_FIELD(associations, tally) = (uint64_t)assoc;
+    OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint((int64_t)(tally + 1));
+}
+
 void test_expression_fixtures(TestContext *ctx)
 {
     static ExpressionFixtureSpec specs[16];
@@ -348,6 +444,7 @@ void test_expression_fixtures(TestContext *ctx)
     uint64_t *saved_symbol_table = global_symbol_table;
     uint64_t *saved_symbol_class = global_symbol_class;
     uint64_t *saved_context_class = global_context_class;
+    uint64_t *saved_smalltalk_dictionary = global_smalltalk_dictionary;
 
     ASSERT_EQ(ctx, read_file("tests/ExpressionFixtureSpecs.txt", fixture_src, sizeof(fixture_src)), 1,
               "expression fixture specs file loads");
@@ -380,6 +477,14 @@ void test_expression_fixtures(TestContext *ctx)
     uint64_t *object_class = make_runtime_class(fixture_om, class_class, string_class, NULL, NULL, 0);
     uint64_t *true_class = make_runtime_class(fixture_om, class_class, string_class, object_class, NULL, 0);
     uint64_t *false_class = make_runtime_class(fixture_om, class_class, string_class, object_class, NULL, 0);
+    uint64_t *array_class = make_runtime_class(fixture_om, class_class, string_class, object_class, NULL, 0);
+    OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+    const char *association_ivars[] = {"key", "value"};
+    const char *dictionary_ivars[] = {"associations", "tally"};
+    uint64_t *association_class = make_runtime_class(fixture_om, class_class, string_class,
+                                                     object_class, association_ivars, 2);
+    uint64_t *dictionary_class = make_runtime_class(fixture_om, class_class, string_class,
+                                                    object_class, dictionary_ivars, 2);
 
     uint64_t *symbol_table = om_alloc(fixture_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
     for (uint64_t index = 0; index < OBJ_SIZE(symbol_table); index++)
@@ -389,6 +494,16 @@ void test_expression_fixtures(TestContext *ctx)
     global_symbol_table = symbol_table;
     global_symbol_class = symbol_class;
     global_context_class = NULL;
+    global_smalltalk_dictionary = om_alloc(fixture_om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+    OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+    OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+    smalltalk_at_put(fixture_om, array_class, association_class, "Object", (uint64_t)object_class);
+    smalltalk_at_put(fixture_om, array_class, association_class, "True", (uint64_t)true_class);
+    smalltalk_at_put(fixture_om, array_class, association_class, "False", (uint64_t)false_class);
+    smalltalk_at_put(fixture_om, array_class, association_class, "String", (uint64_t)string_class);
+    smalltalk_at_put(fixture_om, array_class, association_class, "Array", (uint64_t)array_class);
+    smalltalk_at_put(fixture_om, array_class, association_class, "Association", (uint64_t)association_class);
+    smalltalk_at_put(fixture_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
 
     uint64_t *class_table = om_alloc(fixture_om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
     OBJ_FIELD(class_table, 0) = (uint64_t)smallint_class;
@@ -411,18 +526,12 @@ void test_expression_fixtures(TestContext *ctx)
     md_append(fixture_om, class_class, block_class, "value",
               (uint64_t)make_primitive_cm(fixture_om, class_class, PRIM_BLOCK_VALUE, 0));
 
-    BClassBinding runtime_bindings[3] = {
-        {"Object", object_class},
-        {"True", true_class},
-        {"False", false_class},
-    };
-
     ASSERT_EQ(ctx,
-              bc_compile_and_install_source_methods(fixture_om, class_class, runtime_bindings, 3, true_src),
+              bc_compile_and_install_source_methods(fixture_om, class_class, NULL, 0, true_src),
               1,
               "fixture True methods install");
     ASSERT_EQ(ctx,
-              bc_compile_and_install_source_methods(fixture_om, class_class, runtime_bindings, 3, false_src),
+              bc_compile_and_install_source_methods(fixture_om, class_class, NULL, 0, false_src),
               1,
               "fixture False methods install");
 
@@ -433,37 +542,27 @@ void test_expression_fixtures(TestContext *ctx)
         int setup_method_count = 0;
         BCompiledMethodDef expression_methods[2];
         int expression_method_count = 0;
-        BClassBinding bindings[16];
-        int binding_count = 0;
-
-        for (int index = 0; index < 3; index++)
-        {
-            bindings[binding_count++] = runtime_bindings[index];
-        }
-
         for (int class_index = 0; class_index < fixture->class_count; class_index++)
         {
             FixtureClassDecl *decl = &fixture->classes[class_index];
-            uint64_t *superclass = find_bound_class(bindings, binding_count, decl->superclass_name);
+            uint64_t *superclass = smalltalk_lookup_class(decl->superclass_name);
             ASSERT_EQ(ctx, superclass != NULL, 1, fixture->name);
 
             uint64_t *klass = make_runtime_class(fixture_om, class_class, string_class,
                                                  superclass, NULL, 0);
-            bindings[binding_count].class_name = decl->name;
-            bindings[binding_count].klass = klass;
-            binding_count++;
+            smalltalk_at_put(fixture_om, array_class, association_class, decl->name, (uint64_t)klass);
         }
 
         int setup_parse_ok = bc_compile_source_methods(fixture->setup_source, setup_methods, 8, &setup_method_count);
         int setup_ok = 0;
         if (setup_parse_ok)
         {
-            setup_ok = bc_install_compiled_methods(fixture_om, class_class, bindings, binding_count,
+            setup_ok = bc_install_compiled_methods(fixture_om, class_class, NULL, 0,
                                                    setup_methods, setup_method_count);
         }
         ASSERT_EQ(ctx, setup_ok, 1, fixture->name);
 
-        uint64_t *receiver_class = find_bound_class(bindings, binding_count, fixture->receiver_class_name);
+        uint64_t *receiver_class = smalltalk_lookup_class(fixture->receiver_class_name);
         ASSERT_EQ(ctx, receiver_class != NULL, 1, fixture->name);
         ASSERT_EQ(ctx, class_lookup(receiver_class, selector_oop(fixture_om, "factorial:")) != 0, 1,
                   "fixture helper method installed");
@@ -483,7 +582,7 @@ void test_expression_fixtures(TestContext *ctx)
                   1,
                   "fixture expression source parses");
         ASSERT_EQ(ctx,
-                  bc_install_compiled_methods(fixture_om, class_class, bindings, binding_count,
+                  bc_install_compiled_methods(fixture_om, class_class, NULL, 0,
                                               expression_methods, expression_method_count),
                   1,
                   fixture->name);
@@ -522,4 +621,5 @@ void test_expression_fixtures(TestContext *ctx)
     global_symbol_table = saved_symbol_table;
     global_symbol_class = saved_symbol_class;
     global_context_class = saved_context_class;
+    global_smalltalk_dictionary = saved_smalltalk_dictionary;
 }
