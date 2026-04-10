@@ -823,6 +823,9 @@ void test_smalltalk_expressions(TestContext *ctx)
                 "!TokenizerExpr methodsFor: 'tests'!\n"
                 "tokenizerExpr\n"
                 "    ^ (Tokenizer new setString: '2 + 3') tokens\n"
+                "!\n"
+                "tokenizerExprSecond\n"
+                "    ^ (Tokenizer new setString: '7 + 8') tokens\n"
                 "!\n";
 
             ASSERT_EQ(ctx,
@@ -864,6 +867,26 @@ void test_smalltalk_expressions(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_SIZE(symbol), 1, "tokenizer scenario token 2 size is 1");
         ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(symbol, 0))[0], '+', "tokenizer scenario token 2 text is +");
         ASSERT_EQ(ctx, OBJ_FIELD(result_array, 2), tag_smallint(3), "tokenizer scenario token 3 is integer 3");
+
+        uint64_t second_result = send_selector0(ctx->stack, framework_class_table, tokenizer_om,
+                                                (uint64_t)expr_obj, expr_class, "tokenizerExprSecond");
+        ASSERT_EQ(ctx, is_object_ptr(second_result), 1, "tokenizer second expression returns array object");
+        uint64_t *second_array = (uint64_t *)second_result;
+        ASSERT_EQ(ctx, OBJ_CLASS(second_array), (uint64_t)array_class,
+                  "tokenizer second expression returns Array");
+        ASSERT_EQ(ctx, OBJ_SIZE(second_array), 3, "tokenizer second token array size");
+        ASSERT_EQ(ctx, OBJ_FIELD(second_array, 0), tag_smallint(7),
+                  "tokenizer second scenario token 1 is integer 7");
+        ASSERT_EQ(ctx, is_object_ptr(OBJ_FIELD(second_array, 1)), 1,
+                  "tokenizer second token 2 is object");
+        uint64_t *second_symbol = (uint64_t *)OBJ_FIELD(second_array, 1);
+        ASSERT_EQ(ctx, OBJ_CLASS(second_symbol), (uint64_t)symbol_class,
+                  "tokenizer second scenario token 2 is Symbol");
+        ASSERT_EQ(ctx, OBJ_SIZE(second_symbol), 1, "tokenizer second scenario token 2 size is 1");
+        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(second_symbol, 0))[0], '+',
+                  "tokenizer second scenario token 2 text is +");
+        ASSERT_EQ(ctx, OBJ_FIELD(second_array, 2), tag_smallint(8),
+                  "tokenizer second scenario token 3 is integer 8");
 
         global_symbol_table = saved_global_symbol_table;
         global_symbol_class = saved_global_symbol_class;
