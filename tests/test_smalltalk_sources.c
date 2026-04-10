@@ -21,38 +21,6 @@ static int read_file(const char *path, char *buf, size_t cap)
     return 1;
 }
 
-static int first_failing_chunk_selector(const char *source, char *out_selector, size_t out_cap)
-{
-    BMethodChunk chunks[128];
-    BCompiledMethodDef methods[128];
-    int chunk_count = 0;
-    int method_count = 0;
-
-    if (!bc_parse_method_chunks(source, chunks, 128, &chunk_count))
-    {
-        return 0;
-    }
-
-    for (int index = 0; index < chunk_count; index++)
-    {
-        if (!bc_compile_method_chunks(&chunks[index], 1, methods, 128, &method_count))
-        {
-            const char *method_source = chunks[index].method_source;
-            const char *newline = strchr(method_source, '\n');
-            size_t header_len = newline ? (size_t)(newline - method_source) : strlen(method_source);
-            if (header_len >= out_cap)
-            {
-                header_len = out_cap - 1;
-            }
-            memcpy(out_selector, method_source, header_len);
-            out_selector[header_len] = '\0';
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
 void test_smalltalk_sources(TestContext *ctx)
 {
     static const SmalltalkSourceFile corpus_files[] = {
@@ -75,6 +43,7 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/TestCase.st", "TestCase.st corpus compile", 1},
         {"src/smalltalk/TestResult.st", "TestResult.st corpus compile", 1},
         {"src/smalltalk/TestSuite.st", "TestSuite.st corpus compile", 1},
+        {"src/smalltalk/Tokenizer.st", "Tokenizer.st corpus compile", 1},
         {"src/smalltalk/True.st", "True.st corpus compile", 1},
         {"src/smalltalk/UndefinedObject.st", "UndefinedObject.st corpus compile", 1},
         {"src/smalltalk/WriteStream.st", "WriteStream.st corpus compile", 1},
@@ -96,10 +65,10 @@ void test_smalltalk_sources(TestContext *ctx)
     char test_result_src[4096];
     char test_case_src[4096];
     char test_suite_src[4096];
+    char tokenizer_src[8192];
     char expression_spec_test_src[2048];
     char expr_specs_src[4096];
     char expr_fixture_specs_src[8192];
-    char failing_selector[256];
     BCompiledMethodDef methods[64];
     int method_count = 0;
 
@@ -153,11 +122,6 @@ void test_smalltalk_sources(TestContext *ctx)
               "String>>printString prints chars via asCharacter printChar");
     ASSERT_EQ(ctx, strstr(string_src, "= aString\n    <primitive: 25>\n    false") != NULL, 1,
               "String>>= has explicit false fallback");
-    ASSERT_EQ(ctx, first_failing_chunk_selector(string_src, failing_selector, sizeof(failing_selector)), 1,
-              "String.st exposes first failing chunk");
-    ASSERT_EQ(ctx, strcmp(failing_selector, "printString"), 0,
-              "String.st first failing chunk is printString");
-
     ASSERT_EQ(ctx, read_file("src/smalltalk/Symbol.st", symbol_src, sizeof(symbol_src)), 1,
               "src/smalltalk/Symbol.st exists");
     ASSERT_EQ(ctx, strstr(symbol_src, "= aSymbol") != NULL, 1,
@@ -178,9 +142,13 @@ void test_smalltalk_sources(TestContext *ctx)
               "Array>>at: uses primitive 7");
     ASSERT_EQ(ctx, strstr(array_src, "at: index put: value\n    <primitive: 9>") != NULL, 1,
               "Array>>at:put: uses primitive 9");
+    ASSERT_EQ(ctx, strstr(array_src, "= anArray") != NULL, 1,
+              "Array>>= method exists");
+    ASSERT_EQ(ctx, strstr(array_src, "elementsEqualTo: anArray startingAt: index") != NULL, 1,
+              "Array recursive element equality helper exists");
     ASSERT_EQ(ctx, bc_compile_source_methods(array_src, methods, 64, &method_count), 1,
               "Array.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 3, "Array.st method count");
+    ASSERT_EQ(ctx, method_count, 5, "Array.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Collection.st", collection_src, sizeof(collection_src)), 1,
               "src/smalltalk/Collection.st exists");
@@ -188,11 +156,6 @@ void test_smalltalk_sources(TestContext *ctx)
               "Collection has basicAt:");
     ASSERT_EQ(ctx, strstr(collection_src, "basicAt: index put: value") != NULL, 1,
               "Collection has basicAt:put:");
-    ASSERT_EQ(ctx, first_failing_chunk_selector(collection_src, failing_selector, sizeof(failing_selector)), 1,
-              "Collection.st exposes first failing chunk");
-    ASSERT_EQ(ctx, strcmp(failing_selector, "at: index"), 0,
-              "Collection.st first failing chunk is at: index");
-
     ASSERT_EQ(ctx, read_file("src/smalltalk/Association.st", association_src, sizeof(association_src)), 1,
               "src/smalltalk/Association.st exists");
     ASSERT_EQ(ctx, strstr(association_src, "key: aKey value: aValue") != NULL, 1,
@@ -211,15 +174,12 @@ void test_smalltalk_sources(TestContext *ctx)
               "Dictionary search advances linearly");
     ASSERT_EQ(ctx, strstr(dictionary_src, "assoc := Association new.") != NULL, 1,
               "Dictionary stores Associations");
+    ASSERT_EQ(ctx, strstr(dictionary_src, "associationAt: aKey") != NULL, 1,
+              "Dictionary exposes associationAt:");
     ASSERT_EQ(ctx, strstr(dictionary_src, "associations at: tally put: assoc.") != NULL, 1,
               "Dictionary appends association in storage array");
     ASSERT_EQ(ctx, strstr(dictionary_src, "at: aKey ifAbsent: aBlock") != NULL, 1,
               "Dictionary supports at:ifAbsent:");
-    ASSERT_EQ(ctx, first_failing_chunk_selector(dictionary_src, failing_selector, sizeof(failing_selector)), 1,
-              "Dictionary.st exposes first failing chunk");
-    ASSERT_EQ(ctx, strcmp(failing_selector, "ensureStorage"), 0,
-              "Dictionary.st first failing chunk is ensureStorage");
-
     ASSERT_EQ(ctx, read_file("src/smalltalk/SystemDictionary.st", system_dictionary_src, sizeof(system_dictionary_src)), 1,
               "src/smalltalk/SystemDictionary.st exists");
     ASSERT_EQ(ctx, strstr(system_dictionary_src, "initializeSmalltalkNamespace") != NULL, 1,
@@ -312,6 +272,16 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, bc_compile_source_methods(test_suite_src, methods, 64, &method_count), 1,
               "TestSuite.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 6, "TestSuite.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
+              "src/smalltalk/Tokenizer.st exists");
+    ASSERT_EQ(ctx, strstr(tokenizer_src, "tokens") != NULL, 1,
+              "Tokenizer has tokens entrypoint");
+    ASSERT_EQ(ctx, strstr(tokenizer_src, "selectorTokenFor: aValue") != NULL, 1,
+              "Tokenizer materializes selector-symbol tokens");
+    ASSERT_EQ(ctx, bc_compile_source_methods(tokenizer_src, methods, 64, &method_count), 1,
+              "Tokenizer.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 9, "Tokenizer.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
               "src/smalltalk/ExpressionSpecTest.st exists");

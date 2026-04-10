@@ -754,6 +754,14 @@ void test_smalltalk_expressions(TestContext *ctx)
                   "tokenizer source loads");
 
         ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(tokenizer_om, class_class, NULL, 0, true_control_flow_src),
+                  1,
+                  "tokenizer True methods install");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(tokenizer_om, class_class, NULL, 0, false_control_flow_src),
+                  1,
+                  "tokenizer False methods install");
+        ASSERT_EQ(ctx,
                   bc_compile_and_install_source_methods(tokenizer_om, class_class, NULL, 0, tokenizer_set_string_src),
                   1,
                   "tokenizer setString: install");
@@ -848,14 +856,14 @@ void test_smalltalk_expressions(TestContext *ctx)
         uint64_t *result_array = (uint64_t *)result;
         ASSERT_EQ(ctx, OBJ_CLASS(result_array), (uint64_t)array_class, "tokenizer expression returns Array");
         ASSERT_EQ(ctx, OBJ_SIZE(result_array), 3, "tokenizer token array size");
-        ASSERT_EQ(ctx, OBJ_FIELD(result_array, 0), tag_smallint(2), "tokenizer token 1 is integer 2");
+        ASSERT_EQ(ctx, OBJ_FIELD(result_array, 0), tag_smallint(2), "tokenizer scenario token 1 is integer 2");
         ASSERT_EQ(ctx, is_object_ptr(OBJ_FIELD(result_array, 1)), 1, "tokenizer token 2 is object");
         uint64_t *symbol = (uint64_t *)OBJ_FIELD(result_array, 1);
         ASSERT_EQ(ctx, OBJ_CLASS(symbol), (uint64_t)symbol_class,
-                  "tokenizer token 2 is Symbol");
-        ASSERT_EQ(ctx, OBJ_SIZE(symbol), 1, "tokenizer token 2 size is 1");
-        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(symbol, 0))[0], '+', "tokenizer token 2 text is +");
-        ASSERT_EQ(ctx, OBJ_FIELD(result_array, 2), tag_smallint(3), "tokenizer token 3 is integer 3");
+                  "tokenizer scenario token 2 is Symbol");
+        ASSERT_EQ(ctx, OBJ_SIZE(symbol), 1, "tokenizer scenario token 2 size is 1");
+        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(symbol, 0))[0], '+', "tokenizer scenario token 2 text is +");
+        ASSERT_EQ(ctx, OBJ_FIELD(result_array, 2), tag_smallint(3), "tokenizer scenario token 3 is integer 3");
 
         global_symbol_table = saved_global_symbol_table;
         global_symbol_class = saved_global_symbol_class;
