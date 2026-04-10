@@ -12,6 +12,50 @@ static uint64_t *make_test_string(uint64_t *om, uint64_t *string_class, const ch
     return obj;
 }
 
+static void smalltalk_at_put(uint64_t *om, uint64_t *array_class, uint64_t *association_class,
+                             const char *name, uint64_t value)
+{
+    uint64_t key = intern_cstring_symbol(om, name);
+    uint64_t associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
+    uint64_t tally = OBJ_FIELD(global_smalltalk_dictionary, 1) == tagged_nil()
+                         ? 0
+                         : (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
+
+    if (associations_oop == tagged_nil())
+    {
+        uint64_t *associations = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, 8);
+        for (uint64_t index = 0; index < 8; index++)
+        {
+            OBJ_FIELD(associations, index) = tagged_nil();
+        }
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)associations;
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+        associations_oop = (uint64_t)associations;
+    }
+
+    uint64_t *associations = (uint64_t *)associations_oop;
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        uint64_t assoc_oop = OBJ_FIELD(associations, index);
+        if (!is_object_ptr(assoc_oop))
+        {
+            continue;
+        }
+        uint64_t *assoc = (uint64_t *)assoc_oop;
+        if (OBJ_FIELD(assoc, 0) == key)
+        {
+            OBJ_FIELD(assoc, 1) = value;
+            return;
+        }
+    }
+
+    uint64_t *assoc = om_alloc(om, (uint64_t)association_class, FORMAT_FIELDS, 2);
+    OBJ_FIELD(assoc, 0) = key;
+    OBJ_FIELD(assoc, 1) = value;
+    OBJ_FIELD(associations, tally) = (uint64_t)assoc;
+    OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint((int64_t)(tally + 1));
+}
+
 void test_persist(TestContext *ctx)
 {
     uint64_t *om = ctx->om;
@@ -424,9 +468,8 @@ void test_persist(TestContext *ctx)
         OBJ_FIELD(image_ivars, 0) = (uint64_t)make_test_string(s8, ctx->string_class, "slot0");
         OBJ_FIELD(image_class, CLASS_INST_VARS) = (uint64_t)image_ivars;
 
-        BClassBinding bindings[1] = {
-            {"ImageThing", image_class},
-        };
+        const char *association_ivars[] = {"key", "value"};
+        const char *dictionary_ivars[] = {"associations", "tally"};
         uint64_t *image_symbol_table = om_alloc(s8, (uint64_t)class_class, FORMAT_INDEXABLE, 64);
         for (int i = 0; i < 64; i++)
         {
@@ -434,20 +477,54 @@ void test_persist(TestContext *ctx)
         }
         uint64_t *saved_global_symbol_table = global_symbol_table;
         uint64_t *saved_global_symbol_class = global_symbol_class;
+        uint64_t *saved_global_smalltalk_dictionary = global_smalltalk_dictionary;
         global_symbol_table = image_symbol_table;
         global_symbol_class = ctx->symbol_class;
+        uint64_t *array_class = om_alloc(s8, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        OBJ_FIELD(array_class, CLASS_INST_VARS) = tagged_nil();
+        uint64_t *association_class = om_alloc(s8, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(association_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(association_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        uint64_t *association_ivars_obj = om_alloc(s8, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(association_ivars_obj, 0) = (uint64_t)make_test_string(s8, ctx->string_class, association_ivars[0]);
+        OBJ_FIELD(association_ivars_obj, 1) = (uint64_t)make_test_string(s8, ctx->string_class, association_ivars[1]);
+        OBJ_FIELD(association_class, CLASS_INST_VARS) = (uint64_t)association_ivars_obj;
+        uint64_t *dictionary_class = om_alloc(s8, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(dictionary_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(dictionary_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        uint64_t *dictionary_ivars_obj = om_alloc(s8, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(dictionary_ivars_obj, 0) = (uint64_t)make_test_string(s8, ctx->string_class, dictionary_ivars[0]);
+        OBJ_FIELD(dictionary_ivars_obj, 1) = (uint64_t)make_test_string(s8, ctx->string_class, dictionary_ivars[1]);
+        OBJ_FIELD(dictionary_class, CLASS_INST_VARS) = (uint64_t)dictionary_ivars_obj;
+        global_smalltalk_dictionary = om_alloc(s8, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+        smalltalk_at_put(s8, array_class, association_class, "String", (uint64_t)ctx->string_class);
+        smalltalk_at_put(s8, array_class, association_class, "Array", (uint64_t)array_class);
+        smalltalk_at_put(s8, array_class, association_class, "Association", (uint64_t)association_class);
+        smalltalk_at_put(s8, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+        smalltalk_at_put(s8, array_class, association_class, "ImageThing", (uint64_t)image_class);
         const char *source =
             "!ImageThing methodsFor: 'testing'!\n"
             "answer\n"
             "    ^ slot0\n"
             "!\n";
         ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(s8, class_class, bindings, 1, source),
+                  bc_compile_and_install_source_methods(s8, class_class, NULL, 0, source),
                   1,
                   "persist image-exec: source methods install");
         uint64_t answer_selector = intern_cstring_symbol(s8, "answer");
         global_symbol_table = saved_global_symbol_table;
         global_symbol_class = saved_global_symbol_class;
+        global_smalltalk_dictionary = saved_global_smalltalk_dictionary;
 
         uint64_t *receiver = om_alloc(s8, (uint64_t)image_class, FORMAT_FIELDS, 1);
         OBJ_FIELD(receiver, 0) = tag_smallint(42);

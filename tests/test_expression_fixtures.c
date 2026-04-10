@@ -322,19 +322,6 @@ static uint64_t *make_runtime_class(uint64_t *om, uint64_t *class_class, uint64_
     return klass;
 }
 
-static uint64_t *find_bound_class(const BClassBinding *bindings, int binding_count, const char *name)
-{
-    for (int index = 0; index < binding_count; index++)
-    {
-        if (bindings[index].class_name != NULL && bindings[index].klass != NULL &&
-            strcmp(bindings[index].class_name, name) == 0)
-        {
-            return bindings[index].klass;
-        }
-    }
-    return NULL;
-}
-
 static uint64_t *smalltalk_lookup_class(const char *name)
 {
     if (global_smalltalk_dictionary == NULL || !is_object_ptr((uint64_t)global_smalltalk_dictionary))

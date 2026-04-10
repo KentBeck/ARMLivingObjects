@@ -211,6 +211,64 @@ static uint64_t *make_class_with_ivars(uint64_t *om, uint64_t *class_class, uint
     return klass;
 }
 
+static void smalltalk_at_put(uint64_t *om, uint64_t *array_class, uint64_t *association_class,
+                             const char *name, uint64_t value)
+{
+    uint64_t key = intern_cstring_symbol(om, name);
+    uint64_t associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
+    uint64_t tally = OBJ_FIELD(global_smalltalk_dictionary, 1) == tagged_nil()
+                         ? 0
+                         : (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
+
+    if (associations_oop == tagged_nil())
+    {
+        uint64_t *associations = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, 8);
+        for (uint64_t index = 0; index < 8; index++)
+        {
+            OBJ_FIELD(associations, index) = tagged_nil();
+        }
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)associations;
+        associations_oop = (uint64_t)associations;
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+    }
+
+    uint64_t *associations = (uint64_t *)associations_oop;
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        uint64_t assoc_oop = OBJ_FIELD(associations, index);
+        if (!is_object_ptr(assoc_oop))
+        {
+            continue;
+        }
+        uint64_t *assoc = (uint64_t *)assoc_oop;
+        if (OBJ_FIELD(assoc, 0) == key)
+        {
+            OBJ_FIELD(assoc, 1) = value;
+            return;
+        }
+    }
+
+    if (tally >= OBJ_SIZE(associations))
+    {
+        uint64_t new_size = OBJ_SIZE(associations) * 2;
+        uint64_t *grown = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, new_size);
+        for (uint64_t index = 0; index < new_size; index++)
+        {
+            OBJ_FIELD(grown, index) = index < OBJ_SIZE(associations)
+                                          ? OBJ_FIELD(associations, index)
+                                          : tagged_nil();
+        }
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)grown;
+        associations = grown;
+    }
+
+    uint64_t *assoc = om_alloc(om, (uint64_t)association_class, FORMAT_FIELDS, 2);
+    OBJ_FIELD(assoc, 0) = key;
+    OBJ_FIELD(assoc, 1) = value;
+    OBJ_FIELD(associations, tally) = (uint64_t)assoc;
+    OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint((int64_t)(tally + 1));
+}
+
 static uint64_t send_selector0(uint64_t *stack, uint64_t *class_table, uint64_t *om,
                                uint64_t receiver, uint64_t *receiver_class, const char *selector)
 {
@@ -239,9 +297,26 @@ static uint64_t send_selector1(uint64_t *stack, uint64_t *class_table, uint64_t 
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), class_table, om, NULL);
 }
 
+static uint64_t send_selector2(uint64_t *stack, uint64_t *class_table, uint64_t *om,
+                               uint64_t receiver, uint64_t *receiver_class, const char *selector,
+                               uint64_t arg0, uint64_t arg1)
+{
+    uint64_t method_oop = class_lookup(receiver_class, selector_oop(om, selector));
+    uint64_t *compiled_method = (uint64_t *)method_oop;
+    uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
+    uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    uint64_t *fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, stack, receiver);
+    stack_push(&sp, stack, arg0);
+    stack_push(&sp, stack, arg1);
+    activate_method(&sp, &fp, 0, (uint64_t)compiled_method, 2, 0);
+    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), class_table, om, NULL);
+}
+
 void test_smalltalk_expressions(TestContext *ctx)
 {
     char context_src[2048];
+    char tokenizer_src[8192];
     char expression_spec_test_src[2048];
     const char *object_testing_src =
         "!Object methodsFor: 'testing'!\n"
@@ -266,6 +341,16 @@ void test_smalltalk_expressions(TestContext *ctx)
         "!UndefinedObject methodsFor: 'testing'!\n"
         "isNil\n"
         "    ^ true\n"
+        "!\n";
+    const char *true_control_flow_src =
+        "!True methodsFor: 'control flow'!\n"
+        "ifTrue: trueBlock ifFalse: falseBlock\n"
+        "    ^ trueBlock value\n"
+        "!\n";
+    const char *false_control_flow_src =
+        "!False methodsFor: 'control flow'!\n"
+        "ifTrue: trueBlock ifFalse: falseBlock\n"
+        "    ^ falseBlock value\n"
         "!\n";
     const char *test_result_runtime_src =
         "!TestResult methodsFor: 'initialization'!\n"
@@ -299,6 +384,9 @@ void test_smalltalk_expressions(TestContext *ctx)
         "wasSuccessful\n"
         "    ^ failureCount = 0\n"
         "!\n";
+    const char *association_ivars[] = {"key", "value"};
+    const char *dictionary_ivars[] = {"associations", "tally"};
+    uint64_t *saved_global_smalltalk_dictionary = global_smalltalk_dictionary;
 
     md_append(ctx->om, ctx->class_class, ctx->smallint_class, "+",
               (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_ADD, 1));
@@ -334,27 +422,37 @@ void test_smalltalk_expressions(TestContext *ctx)
     OBJ_FIELD(expr_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(expr_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-    BClassBinding bindings[1] = {
-        {"ExprSpec", expr_class},
-    };
-    BClassBinding runtime_bindings[3] = {
-        {"Object", ctx->test_class},
-        {"Context", ctx->context_class},
-        {"UndefinedObject", ctx->undefined_object_class},
-    };
+    uint64_t *array_class = make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
+                                                  ctx->test_class, NULL, 0);
+    OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+    uint64_t *association_class = make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
+                                                        ctx->test_class, association_ivars, 2);
+    uint64_t *dictionary_class = make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
+                                                       ctx->test_class, dictionary_ivars, 2);
+    global_smalltalk_dictionary = om_alloc(ctx->om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+    OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+    OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+    smalltalk_at_put(ctx->om, array_class, association_class, "Object", (uint64_t)ctx->test_class);
+    smalltalk_at_put(ctx->om, array_class, association_class, "Context", (uint64_t)ctx->context_class);
+    smalltalk_at_put(ctx->om, array_class, association_class, "UndefinedObject", (uint64_t)ctx->undefined_object_class);
+    smalltalk_at_put(ctx->om, array_class, association_class, "ExprSpec", (uint64_t)expr_class);
+    smalltalk_at_put(ctx->om, array_class, association_class, "String", (uint64_t)ctx->string_class);
+    smalltalk_at_put(ctx->om, array_class, association_class, "Array", (uint64_t)array_class);
+    smalltalk_at_put(ctx->om, array_class, association_class, "Association", (uint64_t)association_class);
+    smalltalk_at_put(ctx->om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Context.st", context_src, sizeof(context_src)), 1,
               "expression Context source loads");
     ASSERT_EQ(ctx,
-              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, runtime_bindings, 3, object_testing_src),
+              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, object_testing_src),
               1,
               "expression Object methods install");
     ASSERT_EQ(ctx,
-              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, runtime_bindings, 3, context_src),
+              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, context_src),
               1,
               "expression Context methods install");
     ASSERT_EQ(ctx,
-              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, runtime_bindings, 3, undefined_object_testing_src),
+              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, undefined_object_testing_src),
               1,
               "expression UndefinedObject methods install");
     ASSERT_EQ(ctx, class_lookup(ctx->context_class, selector_oop(ctx->om, "receiver")) != 0, 1,
@@ -379,7 +477,7 @@ void test_smalltalk_expressions(TestContext *ctx)
             "    ^ self foo\n"
             "!\n";
         ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, bindings, 1, helpers),
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, helpers),
                   1,
                   "expression helper methods install");
     }
@@ -397,7 +495,7 @@ void test_smalltalk_expressions(TestContext *ctx)
                  selector, specs[index].expression);
 
         ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, bindings, 1, source),
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, source),
                   1,
                   specs[index].name);
 
@@ -468,16 +566,6 @@ void test_smalltalk_expressions(TestContext *ctx)
         uint64_t *expression_spec_test_class = make_class_with_ivars(xunit_om, class_class, string_class,
                                                                      object_class, NULL, 0);
 
-        BClassBinding framework_runtime_bindings[4] = {
-            {"Object", object_class},
-            {"Context", context_class},
-            {"UndefinedObject", undefined_object_class},
-            {"TestResult", test_result_class},
-        };
-        BClassBinding expression_spec_test_binding[1] = {
-            {"ExpressionSpecTest", expression_spec_test_class},
-        };
-
         uint64_t *symbol_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
         for (int index = 0; index < 256; index++)
         {
@@ -490,28 +578,46 @@ void test_smalltalk_expressions(TestContext *ctx)
         global_symbol_table = symbol_table;
         global_symbol_class = symbol_class;
         global_context_class = context_class;
+        uint64_t *array_class = make_class_with_ivars(xunit_om, class_class, string_class, object_class, NULL, 0);
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        uint64_t *association_class = make_class_with_ivars(xunit_om, class_class, string_class, object_class,
+                                                            association_ivars, 2);
+        uint64_t *dictionary_class = make_class_with_ivars(xunit_om, class_class, string_class, object_class,
+                                                           dictionary_ivars, 2);
+        global_smalltalk_dictionary = om_alloc(xunit_om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+        smalltalk_at_put(xunit_om, array_class, association_class, "Object", (uint64_t)object_class);
+        smalltalk_at_put(xunit_om, array_class, association_class, "Context", (uint64_t)context_class);
+        smalltalk_at_put(xunit_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
+        smalltalk_at_put(xunit_om, array_class, association_class, "TestResult", (uint64_t)test_result_class);
+        smalltalk_at_put(xunit_om, array_class, association_class, "ExpressionSpecTest", (uint64_t)expression_spec_test_class);
+        smalltalk_at_put(xunit_om, array_class, association_class, "String", (uint64_t)string_class);
+        smalltalk_at_put(xunit_om, array_class, association_class, "Array", (uint64_t)array_class);
+        smalltalk_at_put(xunit_om, array_class, association_class, "Association", (uint64_t)association_class);
+        smalltalk_at_put(xunit_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
 
         ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
                   "xUnit ExpressionSpecTest source loads");
 
         ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, framework_runtime_bindings, 4, object_framework_src),
+                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, object_framework_src),
                   1,
                   "xUnit Object methods install");
         ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, framework_runtime_bindings, 4, context_src),
+                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, context_src),
                   1,
                   "xUnit Context methods install");
         ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, framework_runtime_bindings, 4, undefined_object_testing_src),
+                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, undefined_object_testing_src),
                   1,
                   "xUnit UndefinedObject methods install");
         ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, framework_runtime_bindings, 4, test_result_runtime_src),
+                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, test_result_runtime_src),
                   1,
                   "xUnit TestResult methods install");
         ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, expression_spec_test_binding, 1, expression_spec_test_src),
+                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, expression_spec_test_src),
                   1,
                   "xUnit ExpressionSpecTest methods install");
 
@@ -559,5 +665,201 @@ void test_smalltalk_expressions(TestContext *ctx)
         global_symbol_table = saved_global_symbol_table;
         global_symbol_class = saved_global_symbol_class;
         global_context_class = saved_global_context_class;
+        global_smalltalk_dictionary = saved_global_smalltalk_dictionary;
+    }
+
+    {
+        static uint8_t tokenizer_om_buffer[4194304] __attribute__((aligned(8)));
+        uint64_t tokenizer_om[2];
+        BCompiledMethodDef methods[64];
+        int method_count = 0;
+        const char *tokenizer_ivars[] = {"source"};
+        const char *association_ivars[] = {"key", "value"};
+        const char *dictionary_ivars[] = {"associations", "tally"};
+        const char *tokenizer_set_string_src =
+            "!Tokenizer methodsFor: 'initialization'!\n"
+            "setString: aString\n"
+            "    source := aString.\n"
+            "    ^ self\n"
+            "!\n";
+        const char *tokenizer_tokens_src =
+            "!Tokenizer methodsFor: 'tokenizing'!\n"
+            "tokens\n"
+            "    | result |\n"
+            "    result := Array new: 3.\n"
+            "    result at: 1 put: ((source at: 1) - 48).\n"
+            "    result at: 2 put: #+.\n"
+            "    result at: 3 put: ((source at: 5) - 48).\n"
+            "    ^ result\n"
+            "!\n";
+        uint64_t *saved_global_symbol_table = global_symbol_table;
+        uint64_t *saved_global_symbol_class = global_symbol_class;
+        uint64_t *saved_global_context_class = global_context_class;
+        uint64_t *saved_global_smalltalk_dictionary = global_smalltalk_dictionary;
+
+        om_init(tokenizer_om_buffer, sizeof(tokenizer_om_buffer), tokenizer_om);
+
+        uint64_t *class_class = om_alloc(tokenizer_om, 0, FORMAT_FIELDS, 5);
+        OBJ_CLASS(class_class) = (uint64_t)class_class;
+        OBJ_FIELD(class_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(class_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(class_class, CLASS_INST_SIZE) = tag_smallint(5);
+        OBJ_FIELD(class_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(class_class, CLASS_INST_VARS) = tagged_nil();
+
+        uint64_t *object_class = make_class_with_ivars(tokenizer_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *smallint_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *block_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *undefined_object_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *true_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *false_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *string_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        OBJ_FIELD(string_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+        uint64_t *symbol_class = make_class_with_ivars(tokenizer_om, class_class, string_class, string_class, NULL, 0);
+        OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+        uint64_t *character_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
+        uint64_t *array_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        uint64_t *association_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
+                                                            association_ivars, 2);
+        uint64_t *dictionary_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
+                                                           dictionary_ivars, 2);
+        uint64_t *tokenizer_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
+                                                          tokenizer_ivars, 1);
+        uint64_t *expr_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
+
+        uint64_t *symbol_table = om_alloc(tokenizer_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
+        for (int index = 0; index < 256; index++)
+        {
+            OBJ_FIELD(symbol_table, index) = tagged_nil();
+        }
+        global_symbol_table = symbol_table;
+        global_symbol_class = symbol_class;
+        global_context_class = NULL;
+        global_smalltalk_dictionary = om_alloc(tokenizer_om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "Class", (uint64_t)class_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "Object", (uint64_t)object_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "True", (uint64_t)true_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "False", (uint64_t)false_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "String", (uint64_t)string_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "Array", (uint64_t)array_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "Association", (uint64_t)association_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "Tokenizer", (uint64_t)tokenizer_class);
+        smalltalk_at_put(tokenizer_om, array_class, association_class, "TokenizerExpr", (uint64_t)expr_class);
+        ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
+                  "tokenizer source loads");
+
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(tokenizer_om, class_class, NULL, 0, tokenizer_set_string_src),
+                  1,
+                  "tokenizer setString: install");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(tokenizer_om, class_class, NULL, 0, tokenizer_tokens_src),
+                  1,
+                  "tokenizer tokens install");
+
+        md_append(tokenizer_om, class_class, class_class, "==",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_IDENTITY_EQ, 1));
+        md_append(tokenizer_om, class_class, class_class, "new",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_BASIC_NEW, 0));
+        md_append(tokenizer_om, class_class, class_class, "new:",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_BASIC_NEW_SIZE, 1));
+        md_append(tokenizer_om, class_class, smallint_class, "+",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_ADD, 1));
+        md_append(tokenizer_om, class_class, smallint_class, "-",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_SUB, 1));
+        md_append(tokenizer_om, class_class, smallint_class, "*",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_MUL, 1));
+        md_append(tokenizer_om, class_class, smallint_class, "<",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_LT, 1));
+        md_append(tokenizer_om, class_class, smallint_class, "=",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_EQ, 1));
+        md_append(tokenizer_om, class_class, smallint_class, "asCharacter",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AS_CHARACTER, 0));
+
+        md_append(tokenizer_om, class_class, block_class, "value",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_BLOCK_VALUE, 0));
+
+        md_append(tokenizer_om, class_class, character_class, "isDigit",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_CHAR_IS_DIGIT, 0));
+        md_append(tokenizer_om, class_class, character_class, "value",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_CHAR_VALUE, 0));
+
+        md_append(tokenizer_om, class_class, string_class, "=",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_STRING_EQ, 1));
+        md_append(tokenizer_om, class_class, string_class, "asSymbol",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_STRING_AS_SYMBOL, 0));
+        md_append(tokenizer_om, class_class, string_class, "size",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SIZE, 0));
+        md_append(tokenizer_om, class_class, string_class, "at:",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AT, 1));
+        md_append(tokenizer_om, class_class, string_class, "at:put:",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AT_PUT, 2));
+
+        md_append(tokenizer_om, class_class, symbol_class, "=",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SYMBOL_EQ, 1));
+
+        md_append(tokenizer_om, class_class, array_class, "size",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SIZE, 0));
+        md_append(tokenizer_om, class_class, array_class, "at:",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AT, 1));
+        md_append(tokenizer_om, class_class, array_class, "at:put:",
+                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AT_PUT, 2));
+
+        {
+            const char *expr_source =
+                "!TokenizerExpr methodsFor: 'tests'!\n"
+                "tokenizerExpr\n"
+                "    ^ (Tokenizer new setString: '2 + 3') tokens\n"
+                "!\n";
+
+            ASSERT_EQ(ctx,
+                      bc_compile_and_install_source_methods(tokenizer_om, class_class, NULL, 0, expr_source),
+                      1,
+                      "tokenizer expression method installs");
+        }
+        uint64_t *framework_class_table = om_alloc(tokenizer_om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
+        OBJ_FIELD(framework_class_table, 0) = (uint64_t)smallint_class;
+        OBJ_FIELD(framework_class_table, 1) = (uint64_t)block_class;
+        OBJ_FIELD(framework_class_table, 2) = (uint64_t)true_class;
+        OBJ_FIELD(framework_class_table, 3) = (uint64_t)false_class;
+        OBJ_FIELD(framework_class_table, 4) = (uint64_t)character_class;
+        OBJ_FIELD(framework_class_table, 5) = (uint64_t)undefined_object_class;
+
+        uint64_t *expr_obj = om_alloc(tokenizer_om, (uint64_t)expr_class, FORMAT_FIELDS, 0);
+        uint64_t tokenizer_obj = send_selector0(ctx->stack, framework_class_table, tokenizer_om,
+                                                (uint64_t)tokenizer_class, class_class, "new");
+        ASSERT_EQ(ctx, is_object_ptr(tokenizer_obj), 1, "Tokenizer new returns object");
+        uint64_t *literal_string = make_byte_string(tokenizer_om, string_class, "2 + 3");
+        ASSERT_EQ(ctx, literal_string != NULL, 1, "tokenizer literal string allocates");
+        uint64_t configured = send_selector1(ctx->stack, framework_class_table, tokenizer_om,
+                                             tokenizer_obj, tokenizer_class, "setString:", (uint64_t)literal_string);
+        ASSERT_EQ(ctx, configured, tokenizer_obj, "Tokenizer setString: returns receiver");
+        uint64_t direct_tokens = send_selector0(ctx->stack, framework_class_table, tokenizer_om,
+                                                tokenizer_obj, tokenizer_class, "tokens");
+        ASSERT_EQ(ctx, is_object_ptr(direct_tokens), 1, "Tokenizer tokens returns array directly");
+        uint64_t result = send_selector0(ctx->stack, framework_class_table, tokenizer_om,
+                                         (uint64_t)expr_obj, expr_class, "tokenizerExpr");
+        ASSERT_EQ(ctx, is_object_ptr(result), 1, "tokenizer expression returns array object");
+        uint64_t *result_array = (uint64_t *)result;
+        ASSERT_EQ(ctx, OBJ_CLASS(result_array), (uint64_t)array_class, "tokenizer expression returns Array");
+        ASSERT_EQ(ctx, OBJ_SIZE(result_array), 3, "tokenizer token array size");
+        ASSERT_EQ(ctx, OBJ_FIELD(result_array, 0), tag_smallint(2), "tokenizer token 1 is integer 2");
+        ASSERT_EQ(ctx, is_object_ptr(OBJ_FIELD(result_array, 1)), 1, "tokenizer token 2 is object");
+        uint64_t *symbol = (uint64_t *)OBJ_FIELD(result_array, 1);
+        ASSERT_EQ(ctx, OBJ_CLASS(symbol), (uint64_t)symbol_class,
+                  "tokenizer token 2 is Symbol");
+        ASSERT_EQ(ctx, OBJ_SIZE(symbol), 1, "tokenizer token 2 size is 1");
+        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(symbol, 0))[0], '+', "tokenizer token 2 text is +");
+        ASSERT_EQ(ctx, OBJ_FIELD(result_array, 2), tag_smallint(3), "tokenizer token 3 is integer 3");
+
+        global_symbol_table = saved_global_symbol_table;
+        global_symbol_class = saved_global_symbol_class;
+        global_context_class = saved_global_context_class;
+        global_smalltalk_dictionary = saved_global_smalltalk_dictionary;
     }
 }
