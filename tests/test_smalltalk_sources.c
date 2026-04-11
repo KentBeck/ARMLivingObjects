@@ -281,7 +281,7 @@ void test_smalltalk_sources(TestContext *ctx)
               "Tokenizer materializes selector-symbol tokens");
     ASSERT_EQ(ctx, bc_compile_source_methods(tokenizer_src, methods, 64, &method_count), 1,
               "Tokenizer.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 9, "Tokenizer.st method count");
+    ASSERT_EQ(ctx, method_count, 10, "Tokenizer.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
               "src/smalltalk/ExpressionSpecTest.st exists");
