@@ -688,7 +688,7 @@ void test_smalltalk_expressions(TestContext *ctx)
             "    | result |\n"
             "    result := Array new: 3.\n"
             "    result at: 1 put: ((source at: 1) - 48).\n"
-            "    result at: 2 put: #+.\n"
+            "    result at: 2 put: (((source at: 3) = 43) ifTrue: [#+] ifFalse: [#-]).\n"
             "    result at: 3 put: ((source at: 5) - 48).\n"
             "    ^ result\n"
             "!\n";
@@ -826,6 +826,9 @@ void test_smalltalk_expressions(TestContext *ctx)
                 "!\n"
                 "tokenizerExprSecond\n"
                 "    ^ (Tokenizer new setString: '7 + 8') tokens\n"
+                "!\n"
+                "tokenizerExprThird\n"
+                "    ^ (Tokenizer new setString: '4 - 1') tokens\n"
                 "!\n";
 
             ASSERT_EQ(ctx,
@@ -887,6 +890,26 @@ void test_smalltalk_expressions(TestContext *ctx)
                   "tokenizer second scenario token 2 text is +");
         ASSERT_EQ(ctx, OBJ_FIELD(second_array, 2), tag_smallint(8),
                   "tokenizer second scenario token 3 is integer 8");
+
+        uint64_t third_result = send_selector0(ctx->stack, framework_class_table, tokenizer_om,
+                                               (uint64_t)expr_obj, expr_class, "tokenizerExprThird");
+        ASSERT_EQ(ctx, is_object_ptr(third_result), 1, "tokenizer third expression returns array object");
+        uint64_t *third_array = (uint64_t *)third_result;
+        ASSERT_EQ(ctx, OBJ_CLASS(third_array), (uint64_t)array_class,
+                  "tokenizer third expression returns Array");
+        ASSERT_EQ(ctx, OBJ_SIZE(third_array), 3, "tokenizer third token array size");
+        ASSERT_EQ(ctx, OBJ_FIELD(third_array, 0), tag_smallint(4),
+                  "tokenizer third scenario token 1 is integer 4");
+        ASSERT_EQ(ctx, is_object_ptr(OBJ_FIELD(third_array, 1)), 1,
+                  "tokenizer third token 2 is object");
+        uint64_t *third_symbol = (uint64_t *)OBJ_FIELD(third_array, 1);
+        ASSERT_EQ(ctx, OBJ_CLASS(third_symbol), (uint64_t)symbol_class,
+                  "tokenizer third scenario token 2 is Symbol");
+        ASSERT_EQ(ctx, OBJ_SIZE(third_symbol), 1, "tokenizer third scenario token 2 size is 1");
+        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(third_symbol, 0))[0], '-',
+                  "tokenizer third scenario token 2 text is -");
+        ASSERT_EQ(ctx, OBJ_FIELD(third_array, 2), tag_smallint(1),
+                  "tokenizer third scenario token 3 is integer 1");
 
         global_symbol_table = saved_global_symbol_table;
         global_symbol_class = saved_global_symbol_class;
