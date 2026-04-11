@@ -56,6 +56,7 @@
 .equ BC_PUSH_ARG, 15
 .equ BC_RETURN_NON_LOCAL, 16
 .equ BC_PUSH_THIS_CONTEXT, 17
+.equ BC_PUSH_GLOBAL, 18
 
 // Other interpreter-local constants
 .equ ASCII_A_UPPER, 65
@@ -156,6 +157,7 @@ _interpret:
     .long   .Lbc_push_arg        - .Ldispatch_table  // 15
     .long   .Lbc_return_non_local- .Ldispatch_table  // 16
     .long   .Lbc_push_this_context- .Ldispatch_table // 17
+    .long   .Lbc_push_global     - .Ldispatch_table  // 18
 
 // --- Bytecode handlers ---
 // Each reads operands from [x21] (IP), advances IP, operates on stack via x19/x20.
@@ -180,6 +182,21 @@ _interpret:
     add     x7, x7, #OBJ_FIELDS_OFS        // skip Array header
     ldr     x8, [x7, x5, lsl #3]  // literal value
     ldr     x9, [x19]          // SP
+    sub     x9, x9, #8
+    str     x8, [x9]
+    str     x9, [x19]
+    b       .Ldispatch
+
+.Lbc_push_global:
+    READ_U32
+    ldr     x6, [x20]
+    ldr     x7, [x6, #FP_METHOD_OFS]
+    ldr     x7, [x7, #CM_LITERALS_OFS]
+    add     x7, x7, #OBJ_FIELDS_OFS
+    ldr     x8, [x7, x5, lsl #3]
+    add     x8, x8, #OBJ_FIELDS_OFS
+    ldr     x8, [x8, #8]
+    ldr     x9, [x19]
     sub     x9, x9, #8
     str     x8, [x9]
     str     x9, [x19]

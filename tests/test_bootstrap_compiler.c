@@ -801,13 +801,34 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD(one_literals, 0), OBJ_FIELD(two_literals, 0),
                   "global reference literals reuse Smalltalk association");
 
+        uint64_t *one_bytecodes = (uint64_t *)OBJ_FIELD((uint64_t *)one_oop, CM_BYTECODES);
+        uint8_t *one_bytes = (uint8_t *)&OBJ_FIELD(one_bytecodes, 0);
+        ASSERT_EQ(ctx, one_bytes[0], BC_PUSH_GLOBAL,
+                  "global reference emits PUSH_GLOBAL");
+        ASSERT_EQ(ctx, read_u32(one_bytes, 1), 0,
+                  "global reference PUSH_GLOBAL references association literal");
+        ASSERT_EQ(ctx, one_bytes[5], BC_RETURN,
+                  "global reference method returns pushed global");
+
         uint64_t *association = (uint64_t *)OBJ_FIELD(one_literals, 0);
+        ASSERT_EQ(ctx, OBJ_CLASS(association), (uint64_t)association_class,
+                  "global reference literal is an Association");
         ASSERT_EQ(ctx, OBJ_FIELD(association, 0), intern_cstring_symbol(ctx->om, "SampleGlobal"),
                   "global association key is symbolized class name");
         ASSERT_EQ(ctx, OBJ_FIELD(association, 1), (uint64_t)sample_global_class,
                   "global association value is bound class");
         ASSERT_EQ(ctx, OBJ_FIELD(global_smalltalk_dictionary, 1), tag_smallint(5),
                   "Smalltalk dictionary stores seeded global associations");
+
+        uint64_t *sample_ref_instance = om_alloc(ctx->om, (uint64_t)sample_ref_class, FORMAT_FIELDS, 0);
+        uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, ctx->stack, (uint64_t)sample_ref_instance);
+        activate_method(&sp, &fp, 0, one_oop, 0, 0);
+
+        uint64_t result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(one_bytecodes, 0), ctx->class_table, ctx->om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)sample_global_class,
+                  "global reference execution returns association value");
 
         global_smalltalk_dictionary = saved_smalltalk;
     }

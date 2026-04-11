@@ -21,6 +21,14 @@ at: aKey ifAbsent: aBlock
         ifFalse: [(associations at: index) value]
 !
 
+associationAt: aKey
+    | index |
+    index := self indexOfKey: aKey startingAt: 1.
+    ^ (index = 0)
+        ifTrue: [nil]
+        ifFalse: [associations at: index]
+!
+
 includesKey: aKey
     ^ (self indexOfKey: aKey startingAt: 1) = 0
         ifTrue: [false]

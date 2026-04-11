@@ -14,6 +14,8 @@ typedef enum
     BTOK_SYMBOL,
     BTOK_SELECTOR,
     BTOK_BLOCK_LITERAL,
+    BTOK_LITERAL_ARRAY,
+    BTOK_CLASS_REF,
     BTOK_SPECIAL
 } BTokenType;
 
