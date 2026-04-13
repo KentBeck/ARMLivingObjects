@@ -95,7 +95,7 @@ typedef struct
     char class_name[64];
     int class_side;
     char category[64];
-    char method_source[1024];
+    char method_source[4096];
 } BMethodChunk;
 
 int bc_parse_method_chunks(const char *source, BMethodChunk *chunks, int max_chunks, int *out_count);

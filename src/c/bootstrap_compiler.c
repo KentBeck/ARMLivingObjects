@@ -943,7 +943,7 @@ static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_b
 static int cg_compile_and_store_block(CgState *state, const char *raw_source, int block_index)
 {
     BCompiledBody compiled_block;
-    char implicit_source[1024];
+    char implicit_source[4096];
 
     if (!bc_codegen_body(raw_source, &compiled_block, 1, state->header, state->target_class))
     {
@@ -1057,7 +1057,7 @@ static int cg_emit_primary_token(CgState *state, BToken token)
 
     if (token.type == BTOK_SPECIAL && strcmp(token.text, "[") == 0)
     {
-        char block_source[1024];
+        char block_source[4096];
         uint64_t start = state->parser.tokenizer.index;
 
         if (!cg_skip_block_literal(&state->parser))
@@ -1603,7 +1603,7 @@ int bc_parse_method_chunks(const char *source, BMethodChunk *chunks, int max_chu
                 continue;
             }
 
-            char segment[1200];
+            char segment[4096];
             uint64_t segment_len = segment_end - segment_start;
             if (segment_len >= sizeof(segment))
             {

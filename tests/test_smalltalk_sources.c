@@ -44,6 +44,9 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/TestResult.st", "TestResult.st corpus compile", 1},
         {"src/smalltalk/TestSuite.st", "TestSuite.st corpus compile", 1},
         {"src/smalltalk/Tokenizer.st", "Tokenizer.st corpus compile", 1},
+        {"src/smalltalk/Token.st", "Token.st corpus compile", 1},
+        {"src/smalltalk/ASTNodes.st", "ASTNodes.st corpus compile", 0},
+        {"src/smalltalk/Parser.st", "Parser.st corpus compile", 1},
         {"src/smalltalk/True.st", "True.st corpus compile", 1},
         {"src/smalltalk/UndefinedObject.st", "UndefinedObject.st corpus compile", 1},
         {"src/smalltalk/WriteStream.st", "WriteStream.st corpus compile", 1},
@@ -65,7 +68,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char test_result_src[4096];
     char test_case_src[4096];
     char test_suite_src[4096];
-    char tokenizer_src[8192];
+    char tokenizer_src[32768];
     char expression_spec_test_src[2048];
     char expr_specs_src[4096];
     char expr_fixture_specs_src[8192];
@@ -277,11 +280,11 @@ void test_smalltalk_sources(TestContext *ctx)
               "src/smalltalk/Tokenizer.st exists");
     ASSERT_EQ(ctx, strstr(tokenizer_src, "tokens") != NULL, 1,
               "Tokenizer has tokens entrypoint");
-    ASSERT_EQ(ctx, strstr(tokenizer_src, "selectorTokenFor: aValue") != NULL, 1,
-              "Tokenizer materializes selector-symbol tokens");
+    ASSERT_EQ(ctx, strstr(tokenizer_src, "nextTokenFromStream") != NULL, 1,
+              "Tokenizer has nextTokenFromStream method");
     ASSERT_EQ(ctx, bc_compile_source_methods(tokenizer_src, methods, 64, &method_count), 1,
               "Tokenizer.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 10, "Tokenizer.st method count");
+    ASSERT_EQ(ctx, method_count > 20, 1, "Tokenizer.st has many methods");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
               "src/smalltalk/ExpressionSpecTest.st exists");

@@ -4,3 +4,19 @@
 ifTrue: trueBlock ifFalse: falseBlock
     ^ trueBlock value
 !
+
+ifTrue: trueBlock
+    ^ trueBlock value
+!
+
+ifFalse: falseBlock
+    ^ nil
+!
+
+and: aBlock
+    ^ aBlock value
+!
+
+or: aBlock
+    ^ true
+!
