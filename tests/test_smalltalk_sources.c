@@ -48,6 +48,7 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/ASTNodes.st", "ASTNodes.st corpus compile", 0},
         {"src/smalltalk/Parser.st", "Parser.st corpus compile", 1},
         {"src/smalltalk/CodeGenerator.st", "CodeGenerator.st corpus compile", 1},
+        {"src/smalltalk/Compiler.st", "Compiler.st corpus compile", 1},
         {"src/smalltalk/True.st", "True.st corpus compile", 1},
         {"src/smalltalk/UndefinedObject.st", "UndefinedObject.st corpus compile", 1},
         {"src/smalltalk/WriteStream.st", "WriteStream.st corpus compile", 1},
