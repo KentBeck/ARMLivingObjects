@@ -151,7 +151,7 @@ void test_smalltalk_sources(TestContext *ctx)
               "Array recursive element equality helper exists");
     ASSERT_EQ(ctx, bc_compile_source_methods(array_src, methods, 64, &method_count), 1,
               "Array.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 5, "Array.st method count");
+    ASSERT_EQ(ctx, method_count, 15, "Array.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Collection.st", collection_src, sizeof(collection_src)), 1,
               "src/smalltalk/Collection.st exists");

@@ -16,6 +16,82 @@ at: index put: value
     self error: 'at:put: primitive failed'
 !
 
+!Array methodsFor: 'enumerating'!
+do: aBlock
+    ^ self doFrom: 1 with: aBlock
+!
+
+doFrom: index with: aBlock
+    index > self size
+        ifTrue: [^ nil]
+        ifFalse: [
+            aBlock value: (self at: index).
+            ^ self doFrom: index + 1 with: aBlock
+        ]
+!
+
+collect: aBlock
+    | result |
+    result := Array new: self size.
+    self collectInto: result from: 1 with: aBlock.
+    ^ result
+!
+
+collectInto: result from: index with: aBlock
+    index > self size
+        ifTrue: [^ nil]
+        ifFalse: [
+            result at: index put: (aBlock value: (self at: index)).
+            ^ self collectInto: result from: index + 1 with: aBlock
+        ]
+!
+
+indexOf: anObject
+    ^ self indexOfFrom: 1 seeking: anObject
+!
+
+indexOfFrom: index seeking: anObject
+    index > self size
+        ifTrue: [^ 0]
+        ifFalse: [
+            ((self at: index) = anObject)
+                ifTrue: [^ index]
+                ifFalse: [^ self indexOfFrom: index + 1 seeking: anObject]
+        ]
+!
+
+with: aBlock inject: initial
+    ^ self withInject: initial from: 1 with: aBlock
+!
+
+withInject: value from: index with: aBlock
+    index > self size
+        ifTrue: [^ value]
+        ifFalse: [
+            ^ self withInject: (aBlock value: value value: (self at: index)) from: index + 1 with: aBlock
+        ]
+!
+
+!Array methodsFor: 'copying'!
+copyFrom: start to: stop
+    | newSize result |
+    newSize := stop - start + 1.
+    newSize < 1
+        ifTrue: [^ Array new: 0]
+        ifFalse: [0].
+    result := Array new: newSize.
+    ^ self copyElementsFrom: start to: stop into: result at: 1
+!
+
+copyElementsFrom: srcIndex to: srcStop into: dest at: destIndex
+    srcIndex > srcStop
+        ifTrue: [^ dest]
+        ifFalse: [
+            dest at: destIndex put: (self at: srcIndex).
+            ^ self copyElementsFrom: srcIndex + 1 to: srcStop into: dest at: destIndex + 1
+        ]
+!
+
 !Array methodsFor: 'comparing'!
 = anArray
     ^ (self class == anArray class)
