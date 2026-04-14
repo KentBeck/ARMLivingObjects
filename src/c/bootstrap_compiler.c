@@ -2554,3 +2554,57 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
     bc_active_class_count = saved_binding_count;
     return 1;
 }
+
+uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
+                          uint64_t *array_class, uint64_t *association_class,
+                          const char *name, uint64_t *superclass,
+                          const char **ivar_names, int ivar_count,
+                          BClassFormat format)
+{
+    uint64_t *klass = om_alloc(om, (uint64_t)class_class, 0, 5);
+    if (klass == NULL)
+    {
+        return NULL;
+    }
+    BC_OBJ_FIELD(klass, BC_CLASS_SUPERCLASS) =
+        superclass != NULL ? (uint64_t)superclass : tagged_nil();
+    BC_OBJ_FIELD(klass, BC_CLASS_METHOD_DICT) = tagged_nil();
+    BC_OBJ_FIELD(klass, BC_CLASS_INST_SIZE) = tag_smallint((int64_t)ivar_count);
+    BC_OBJ_FIELD(klass, BC_CLASS_INST_FORMAT) = tag_smallint((int64_t)format);
+
+    if (ivar_count <= 0)
+    {
+        BC_OBJ_FIELD(klass, BC_CLASS_INST_VARS) = tagged_nil();
+    }
+    else
+    {
+        uint64_t *ivar_array = om_alloc(om, (uint64_t)class_class, BC_FORMAT_INDEXABLE,
+                                        (uint64_t)ivar_count);
+        if (ivar_array == NULL)
+        {
+            return NULL;
+        }
+        for (int index = 0; index < ivar_count; index++)
+        {
+            uint64_t *ivar_string = bc_make_byte_string(om, string_class, ivar_names[index]);
+            if (ivar_string == NULL)
+            {
+                return NULL;
+            }
+            BC_OBJ_FIELD(ivar_array, (uint64_t)index) = (uint64_t)ivar_string;
+        }
+        BC_OBJ_FIELD(klass, BC_CLASS_INST_VARS) = (uint64_t)ivar_array;
+    }
+
+    if (global_smalltalk_dictionary != NULL && array_class != NULL && association_class != NULL)
+    {
+        uint64_t association_oop = 0;
+        if (!bc_global_association_oop(om, (uint64_t)array_class, (uint64_t)association_class,
+                                       name, (uint64_t)klass, &association_oop))
+        {
+            return NULL;
+        }
+    }
+
+    return klass;
+}

@@ -832,4 +832,47 @@ void test_bootstrap_compiler(TestContext *ctx)
 
         global_smalltalk_dictionary = saved_smalltalk;
     }
+
+    {
+        uint64_t *saved_smalltalk = global_smalltalk_dictionary;
+
+        uint64_t *array_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        OBJ_FIELD(array_class, CLASS_INST_VARS) = tagged_nil();
+
+        uint64_t *association_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(association_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(association_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(association_class, CLASS_INST_VARS) = tagged_nil();
+
+        uint64_t *dictionary_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(dictionary_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(dictionary_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(dictionary_class, CLASS_INST_VARS) = tagged_nil();
+
+        global_smalltalk_dictionary = om_alloc(ctx->om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+
+        const char *token_ivars[] = {"type", "text", "value"};
+        uint64_t *token_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                array_class, association_class,
+                                                "Token", NULL, token_ivars, 3,
+                                                BC_CLASS_FORMAT_FIELDS);
+        ASSERT_EQ(ctx, token_class != NULL, 1, "bc_define_class creates Token class");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(token_class, CLASS_INST_SIZE)), 3,
+                  "Token class has three instance variables");
+
+        uint64_t tally = (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
+        ASSERT_EQ(ctx, tally, 1, "Token registered in Smalltalk dictionary");
+
+        global_smalltalk_dictionary = saved_smalltalk;
+    }
 }

@@ -129,4 +129,17 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
                                           const BClassBinding *classes, int class_count,
                                           const char *source);
 
+typedef enum
+{
+    BC_CLASS_FORMAT_FIELDS = 0,
+    BC_CLASS_FORMAT_INDEXABLE = 1,
+    BC_CLASS_FORMAT_BYTES = 2
+} BClassFormat;
+
+uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
+                          uint64_t *array_class, uint64_t *association_class,
+                          const char *name, uint64_t *superclass,
+                          const char **ivar_names, int ivar_count,
+                          BClassFormat format);
+
 #endif
