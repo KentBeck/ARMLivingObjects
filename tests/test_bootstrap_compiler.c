@@ -893,14 +893,8 @@ void test_bootstrap_compiler(TestContext *ctx)
         uint64_t tally = (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
         ASSERT_EQ(ctx, tally, 5, "Token plus runtime classes registered in Smalltalk dictionary");
 
-        // Token class needs a metaclass to hold class-side methods.
-        uint64_t *token_metaclass = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
-        OBJ_FIELD(token_metaclass, CLASS_SUPERCLASS) = tagged_nil();
-        OBJ_FIELD(token_metaclass, CLASS_METHOD_DICT) = tagged_nil();
-        OBJ_FIELD(token_metaclass, CLASS_INST_SIZE) = tag_smallint(0);
-        OBJ_FIELD(token_metaclass, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
-        OBJ_FIELD(token_metaclass, CLASS_INST_VARS) = tagged_nil();
-        OBJ_CLASS(token_class) = (uint64_t)token_metaclass;
+        uint64_t *token_metaclass = (uint64_t *)OBJ_CLASS(token_class);
+        ASSERT_EQ(ctx, token_metaclass != NULL, 1, "Token metaclass was created");
 
         char token_src[8192];
         ASSERT_EQ(ctx, read_source_file("src/smalltalk/Token.st", token_src, sizeof(token_src)), 1,
@@ -918,6 +912,83 @@ void test_bootstrap_compiler(TestContext *ctx)
         uint64_t *token_meta_md = (uint64_t *)OBJ_FIELD(token_metaclass, CLASS_METHOD_DICT);
         ASSERT_EQ(ctx, token_meta_md != NULL, 1, "Token metaclass method dictionary populated");
         ASSERT_EQ(ctx, OBJ_SIZE(token_meta_md) >= 4, 1, "Token class-side has instance creation methods");
+
+        // Define all AST node classes and load ASTNodes.st methods.
+        uint64_t *ast_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                   array_class, association_class,
+                                                   "ASTNode", NULL, NULL, 0, BC_CLASS_FORMAT_FIELDS);
+        const char *literal_ivars[] = {"value", "token"};
+        uint64_t *literal_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                       array_class, association_class,
+                                                       "LiteralNode", ast_node_class,
+                                                       literal_ivars, 2, BC_CLASS_FORMAT_FIELDS);
+        const char *literal_array_ivars[] = {"elements"};
+        uint64_t *literal_array_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                             array_class, association_class,
+                                                             "LiteralArrayNode", ast_node_class,
+                                                             literal_array_ivars, 1, BC_CLASS_FORMAT_FIELDS);
+        const char *variable_ivars[] = {"name"};
+        uint64_t *variable_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                        array_class, association_class,
+                                                        "VariableNode", ast_node_class,
+                                                        variable_ivars, 1, BC_CLASS_FORMAT_FIELDS);
+        const char *message_ivars[] = {"receiver", "selector", "arguments"};
+        uint64_t *message_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                       array_class, association_class,
+                                                       "MessageNode", ast_node_class,
+                                                       message_ivars, 3, BC_CLASS_FORMAT_FIELDS);
+        const char *cascade_ivars[] = {"receiver", "messages"};
+        uint64_t *cascade_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                       array_class, association_class,
+                                                       "CascadeNode", ast_node_class,
+                                                       cascade_ivars, 2, BC_CLASS_FORMAT_FIELDS);
+        const char *block_ivars[] = {"arguments", "temporaries", "statements"};
+        uint64_t *block_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                     array_class, association_class,
+                                                     "BlockNode", ast_node_class,
+                                                     block_ivars, 3, BC_CLASS_FORMAT_FIELDS);
+        const char *assignment_ivars[] = {"variable", "value"};
+        uint64_t *assignment_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                          array_class, association_class,
+                                                          "AssignmentNode", ast_node_class,
+                                                          assignment_ivars, 2, BC_CLASS_FORMAT_FIELDS);
+        const char *return_ivars[] = {"expression"};
+        uint64_t *return_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                      array_class, association_class,
+                                                      "ReturnNode", ast_node_class,
+                                                      return_ivars, 1, BC_CLASS_FORMAT_FIELDS);
+        const char *sequence_ivars[] = {"temporaries", "statements"};
+        uint64_t *sequence_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                        array_class, association_class,
+                                                        "SequenceNode", ast_node_class,
+                                                        sequence_ivars, 2, BC_CLASS_FORMAT_FIELDS);
+        const char *method_ivars[] = {"selector", "arguments", "body"};
+        uint64_t *method_node_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                      array_class, association_class,
+                                                      "MethodNode", ast_node_class,
+                                                      method_ivars, 3, BC_CLASS_FORMAT_FIELDS);
+        ASSERT_EQ(ctx, literal_node_class != NULL, 1, "LiteralNode class created");
+        ASSERT_EQ(ctx, method_node_class != NULL, 1, "MethodNode class created");
+        (void)literal_array_node_class;
+        (void)variable_node_class;
+        (void)message_node_class;
+        (void)cascade_node_class;
+        (void)block_node_class;
+        (void)assignment_node_class;
+        (void)return_node_class;
+        (void)sequence_node_class;
+
+        char ast_src[16384];
+        ASSERT_EQ(ctx, read_source_file("src/smalltalk/ASTNodes.st", ast_src, sizeof(ast_src)), 1,
+                  "ASTNodes.st loads");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, ast_src),
+                  1,
+                  "ASTNodes.st methods install");
+        uint64_t *literal_md = (uint64_t *)OBJ_FIELD(literal_node_class, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, literal_md != NULL, 1, "LiteralNode methods installed");
+        uint64_t *method_md = (uint64_t *)OBJ_FIELD(method_node_class, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, method_md != NULL, 1, "MethodNode methods installed");
 
         global_smalltalk_dictionary = saved_smalltalk;
     }

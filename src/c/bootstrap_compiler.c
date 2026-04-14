@@ -2561,7 +2561,20 @@ uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_
                           const char **ivar_names, int ivar_count,
                           BClassFormat format)
 {
-    uint64_t *klass = om_alloc(om, (uint64_t)class_class, 0, 5);
+    // Metaclass holds class-side methods. Use class_class as its class
+    // because we don't have a proper Metaclass object in the boot image.
+    uint64_t *metaclass = om_alloc(om, (uint64_t)class_class, 0, 5);
+    if (metaclass == NULL)
+    {
+        return NULL;
+    }
+    BC_OBJ_FIELD(metaclass, BC_CLASS_SUPERCLASS) = tagged_nil();
+    BC_OBJ_FIELD(metaclass, BC_CLASS_METHOD_DICT) = tagged_nil();
+    BC_OBJ_FIELD(metaclass, BC_CLASS_INST_SIZE) = tag_smallint(0);
+    BC_OBJ_FIELD(metaclass, BC_CLASS_INST_FORMAT) = tag_smallint(0);
+    BC_OBJ_FIELD(metaclass, BC_CLASS_INST_VARS) = tagged_nil();
+
+    uint64_t *klass = om_alloc(om, (uint64_t)metaclass, 0, 5);
     if (klass == NULL)
     {
         return NULL;
