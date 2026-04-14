@@ -17,6 +17,19 @@ static uint32_t read_u32(const uint8_t *bytes, int index)
            (((uint32_t)bytes[index + 3]) << 24);
 }
 
+static int read_source_file(const char *path, char *buf, size_t cap)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+    {
+        return 0;
+    }
+    size_t n = fread(buf, 1, cap - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    return 1;
+}
+
 static void smalltalk_at_put(uint64_t *om, uint64_t *array_class, uint64_t *association_class,
                              const char *name, uint64_t value)
 {
@@ -861,6 +874,13 @@ void test_bootstrap_compiler(TestContext *ctx)
         OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
         OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
 
+        // Register runtime classes so bc_compile_and_install_source_methods can resolve
+        // String, Array, Association when materializing literals.
+        smalltalk_at_put(ctx->om, array_class, association_class, "String", (uint64_t)ctx->string_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Array", (uint64_t)array_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Association", (uint64_t)association_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+
         const char *token_ivars[] = {"type", "text", "value"};
         uint64_t *token_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
                                                 array_class, association_class,
@@ -871,7 +891,33 @@ void test_bootstrap_compiler(TestContext *ctx)
                   "Token class has three instance variables");
 
         uint64_t tally = (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
-        ASSERT_EQ(ctx, tally, 1, "Token registered in Smalltalk dictionary");
+        ASSERT_EQ(ctx, tally, 5, "Token plus runtime classes registered in Smalltalk dictionary");
+
+        // Token class needs a metaclass to hold class-side methods.
+        uint64_t *token_metaclass = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(token_metaclass, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(token_metaclass, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(token_metaclass, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(token_metaclass, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(token_metaclass, CLASS_INST_VARS) = tagged_nil();
+        OBJ_CLASS(token_class) = (uint64_t)token_metaclass;
+
+        char token_src[8192];
+        ASSERT_EQ(ctx, read_source_file("src/smalltalk/Token.st", token_src, sizeof(token_src)), 1,
+                  "Token.st loads");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, token_src),
+                  1,
+                  "Token.st methods install via Smalltalk dictionary");
+        uint64_t *token_md = (uint64_t *)OBJ_FIELD(token_class, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, token_md != NULL, 1, "Token method dictionary populated");
+        // Token.st has many instance-side methods (accessors, testing, comparing);
+        // method dict stores selector/method pairs so size is 2 * method count.
+        ASSERT_EQ(ctx, OBJ_SIZE(token_md) >= 20, 1, "Token has multiple instance methods installed");
+
+        uint64_t *token_meta_md = (uint64_t *)OBJ_FIELD(token_metaclass, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, token_meta_md != NULL, 1, "Token metaclass method dictionary populated");
+        ASSERT_EQ(ctx, OBJ_SIZE(token_meta_md) >= 4, 1, "Token class-side has instance creation methods");
 
         global_smalltalk_dictionary = saved_smalltalk;
     }
