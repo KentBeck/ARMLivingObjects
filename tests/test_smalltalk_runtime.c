@@ -9,6 +9,7 @@
 #include "test_defs.h"
 #include "smalltalk_world.h"
 #include "primitives.h"
+#include "bootstrap_compiler.h"
 
 void test_smalltalk_runtime(TestContext *ctx)
 {
@@ -72,6 +73,30 @@ void test_smalltalk_runtime(TestContext *ctx)
     uint64_t peeked = sw_send0(&world, ctx, rs, rs_class_live, "peek");
     ASSERT_EQ(ctx, peeked, tag_smallint('b'), "runtime: ReadStream peek returns second byte");
     ASSERT_EQ(ctx, OBJ_FIELD(rs_ptr, 1), tag_smallint(2), "runtime: ReadStream peek does not advance");
+
+    // --- Step 3: Tokenizer.st end-to-end. Tokenize "1" and inspect the result. ---
+    // The Tokenizer uses isNil on Character results (Object.st/UndefinedObject.st)
+    // and `>`/`<=` on integers (SmallInteger.st adds these helpers).
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Object.st"), 1,
+              "runtime: Object.st installs");
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/UndefinedObject.st"), 1,
+              "runtime: UndefinedObject.st installs");
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/SmallInteger.st"), 1,
+              "runtime: SmallInteger.st installs");
+
+    const char *tokenizer_ivars[] = {"source", "stream", "buffered"};
+    smalltalk_world_define_class(&world, "Tokenizer", NULL, tokenizer_ivars, 3, FORMAT_FIELDS);
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Tokenizer.st"), 1,
+              "runtime: Tokenizer.st installs");
+
+    uint64_t *tokenizer_class = smalltalk_world_lookup_class(&world, "Tokenizer");
+    ASSERT_EQ(ctx, tokenizer_class != NULL, 1, "runtime: Tokenizer in Smalltalk dict");
+
+    // `Tokenizer on: '1'` → fresh tokenizer, source ivar is '1', stream is a
+    // ReadStream on that source, buffered is nil.
+    uint64_t src = (uint64_t)sw_make_string(&world, "1");
+    uint64_t tokenizer = sw_send1(&world, ctx, (uint64_t)tokenizer_class, world.class_class, "on:", src);
+    ASSERT_EQ(ctx, is_object_ptr(tokenizer), 1, "runtime: Tokenizer on: returns an object");
 
     smalltalk_world_teardown(&world);
 }

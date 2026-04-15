@@ -27,6 +27,22 @@
     self error: '= primitive failed'
 !
 
+> other
+    ^ other < self
+!
+
+<= other
+    ^ (self > other)
+        ifTrue: [false]
+        ifFalse: [true]
+!
+
+>= other
+    ^ (self < other)
+        ifTrue: [false]
+        ifFalse: [true]
+!
+
 !SmallInteger methodsFor: 'converting'!
 asCharacter
     <primitive: 20>

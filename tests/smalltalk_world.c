@@ -39,11 +39,26 @@ static uint64_t *make_primitive_cm_local(uint64_t *om, uint64_t *class_class, in
     return cm;
 }
 
-static uint64_t *sw_make_class(SmalltalkWorld *world, uint64_t *superclass,
-                               const char **ivars, int ivar_count, int format)
+// Build a class. with_metaclass=1 creates a per-class metaclass so class-side
+// methods live on each class's own dict (the metaclass inherits from
+// class_class so Class>>new etc. are still reachable).
+static uint64_t *sw_make_class_full(SmalltalkWorld *world, uint64_t *superclass,
+                                    const char **ivars, int ivar_count, int format,
+                                    int with_metaclass)
 {
     uint64_t *class_class = world->class_class;
-    uint64_t *klass = om_alloc(world->om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    uint64_t *class_of_klass = class_class;
+    if (with_metaclass)
+    {
+        uint64_t *metaclass = om_alloc(world->om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(metaclass, CLASS_SUPERCLASS) = (uint64_t)class_class;
+        OBJ_FIELD(metaclass, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(metaclass, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(metaclass, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(metaclass, CLASS_INST_VARS) = tagged_nil();
+        class_of_klass = metaclass;
+    }
+    uint64_t *klass = om_alloc(world->om, (uint64_t)class_of_klass, FORMAT_FIELDS, 5);
     OBJ_FIELD(klass, CLASS_SUPERCLASS) = superclass ? (uint64_t)superclass : tagged_nil();
     OBJ_FIELD(klass, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(klass, CLASS_INST_SIZE) = tag_smallint(ivar_count);
@@ -65,6 +80,12 @@ static uint64_t *sw_make_class(SmalltalkWorld *world, uint64_t *superclass,
         OBJ_FIELD(klass, CLASS_INST_VARS) = (uint64_t)iv;
     }
     return klass;
+}
+
+static uint64_t *sw_make_class(SmalltalkWorld *world, uint64_t *superclass,
+                               const char **ivars, int ivar_count, int format)
+{
+    return sw_make_class_full(world, superclass, ivars, ivar_count, format, 0);
 }
 
 static void sw_dict_put(SmalltalkWorld *world, const char *name, uint64_t value)
@@ -273,8 +294,11 @@ uint64_t *smalltalk_world_define_class(SmalltalkWorld *world, const char *name,
                                        const char **ivars, int ivar_count,
                                        int format)
 {
-    uint64_t *klass = sw_make_class(world, superclass ? superclass : world->object_class,
-                                    ivars, ivar_count, format);
+    // User-defined classes (Token, Tokenizer, Parser, ...) get per-class
+    // metaclasses so their class-side methods don't collide on class_class.
+    uint64_t *klass = sw_make_class_full(world,
+                                         superclass ? superclass : world->object_class,
+                                         ivars, ivar_count, format, 1);
     sw_dict_put(world, name, (uint64_t)klass);
     return klass;
 }
@@ -318,11 +342,24 @@ uint64_t *sw_make_string(SmalltalkWorld *world, const char *text)
     return s;
 }
 
+// For an object receiver, dispatch class is its actual class (which may be a
+// per-class metaclass when the receiver is itself a class). For tagged
+// immediates, we need the caller-provided class.
+static uint64_t *sw_dispatch_class(uint64_t receiver, uint64_t *fallback)
+{
+    if (is_object_ptr(receiver))
+    {
+        return (uint64_t *)OBJ_CLASS((uint64_t *)receiver);
+    }
+    return fallback;
+}
+
 uint64_t sw_send0(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
                   uint64_t *receiver_class, const char *selector)
 {
+    uint64_t *dc = sw_dispatch_class(receiver, receiver_class);
     uint64_t sel_oop = intern_cstring_symbol(world->om, selector);
-    uint64_t method_oop = class_lookup(receiver_class, sel_oop);
+    uint64_t method_oop = class_lookup(dc, sel_oop);
     uint64_t *cm = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
@@ -335,8 +372,9 @@ uint64_t sw_send0(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
 uint64_t sw_send1(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
                   uint64_t *receiver_class, const char *selector, uint64_t arg)
 {
+    uint64_t *dc = sw_dispatch_class(receiver, receiver_class);
     uint64_t sel_oop = intern_cstring_symbol(world->om, selector);
-    uint64_t method_oop = class_lookup(receiver_class, sel_oop);
+    uint64_t method_oop = class_lookup(dc, sel_oop);
     uint64_t *cm = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
@@ -351,8 +389,9 @@ uint64_t sw_send2(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
                   uint64_t *receiver_class, const char *selector,
                   uint64_t arg0, uint64_t arg1)
 {
+    uint64_t *dc = sw_dispatch_class(receiver, receiver_class);
     uint64_t sel_oop = intern_cstring_symbol(world->om, selector);
-    uint64_t method_oop = class_lookup(receiver_class, sel_oop);
+    uint64_t method_oop = class_lookup(dc, sel_oop);
     uint64_t *cm = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
