@@ -380,6 +380,7 @@ int main()
     test_bootstrap_compiler(&ctx);
     test_smalltalk_expressions(&ctx);
     test_expression_fixtures(&ctx);
+    test_smalltalk_runtime(&ctx);
 
     printf("\n%d passed, %d failed\n", ctx.passes, ctx.failures);
     return ctx.failures > 0 ? 1 : 0;

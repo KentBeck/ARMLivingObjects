@@ -326,5 +326,6 @@ void test_symbol_dispatch(TestContext *ctx);
 void test_bootstrap_compiler(TestContext *ctx);
 void test_smalltalk_expressions(TestContext *ctx);
 void test_expression_fixtures(TestContext *ctx);
+void test_smalltalk_runtime(TestContext *ctx);
 
 #endif
