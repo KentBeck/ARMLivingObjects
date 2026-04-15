@@ -37,5 +37,41 @@ void test_smalltalk_runtime(TestContext *ctx)
     uint64_t expected_eof_sym = intern_cstring_symbol(world.om, "eof");
     ASSERT_EQ(ctx, eof_type, expected_eof_sym, "runtime: Token eof type ivar is #eof");
 
+    // --- Step 2: ReadStream.st. Build stream on a String, call next/peek/atEnd. ---
+    // ReadStream uses ifTrue:ifFalse: which is defined on True/False in True.st/False.st.
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/True.st"), 1,
+              "runtime: True.st installs");
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/False.st"), 1,
+              "runtime: False.st installs");
+
+    const char *readstream_ivars[] = {"collection", "position", "readLimit"};
+    smalltalk_world_define_class(&world, "ReadStream", NULL, readstream_ivars, 3, FORMAT_FIELDS);
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/ReadStream.st"), 1,
+              "runtime: ReadStream.st installs");
+
+    uint64_t *rs_class = smalltalk_world_lookup_class(&world, "ReadStream");
+    ASSERT_EQ(ctx, rs_class != NULL, 1, "runtime: ReadStream in Smalltalk dict");
+
+    // `ReadStream on: 'abc'` → a ReadStream whose collection is that string and position is 1.
+    uint64_t abc = (uint64_t)sw_make_string(&world, "abc");
+    uint64_t rs = sw_send1(&world, ctx, (uint64_t)rs_class, world.class_class, "on:", abc);
+    ASSERT_EQ(ctx, is_object_ptr(rs), 1, "runtime: ReadStream on: returns an object");
+    uint64_t *rs_ptr = (uint64_t *)rs;
+    ASSERT_EQ(ctx, OBJ_SIZE(rs_ptr), 3, "runtime: ReadStream has 3 ivar slots");
+    ASSERT_EQ(ctx, OBJ_FIELD(rs_ptr, 1), tag_smallint(1), "runtime: ReadStream position starts at 1");
+
+    // Re-fetch the class (GC may have moved it during installs above).
+    uint64_t *rs_class_live = smalltalk_world_lookup_class(&world, "ReadStream");
+    // `stream next` should return the first byte ('a' = 97 as a SmallInteger,
+    // because collection is a byte String and at: returns byte values).
+    uint64_t first = sw_send0(&world, ctx, rs, rs_class_live, "next");
+    ASSERT_EQ(ctx, first, tag_smallint('a'), "runtime: ReadStream next returns first byte");
+    ASSERT_EQ(ctx, OBJ_FIELD(rs_ptr, 1), tag_smallint(2), "runtime: ReadStream position advances to 2");
+
+    // `stream peek` returns next byte without advancing.
+    uint64_t peeked = sw_send0(&world, ctx, rs, rs_class_live, "peek");
+    ASSERT_EQ(ctx, peeked, tag_smallint('b'), "runtime: ReadStream peek returns second byte");
+    ASSERT_EQ(ctx, OBJ_FIELD(rs_ptr, 1), tag_smallint(2), "runtime: ReadStream peek does not advance");
+
     smalltalk_world_teardown(&world);
 }
