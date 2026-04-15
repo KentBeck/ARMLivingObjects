@@ -1016,8 +1016,7 @@ void test_bootstrap_compiler(TestContext *ctx)
                                                     tokenizer_ivars, 3, BC_CLASS_FORMAT_FIELDS);
         ASSERT_EQ(ctx, tokenizer_class != NULL, 1, "Tokenizer class created");
 
-        // Shallow block with outer-temp reference: this pattern works with
-        // the enhanced codegen (single level of capture).
+        // Shallow block with outer-temp reference.
         {
             const char *one_method =
                 "!Tokenizer methodsFor: 'testing'!\n"
@@ -1030,6 +1029,51 @@ void test_bootstrap_compiler(TestContext *ctx)
                       bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, one_method),
                       1, "block reads outer temp install");
         }
+
+        // Nested block with outer-method temp reference.
+        {
+            const char *deep =
+                "!Tokenizer methodsFor: 'testing'!\n"
+                "deepNested: a b: b\n"
+                "    | x y |\n"
+                "    true ifTrue: [\n"
+                "        x := 1.\n"
+                "        true ifTrue: [^ x + y]\n"
+                "    ]\n"
+                "!\n";
+            ASSERT_EQ(ctx,
+                      bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, deep),
+                      1, "nested block access outer temp install");
+        }
+
+        // Full Tokenizer.st install — exercises many nested-block patterns.
+        static char tokenizer_src[32768];
+        ASSERT_EQ(ctx, read_source_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
+                  "Tokenizer.st loads");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, tokenizer_src),
+                  1,
+                  "Tokenizer.st methods install");
+
+        // Define Parser and install Parser.st.
+        const char *parser_ivars[] = {"tokenizer"};
+        uint64_t *parser_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                 array_class, association_class,
+                                                 "Parser", NULL,
+                                                 parser_ivars, 1, BC_CLASS_FORMAT_FIELDS);
+        ASSERT_EQ(ctx, parser_class != NULL, 1, "Parser class created");
+        static char parser_src[32768];
+        ASSERT_EQ(ctx, read_source_file("src/smalltalk/Parser.st", parser_src, sizeof(parser_src)), 1,
+                  "Parser.st loads");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, parser_src),
+                  1, "Parser.st methods install");
+
+        uint64_t *tokenizer_md_full = (uint64_t *)OBJ_FIELD(tokenizer_class, CLASS_METHOD_DICT);
+        uint64_t *parser_md = (uint64_t *)OBJ_FIELD(parser_class, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, tokenizer_md_full != NULL, 1, "Tokenizer methods installed");
+        ASSERT_EQ(ctx, OBJ_SIZE(tokenizer_md_full) >= 60, 1, "Tokenizer has many instance methods");
+        ASSERT_EQ(ctx, parser_md != NULL, 1, "Parser methods installed");
         uint64_t *tokenizer_md = (uint64_t *)OBJ_FIELD(tokenizer_class, CLASS_METHOD_DICT);
         ASSERT_EQ(ctx, tokenizer_md != NULL, 1, "Tokenizer has at least one instance method");
 

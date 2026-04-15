@@ -636,7 +636,8 @@ typedef struct CgState_
 {
     BParser parser;
     BMethodBody body;
-    BCompiledBody *compiled;
+    BCompiledBody *compiled;      // This scope's own bytecode/literals
+    BCompiledBody *root_compiled; // Top-level method's body: owns shared blocks[] table
     const BMethodHeader *header;
     int saw_return;
     int in_block;
@@ -1027,12 +1028,15 @@ static int cg_compile_and_store_block(CgState *state, const char *raw_source, in
         }
     }
 
-    state->compiled->blocks[block_index].bytecode_count = compiled_block.bytecode_count;
-    memcpy(state->compiled->blocks[block_index].bytecodes, compiled_block.bytecodes,
-           sizeof(state->compiled->blocks[block_index].bytecodes));
-    state->compiled->blocks[block_index].literal_count = compiled_block.literal_count;
-    memcpy(state->compiled->blocks[block_index].literals, compiled_block.literals,
-           sizeof(state->compiled->blocks[block_index].literals));
+    // Store this block's bytecode/literals in the SHARED root blocks[] table
+    // so nested blocks can be referenced by flat index from any depth.
+    BCompiledBody *root = state->root_compiled;
+    root->blocks[block_index].bytecode_count = compiled_block.bytecode_count;
+    memcpy(root->blocks[block_index].bytecodes, compiled_block.bytecodes,
+           sizeof(root->blocks[block_index].bytecodes));
+    root->blocks[block_index].literal_count = compiled_block.literal_count;
+    memcpy(root->blocks[block_index].literals, compiled_block.literals,
+           sizeof(root->blocks[block_index].literals));
 
     return 1;
 }
@@ -1041,8 +1045,12 @@ static int cg_emit_primary_token(CgState *state, BToken token)
 {
     if (token.type == BTOK_IDENTIFIER)
     {
-        if (strcmp(token.text, "self") == 0)
+        if (strcmp(token.text, "self") == 0 || strcmp(token.text, "super") == 0)
         {
+            // super has the same receiver as self but different method lookup.
+            // The current bytecode set doesn't distinguish, so emit PUSH_SELF
+            // and rely on dynamic dispatch. (Good enough for bootstrap; real
+            // super dispatch can come later via a dedicated bytecode.)
             cg_emit_byte(state, BC_CG_PUSH_SELF);
             return 1;
         }
@@ -1158,7 +1166,9 @@ static int cg_emit_primary_token(CgState *state, BToken token)
             return 0;
         }
 
-        if (state->compiled->block_count >= 16)
+        // Allocate the block slot in the root method's block table so nested
+        // blocks compiled later can still reference ancestors by index.
+        if (state->root_compiled->block_count >= 16)
         {
             return 0;
         }
@@ -1177,12 +1187,11 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         memcpy(block_source, state->parser.tokenizer.source + start, (size_t)length);
         block_source[length] = '\0';
 
-        int block_index = state->compiled->block_count;
+        int block_index = state->root_compiled->block_count++;
         if (!cg_compile_and_store_block(state, block_source, block_index))
         {
             return 0;
         }
-        state->compiled->block_count++;
 
         BToken block_literal = make_token(BTOK_BLOCK_LITERAL);
         block_literal.int_value = block_index;
@@ -1531,6 +1540,7 @@ static int bc_codegen_body_with_outer_state(const char *source, BCompiledBody *c
     memset(compiled, 0, sizeof(*compiled));
     memset(&state, 0, sizeof(state));
     state.compiled = compiled;
+    state.root_compiled = outer_state != NULL ? outer_state->root_compiled : compiled;
     state.header = header;
     state.in_block = in_block;
     state.target_class = target_class;
@@ -2278,7 +2288,8 @@ static int bc_literal_token_to_oop(uint64_t *om, uint64_t *string_class, uint64_
 static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
                                               uint64_t *array_class,
                                               uint64_t *association_class,
-                                              const BCompiledBlock *block);
+                                              const BCompiledBlock *block,
+                                              const BCompiledBody *root);
 static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
                                         uint64_t *array_class, uint64_t *association_class,
                                         const BCompiledBody *body);
@@ -2286,10 +2297,11 @@ static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, uin
 static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
                                                uint64_t *array_class,
                                                uint64_t *association_class,
-                                               const BCompiledBlock *block)
+                                               const BCompiledBlock *block,
+                                               const BCompiledBody *root)
 {
     uint64_t *literals = bc_build_block_literal_array(om, class_class, string_class, array_class,
-                                                      association_class, block);
+                                                      association_class, block, root);
     if (block->literal_count > 0 && literals == NULL)
     {
         return NULL;
@@ -2326,7 +2338,8 @@ static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_cla
 static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
                                               uint64_t *array_class,
                                               uint64_t *association_class,
-                                              const BCompiledBlock *block)
+                                              const BCompiledBlock *block,
+                                              const BCompiledBody *root)
 {
     if (block->literal_count == 0)
     {
@@ -2343,7 +2356,22 @@ static uint64_t *bc_build_block_literal_array(uint64_t *om, uint64_t *class_clas
         uint64_t literal_oop = 0;
         if (block->literals[index].type == BTOK_BLOCK_LITERAL)
         {
-            return NULL;
+            // Inner block closure: find it in the root method's shared blocks[]
+            // table and materialize it.
+            int inner_index = (int)block->literals[index].int_value;
+            if (root == NULL || inner_index < 0 || inner_index >= root->block_count)
+            {
+                return NULL;
+            }
+            uint64_t *inner = bc_materialize_compiled_block(om, class_class, string_class,
+                                                            array_class, association_class,
+                                                            &root->blocks[inner_index], root);
+            if (inner == NULL)
+            {
+                return NULL;
+            }
+            BC_OBJ_FIELD(literals, index) = (uint64_t)inner;
+            continue;
         }
         if (!bc_literal_token_to_oop(om, string_class, array_class, association_class,
                                      &block->literals[index], &literal_oop))
@@ -2377,7 +2405,8 @@ static uint64_t *bc_build_literal_array(uint64_t *om, uint64_t *class_class, uin
             }
             uint64_t *compiled_block = bc_materialize_compiled_block(om, class_class, string_class,
                                                                      array_class,
-                                                                     association_class, &body->blocks[block_index]);
+                                                                     association_class, &body->blocks[block_index],
+                                                                     body);
             if (compiled_block == NULL)
             {
                 return NULL;
