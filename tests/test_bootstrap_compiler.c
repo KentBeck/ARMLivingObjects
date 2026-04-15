@@ -1069,6 +1069,61 @@ void test_bootstrap_compiler(TestContext *ctx)
                   bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, parser_src),
                   1, "Parser.st methods install");
 
+        // Define CodeGenerator and install its .st file.
+        const char *codegen_ivars[] = {"bytecodes", "bytecodeCount", "literals", "literalCount",
+                                       "temps", "tempCount", "args", "argCount",
+                                       "instVarNames", "instVarCount", "inBlock"};
+        uint64_t *codegen_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                  array_class, association_class,
+                                                  "CodeGenerator", NULL,
+                                                  codegen_ivars, 11, BC_CLASS_FORMAT_FIELDS);
+        ASSERT_EQ(ctx, codegen_class != NULL, 1, "CodeGenerator class created");
+        static char codegen_src[16384];
+        ASSERT_EQ(ctx, read_source_file("src/smalltalk/CodeGenerator.st", codegen_src, sizeof(codegen_src)), 1,
+                  "CodeGenerator.st loads");
+        // Minimal test: Parser class ref inside a CodeGenerator method
+        {
+            const char *t1 =
+                "!CodeGenerator methodsFor: 'p'!\n"
+                "justParserRef\n"
+                "    ^ Parser\n"
+                "!\n";
+            ASSERT_EQ(ctx,
+                      bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, t1),
+                      1, "justParserRef install");
+        }
+        {
+            const char *t2 =
+                "!CodeGenerator methodsFor: 'p'!\n"
+                "parserOn: s\n"
+                "    ^ Parser on: s\n"
+                "!\n";
+            ASSERT_EQ(ctx,
+                      bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, t2),
+                      1, "parserOn install");
+        }
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, codegen_src),
+                  1, "CodeGenerator.st methods install");
+
+        // Compiler class + install.
+        uint64_t *compiler_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                   array_class, association_class,
+                                                   "Compiler", NULL, NULL, 0,
+                                                   BC_CLASS_FORMAT_FIELDS);
+        ASSERT_EQ(ctx, compiler_class != NULL, 1, "Compiler class created");
+        static char compiler_src[4096];
+        ASSERT_EQ(ctx, read_source_file("src/smalltalk/Compiler.st", compiler_src, sizeof(compiler_src)), 1,
+                  "Compiler.st loads");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, compiler_src),
+                  1, "Compiler.st methods install");
+
+        uint64_t *codegen_md = (uint64_t *)OBJ_FIELD(codegen_class, CLASS_METHOD_DICT);
+        uint64_t *compiler_meta_md = (uint64_t *)OBJ_FIELD((uint64_t *)OBJ_CLASS(compiler_class), CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, codegen_md != NULL, 1, "CodeGenerator methods installed");
+        ASSERT_EQ(ctx, compiler_meta_md != NULL, 1, "Compiler class-side methods installed");
+
         uint64_t *tokenizer_md_full = (uint64_t *)OBJ_FIELD(tokenizer_class, CLASS_METHOD_DICT);
         uint64_t *parser_md = (uint64_t *)OBJ_FIELD(parser_class, CLASS_METHOD_DICT);
         ASSERT_EQ(ctx, tokenizer_md_full != NULL, 1, "Tokenizer methods installed");

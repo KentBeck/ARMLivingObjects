@@ -247,8 +247,8 @@ int main()
     OBJ_FIELD(context_ivars, 8) = (uint64_t)make_byte_string(om, string_class, "numTemps");
     OBJ_FIELD(context_class, CLASS_INST_VARS) = (uint64_t)context_ivars;
 
-    uint64_t *symbol_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
-    for (int i = 0; i < 256; i++)
+    uint64_t *symbol_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1024);
+    for (int i = 0; i < 1024; i++)
     {
         OBJ_FIELD(symbol_table_obj, i) = tagged_nil();
     }
