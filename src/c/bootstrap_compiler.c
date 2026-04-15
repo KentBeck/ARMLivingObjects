@@ -1007,8 +1007,11 @@ static int cg_compile_and_store_block(CgState *state, const char *raw_source, in
     BCompiledBody compiled_block;
     char implicit_source[4096];
 
-    int outer_arg_count = state->header != NULL ? state->header->arg_count : 0;
-    int closure_offset = state->closure_offset + outer_arg_count + state->body.temp_count;
+    // The inner block's own locals start AFTER this scope's own args+temps.
+    // For the top-level method this is header->arg_count + body.temp_count.
+    // For an inner block (which has no args of its own yet) it's just this
+    // block's own body.temp_count added on top of what it already inherited.
+    int closure_offset = state->closure_offset + state->local_arg_count + state->body.temp_count;
 
     if (!bc_codegen_body_with_outer_state(raw_source, &compiled_block, 1, state->header,
                                           state->target_class, state, closure_offset))

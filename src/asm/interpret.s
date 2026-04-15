@@ -1729,6 +1729,10 @@ _interpret:
 .Lbc_push_closure:
     // PUSH_CLOSURE: read literal_index, get CM from literals,
     // allocate Block(home_receiver, cm, copied args/temps...), push Block.
+    // Copied count includes: num_args + cm.num_temps + (if current frame is
+    // a block, the block's own closure copied count so captures flow
+    // through nested blocks). Bump x12 so the temp-copy loop grabs all
+    // temp slots (both previously-copied and locally-declared).
     READ_U32                    // w5 = literal index
     ldr     x6, [x20]          // FP
     ldr     x7, [x6, #FP_METHOD_OFS]      // current method
@@ -1736,7 +1740,17 @@ _interpret:
     ubfx    x11, x11, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
     ldr     x12, [x7, #CM_NUM_TEMPS_OFS]
     asr     x12, x12, #SMALLINT_SHIFT
-    add     x13, x11, x12      // copied args + temps
+    // Look up the frame flags again for the block-closure check.
+    ldr     x4, [x6, #FP_FLAGS_OFS]
+    tst     x4, #FRAME_FLAGS_BLOCK_CLOSURE_MASK
+    b.eq    .Lpush_closure_no_parent
+    ldr     x4, [x6, #FP_CONTEXT_OFS]
+    cbz     x4, .Lpush_closure_no_parent
+    ldr     x8, [x4, #OBJ_SIZE_OFS]
+    sub     x8, x8, #3
+    add     x12, x12, x8       // bump temp count to include already-copied
+.Lpush_closure_no_parent:
+    add     x13, x11, x12      // total copied = args + (temps incl. inherited)
     ldr     x7, [x7, #CM_LITERALS_OFS]      // CM_LITERALS → Array
     add     x7, x7, #OBJ_FIELDS_OFS        // skip Array header
     ldr     x9, [x7, x5, lsl #3]   // x9 = block CM (from literals)
@@ -1904,7 +1918,7 @@ _interpret:
     add     x23, x1, #OBJ_FIELDS_OFS
     add     x21, x23, x28
 
-    // Retry allocation
+    // Retry allocation (keep x12 inclusive of inherited copies).
     ldr     x6, [x20]
     ldr     x7, [x6, #FP_METHOD_OFS]
     ldr     x14, [x6, #FP_CONTEXT_OFS]
@@ -1912,6 +1926,15 @@ _interpret:
     ubfx    x11, x11, #FRAME_FLAGS_NUM_ARGS_SHIFT, #FRAME_FLAGS_NUM_ARGS_WIDTH
     ldr     x12, [x7, #CM_NUM_TEMPS_OFS]
     asr     x12, x12, #SMALLINT_SHIFT
+    ldr     x4, [x6, #FP_FLAGS_OFS]
+    tst     x4, #FRAME_FLAGS_BLOCK_CLOSURE_MASK
+    b.eq    .Lretry_no_parent
+    ldr     x4, [x6, #FP_CONTEXT_OFS]
+    cbz     x4, .Lretry_no_parent
+    ldr     x8, [x4, #OBJ_SIZE_OFS]
+    sub     x8, x8, #3
+    add     x12, x12, x8
+.Lretry_no_parent:
     add     x13, x11, x12
     mov     x0, x26
     ldr     x1, [x25, #CLASS_TABLE_BLOCK_OFS]     // Block class

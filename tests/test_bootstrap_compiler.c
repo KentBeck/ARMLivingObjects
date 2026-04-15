@@ -1008,6 +1008,31 @@ void test_bootstrap_compiler(TestContext *ctx)
         uint64_t *method_md = (uint64_t *)OBJ_FIELD(method_node_class, CLASS_METHOD_DICT);
         ASSERT_EQ(ctx, method_md != NULL, 1, "MethodNode methods installed");
 
+        // Define Tokenizer to validate outer-temp/arg propagation in blocks.
+        const char *tokenizer_ivars[] = {"source", "stream", "buffered"};
+        uint64_t *tokenizer_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                    array_class, association_class,
+                                                    "Tokenizer", NULL,
+                                                    tokenizer_ivars, 3, BC_CLASS_FORMAT_FIELDS);
+        ASSERT_EQ(ctx, tokenizer_class != NULL, 1, "Tokenizer class created");
+
+        // Shallow block with outer-temp reference: this pattern works with
+        // the enhanced codegen (single level of capture).
+        {
+            const char *one_method =
+                "!Tokenizer methodsFor: 'testing'!\n"
+                "simpleOuterTempRead\n"
+                "    | x |\n"
+                "    x := 42.\n"
+                "    ^ true ifTrue: [x]\n"
+                "!\n";
+            ASSERT_EQ(ctx,
+                      bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, one_method),
+                      1, "block reads outer temp install");
+        }
+        uint64_t *tokenizer_md = (uint64_t *)OBJ_FIELD(tokenizer_class, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, tokenizer_md != NULL, 1, "Tokenizer has at least one instance method");
+
         global_smalltalk_dictionary = saved_smalltalk;
     }
 }
