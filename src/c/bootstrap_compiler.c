@@ -631,7 +631,8 @@ enum
     BC_CG_POP = 11
 };
 
-typedef struct
+struct CgState_;
+typedef struct CgState_
 {
     BParser parser;
     BMethodBody body;
@@ -640,6 +641,9 @@ typedef struct
     int saw_return;
     int in_block;
     uint64_t *target_class;
+    struct CgState_ *outer_state; // outer scope's state (NULL for top-level methods)
+    int local_arg_count;          // args owned by THIS scope (not enclosing)
+    int closure_offset;           // slot offset where this scope's own args/temps begin
 } CgState;
 
 static void cg_emit_byte(CgState *state, uint8_t value)
@@ -692,6 +696,61 @@ static int cg_temp_index(BMethodBody *body, const char *name)
         {
             return index;
         }
+    }
+    return -1;
+}
+
+// Slot offset for this scope's own temps within its frame. For top-level
+// methods, temps live at offset 0 in the separate temp slot space. For
+// blocks, temps live AFTER all copied outer args/temps in the unified
+// closure slot space, plus the block's own args.
+static int cg_local_temp_slot(const CgState *state, int temp_index)
+{
+    if (!state->in_block)
+    {
+        return temp_index;
+    }
+    return state->closure_offset + state->local_arg_count + temp_index;
+}
+
+// Look up an identifier in any enclosing scope's temps (walking up the chain).
+// Returns the slot index in the current block frame, or -1.
+static int cg_outer_temp_slot(CgState *state, const char *name)
+{
+    CgState *outer = state->outer_state;
+    while (outer != NULL)
+    {
+        for (int index = 0; index < outer->body.temp_count; index++)
+        {
+            if (strcmp(outer->body.temp_names[index], name) == 0)
+            {
+                return outer->closure_offset + outer->local_arg_count + index;
+            }
+        }
+        outer = outer->outer_state;
+    }
+    return -1;
+}
+
+// Look up an identifier in any enclosing scope's args (walking up the chain).
+// Returns the slot index in the current block frame, or -1.
+static int cg_outer_arg_slot(CgState *state, const char *name)
+{
+    CgState *outer = state->outer_state;
+    while (outer != NULL)
+    {
+        if (outer->header != NULL)
+        {
+            for (int arg_index = 0; arg_index < outer->local_arg_count; arg_index++)
+            {
+                int header_index = outer->header->arg_count - outer->local_arg_count + arg_index;
+                if (strcmp(outer->header->arg_names[header_index], name) == 0)
+                {
+                    return outer->closure_offset + arg_index;
+                }
+            }
+        }
+        outer = outer->outer_state;
     }
     return -1;
 }
@@ -939,19 +998,27 @@ static int cg_capture_literal_array(CgState *state, uint64_t start, char *out, s
 
 static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block,
                            const BMethodHeader *header, uint64_t *target_class);
+static int bc_codegen_body_with_outer_state(const char *source, BCompiledBody *compiled, int in_block,
+                                            const BMethodHeader *header, uint64_t *target_class,
+                                            CgState *outer_state, int closure_offset);
 
 static int cg_compile_and_store_block(CgState *state, const char *raw_source, int block_index)
 {
     BCompiledBody compiled_block;
     char implicit_source[4096];
 
-    if (!bc_codegen_body(raw_source, &compiled_block, 1, state->header, state->target_class))
+    int outer_arg_count = state->header != NULL ? state->header->arg_count : 0;
+    int closure_offset = state->closure_offset + outer_arg_count + state->body.temp_count;
+
+    if (!bc_codegen_body_with_outer_state(raw_source, &compiled_block, 1, state->header,
+                                          state->target_class, state, closure_offset))
     {
         if (!cg_build_implicit_return_source(raw_source, implicit_source, sizeof(implicit_source)))
         {
             return 0;
         }
-        if (!bc_codegen_body(implicit_source, &compiled_block, 1, state->header, state->target_class))
+        if (!bc_codegen_body_with_outer_state(implicit_source, &compiled_block, 1, state->header,
+                                              state->target_class, state, closure_offset))
         {
             return 0;
         }
@@ -994,7 +1061,7 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         if (index >= 0)
         {
             cg_emit_byte(state, BC_CG_PUSH_TEMP);
-            cg_emit_u32(state, (uint32_t)index);
+            cg_emit_u32(state, (uint32_t)cg_local_temp_slot(state, index));
             return 1;
         }
 
@@ -1002,6 +1069,29 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         if (index >= 0)
         {
             cg_emit_byte(state, state->in_block ? BC_CG_PUSH_TEMP : BC_CG_PUSH_ARG);
+            // In a block, the same `state->header` is the outer method's header.
+            // The block's "args" lookup actually finds the OUTER method's args,
+            // which are copied at slot 0..arg_count-1 of the OUTERMOST frame
+            // (and accessed via PUSH_TEMP at the same slot offset within nested
+            // closures because the chain copies args first).
+            int slot = state->in_block ? index : index;
+            cg_emit_u32(state, (uint32_t)slot);
+            return 1;
+        }
+
+        // In a nested block, look up identifiers in any enclosing block's
+        // args/temps and emit PUSH_TEMP at the right copied-slot offset.
+        index = cg_outer_arg_slot(state, token.text);
+        if (index >= 0)
+        {
+            cg_emit_byte(state, BC_CG_PUSH_TEMP);
+            cg_emit_u32(state, (uint32_t)index);
+            return 1;
+        }
+        index = cg_outer_temp_slot(state, token.text);
+        if (index >= 0)
+        {
+            cg_emit_byte(state, BC_CG_PUSH_TEMP);
             cg_emit_u32(state, (uint32_t)index);
             return 1;
         }
@@ -1346,6 +1436,15 @@ static int cg_parse_statements(CgState *state)
                         return 0;
                     }
                     cg_emit_byte(state, BC_CG_STORE_TEMP);
+                    cg_emit_u32(state, (uint32_t)cg_local_temp_slot(state, index));
+                }
+                else if ((index = cg_outer_temp_slot(state, token.text)) >= 0)
+                {
+                    if (!cg_parse_expression(state))
+                    {
+                        return 0;
+                    }
+                    cg_emit_byte(state, BC_CG_STORE_TEMP);
                     cg_emit_u32(state, (uint32_t)index);
                 }
                 else
@@ -1421,8 +1520,9 @@ static int cg_parse_statements(CgState *state)
     }
 }
 
-static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block,
-                           const BMethodHeader *header, uint64_t *target_class)
+static int bc_codegen_body_with_outer_state(const char *source, BCompiledBody *compiled, int in_block,
+                                            const BMethodHeader *header, uint64_t *target_class,
+                                            CgState *outer_state, int closure_offset)
 {
     CgState state;
     memset(compiled, 0, sizeof(*compiled));
@@ -1431,6 +1531,10 @@ static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_b
     state.header = header;
     state.in_block = in_block;
     state.target_class = target_class;
+    state.outer_state = outer_state;
+    state.closure_offset = closure_offset;
+    // Top-level methods own their args; blocks have 0 args (no [:x|] support yet).
+    state.local_arg_count = (in_block || header == NULL) ? 0 : header->arg_count;
     bp_init(&state.parser, source);
 
     if (!cg_parse_temp_decls(&state))
@@ -1446,6 +1550,12 @@ static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_b
     compiled->temp_count = state.body.temp_count;
 
     return state.saw_return;
+}
+
+static int bc_codegen_body(const char *source, BCompiledBody *compiled, int in_block,
+                           const BMethodHeader *header, uint64_t *target_class)
+{
+    return bc_codegen_body_with_outer_state(source, compiled, in_block, header, target_class, NULL, 0);
 }
 
 int bc_codegen_method_body(const char *source, BCompiledBody *compiled)
