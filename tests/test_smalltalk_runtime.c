@@ -97,6 +97,17 @@ void test_smalltalk_runtime(TestContext *ctx)
     uint64_t src = (uint64_t)sw_make_string(&world, "1");
     uint64_t tokenizer = sw_send1(&world, ctx, (uint64_t)tokenizer_class, world.class_class, "on:", src);
     ASSERT_EQ(ctx, is_object_ptr(tokenizer), 1, "runtime: Tokenizer on: returns an object");
+    // Ivars should be populated: source = input string, stream = ReadStream, buffered = nil.
+    uint64_t *tok_ptr = (uint64_t *)tokenizer;
+    ASSERT_EQ(ctx, OBJ_SIZE(tok_ptr), 3, "runtime: Tokenizer has 3 ivars");
+    ASSERT_EQ(ctx, OBJ_FIELD(tok_ptr, 0), src, "runtime: Tokenizer source ivar is input string");
+    ASSERT_EQ(ctx, is_object_ptr(OBJ_FIELD(tok_ptr, 1)), 1, "runtime: Tokenizer stream ivar is a ReadStream");
+    ASSERT_EQ(ctx, OBJ_FIELD(tok_ptr, 2), tagged_nil(), "runtime: Tokenizer buffered ivar is nil");
+
+    // TODO: sending `next` triggers an MNU with a smallint-tagged selector —
+    // literal frame for one of the deeply-nested methods is being misread or
+    // the codegen for that method emits a wrong selector index. Narrow down
+    // in a follow-up commit.
 
     smalltalk_world_teardown(&world);
 }
