@@ -880,6 +880,24 @@ void test_bootstrap_compiler(TestContext *ctx)
         smalltalk_at_put(ctx->om, array_class, association_class, "Array", (uint64_t)array_class);
         smalltalk_at_put(ctx->om, array_class, association_class, "Association", (uint64_t)association_class);
         smalltalk_at_put(ctx->om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Symbol", (uint64_t)ctx->symbol_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Character", (uint64_t)ctx->character_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "SmallInteger", (uint64_t)ctx->smallint_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Integer", (uint64_t)ctx->smallint_class);
+
+        // ReadStream and WriteStream are used by Tokenizer and CodeGenerator.
+        const char *readstream_ivars[] = {"collection", "position", "readLimit"};
+        uint64_t *readstream_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                     array_class, association_class,
+                                                     "ReadStream", NULL,
+                                                     readstream_ivars, 3, BC_CLASS_FORMAT_FIELDS);
+        const char *writestream_ivars[] = {"collection", "position"};
+        uint64_t *writestream_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                      array_class, association_class,
+                                                      "WriteStream", NULL,
+                                                      writestream_ivars, 2, BC_CLASS_FORMAT_FIELDS);
+        (void)readstream_class;
+        (void)writestream_class;
 
         const char *token_ivars[] = {"type", "text", "value"};
         uint64_t *token_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
@@ -891,7 +909,7 @@ void test_bootstrap_compiler(TestContext *ctx)
                   "Token class has three instance variables");
 
         uint64_t tally = (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
-        ASSERT_EQ(ctx, tally, 5, "Token plus runtime classes registered in Smalltalk dictionary");
+        ASSERT_EQ(ctx, tally, 11, "Token plus runtime classes registered in Smalltalk dictionary");
 
         uint64_t *token_metaclass = (uint64_t *)OBJ_CLASS(token_class);
         ASSERT_EQ(ctx, token_metaclass != NULL, 1, "Token metaclass was created");

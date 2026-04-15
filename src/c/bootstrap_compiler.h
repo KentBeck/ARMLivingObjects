@@ -69,19 +69,19 @@ int bc_parse_method_body(const char *source, BMethodBody *body);
 
 typedef struct
 {
-    uint8_t bytecodes[256];
+    uint8_t bytecodes[512];
     int bytecode_count;
     int literal_count;
-    BToken literals[16];
+    BToken literals[32];
 } BCompiledBlock;
 
 typedef struct
 {
-    uint8_t bytecodes[256];
+    uint8_t bytecodes[512];
     int bytecode_count;
     int temp_count;
     int literal_count;
-    BToken literals[16];
+    BToken literals[32];
     int inst_var_count;
     char inst_var_names[16][32];
     int block_count;
