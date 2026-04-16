@@ -305,6 +305,7 @@ typedef void (*TrapTestFn)(TestContext *ctx);
     } while (0)
 
 void debug_mnu(uint64_t selector);
+void debug_mnu_context(uint64_t selector, uint64_t *current_cm, uint64_t selector_index);
 void debug_oom(void);
 void debug_unknown_prim(uint64_t prim_index);
 void debug_error(uint64_t message, uint64_t *fp, uint64_t *class_table);

@@ -1,5 +1,30 @@
 "Array — indexable object"
 
+!Array class methodsFor: 'instance creation'!
+with: a
+    | arr |
+    arr := Array new: 1.
+    arr at: 1 put: a.
+    ^ arr
+!
+
+with: a with: b
+    | arr |
+    arr := Array new: 2.
+    arr at: 1 put: a.
+    arr at: 2 put: b.
+    ^ arr
+!
+
+with: a with: b with: c
+    | arr |
+    arr := Array new: 3.
+    arr at: 1 put: a.
+    arr at: 2 put: b.
+    arr at: 3 put: c.
+    ^ arr
+!
+
 !Array methodsFor: 'accessing'!
 size
     <primitive: 11>

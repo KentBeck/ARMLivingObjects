@@ -352,10 +352,14 @@ _interpret:
     b       .Llookup_method_for_receiver
 
 .Lsend_not_found:
-    // Debug: print "MNU" before trapping
+    // Debug: print "MNU" with context before trapping.
     stp     x0, x14, [sp, #-16]!
+    ldr     x11, [x20]                         // FP
+    ldr     x12, [x11, #FP_METHOD_OFS]         // current CM
     mov     x0, x14             // selector
-    bl      _debug_mnu
+    mov     x1, x12             // current CM
+    mov     x2, xzr             // selector index (unknown at this point)
+    bl      _debug_mnu_context
     ldp     x0, x14, [sp], #16
     brk     #3                  // message not understood (trap for now)
 

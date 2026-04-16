@@ -83,6 +83,8 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: UndefinedObject.st installs");
     ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/SmallInteger.st"), 1,
               "runtime: SmallInteger.st installs");
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Array.st"), 1,
+              "runtime: Array.st installs");
 
     const char *tokenizer_ivars[] = {"source", "stream", "buffered"};
     smalltalk_world_define_class(&world, "Tokenizer", NULL, tokenizer_ivars, 3, FORMAT_FIELDS);
@@ -104,10 +106,16 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, is_object_ptr(OBJ_FIELD(tok_ptr, 1)), 1, "runtime: Tokenizer stream ivar is a ReadStream");
     ASSERT_EQ(ctx, OBJ_FIELD(tok_ptr, 2), tagged_nil(), "runtime: Tokenizer buffered ivar is nil");
 
-    // TODO: sending `next` triggers an MNU with a smallint-tagged selector —
-    // literal frame for one of the deeply-nested methods is being misread or
-    // the codegen for that method emits a wrong selector index. Narrow down
-    // in a follow-up commit.
+    uint64_t first_tok_oop = sw_send0(&world, ctx, tokenizer, NULL, "next");
+    ASSERT_EQ(ctx, is_object_ptr(first_tok_oop), 1, "runtime: Tokenizer next returns a Token");
+    uint64_t *first_tok = (uint64_t *)first_tok_oop;
+    ASSERT_EQ(ctx, OBJ_SIZE(first_tok), 3, "runtime: Token has 3 ivars");
+    // type ivar (slot 0) should be #integer; value ivar (slot 2) should be 1.
+    uint64_t integer_sym = intern_cstring_symbol(world.om, "integer");
+    ASSERT_EQ(ctx, OBJ_FIELD(first_tok, 0), integer_sym,
+              "runtime: Tokenizer produced a Token with type #integer");
+    ASSERT_EQ(ctx, OBJ_FIELD(first_tok, 2), tag_smallint(1),
+              "runtime: Tokenizer produced a Token with value 1");
 
     smalltalk_world_teardown(&world);
 }

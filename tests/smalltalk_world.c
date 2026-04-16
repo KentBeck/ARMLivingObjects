@@ -181,6 +181,12 @@ void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_s
     world->association_class = sw_make_class(world, world->object_class, assoc_ivars, 2, FORMAT_FIELDS);
     const char *dict_ivars[] = {"associations", "tally"};
     world->dictionary_class = sw_make_class(world, world->object_class, dict_ivars, 2, FORMAT_FIELDS);
+    // Context class — needed by the runtime for non-local block returns. Ivars
+    // match the frame layout expected by ensure_frame_context.
+    const char *context_ivars[] = {
+        "sender", "ip", "method", "receiver", "home", "closure", "flags", "numArgs", "numTemps"
+    };
+    world->context_class = sw_make_class(world, world->object_class, context_ivars, 9, FORMAT_FIELDS);
 
     // Symbol table — 2048 slots, enough for a fully loaded compiler image.
     world->symbol_table = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_INDEXABLE, 2048);
@@ -192,7 +198,7 @@ void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_s
     // Install required globals before we start creating symbols.
     global_symbol_table = world->symbol_table;
     global_symbol_class = world->symbol_class;
-    global_context_class = NULL;
+    global_context_class = world->context_class;
 
     // Smalltalk global dictionary.
     world->smalltalk_dict = om_alloc(world->om, (uint64_t)world->dictionary_class, FORMAT_FIELDS, 2);
@@ -214,6 +220,7 @@ void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_s
     sw_dict_put(world, "Array", (uint64_t)world->array_class);
     sw_dict_put(world, "Association", (uint64_t)world->association_class);
     sw_dict_put(world, "Dictionary", (uint64_t)world->dictionary_class);
+    sw_dict_put(world, "Context", (uint64_t)world->context_class);
 
     // Framework class table used by send_selector helpers.
     world->class_table = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_INDEXABLE, 6);

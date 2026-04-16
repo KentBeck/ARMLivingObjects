@@ -127,6 +127,58 @@ void debug_mnu(uint64_t selector)
     fprintf(stderr, " raw=%lld\n", selector);
 }
 
+void debug_mnu_context(uint64_t selector, uint64_t *current_cm, uint64_t selector_index)
+{
+    fprintf(stderr, "MNU: selector=");
+    debug_print_oop(stderr, selector);
+    fprintf(stderr, " raw=%llu sel_index=%llu cm=%p\n",
+            (unsigned long long)selector, (unsigned long long)selector_index,
+            (void *)current_cm);
+    fflush(stderr);
+    if (current_cm == NULL || ((uint64_t)current_cm & 3) != 0)
+    {
+        fprintf(stderr, "  (current_cm is nil or tagged; skipping literal dump)\n");
+        fflush(stderr);
+        return;
+    }
+    uint64_t literals_oop = ((uint64_t *)current_cm)[3 + 3]; // CM_LITERALS at field 3 (after obj header of 3 words)
+    uint64_t bytecodes_oop = ((uint64_t *)current_cm)[3 + 4]; // CM_BYTECODES
+    uint64_t num_args = ((uint64_t *)current_cm)[3 + 1]; // CM_NUM_ARGS (tagged)
+    uint64_t num_temps = ((uint64_t *)current_cm)[3 + 2]; // CM_NUM_TEMPS (tagged)
+    fprintf(stderr, "  cm.num_args=%lld num_temps=%lld literals=0x%llx bytecodes=0x%llx\n",
+            (long long)(num_args >> 2), (long long)(num_temps >> 2),
+            (unsigned long long)literals_oop, (unsigned long long)bytecodes_oop);
+    fflush(stderr);
+    if ((literals_oop & 3) == 0 && literals_oop != 0 && literals_oop != 2)
+    {
+        uint64_t *lits = (uint64_t *)literals_oop;
+        uint64_t n = lits[2]; // size
+        fprintf(stderr, "  literals (%llu):\n", (unsigned long long)n);
+        for (uint64_t i = 0; i < n && i < 32; i++)
+        {
+            fprintf(stderr, "    [%2llu] raw=0x%llx ", (unsigned long long)i,
+                    (unsigned long long)lits[3 + i]);
+            debug_print_oop(stderr, lits[3 + i]);
+            fprintf(stderr, "\n");
+        }
+        fflush(stderr);
+    }
+    if ((bytecodes_oop & 3) == 0 && bytecodes_oop != 0)
+    {
+        uint64_t *bc = (uint64_t *)bytecodes_oop;
+        uint64_t bclen = bc[2];
+        uint8_t *bcbytes = (uint8_t *)&bc[3];
+        fprintf(stderr, "  bytecodes (%llu):", (unsigned long long)bclen);
+        for (uint64_t i = 0; i < bclen && i < 80; i++)
+        {
+            if (i % 16 == 0) fprintf(stderr, "\n    %3llu:", (unsigned long long)i);
+            fprintf(stderr, " %02x", bcbytes[i]);
+        }
+        fprintf(stderr, "\n");
+        fflush(stderr);
+    }
+}
+
 void debug_oom(void)
 {
     fprintf(stderr, "OOM: out of object memory\n");

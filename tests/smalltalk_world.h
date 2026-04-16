@@ -37,6 +37,7 @@ typedef struct
     uint64_t *array_class;
     uint64_t *association_class;
     uint64_t *dictionary_class;
+    uint64_t *context_class;
 
     // Symbol table + Smalltalk dictionary.
     uint64_t *symbol_table;
