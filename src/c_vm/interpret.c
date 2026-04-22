@@ -796,6 +796,15 @@ static PrimitiveResult try_string_symbol_primitive(uint64_t **sp_ptr, uint64_t p
         {
             return PRIMITIVE_FAILED;
         }
+        if (!is_bytes_object(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        if (!is_bytes_object(sp[0]))
+        {
+            return PRIMITIVE_FAILED;
+        }
         replace_receiver_and_arg(sp_ptr, receiver == sp[0] ? TAGGED_TRUE : TAGGED_FALSE);
         return PRIMITIVE_SUCCEEDED;
 
@@ -1237,14 +1246,37 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             uint64_t *literals = (uint64_t *)OBJ_FIELD(current_method, CM_LITERALS);
             uint64_t block_method = OBJ_FIELD(literals, literal_index);
             uint64_t block_class = OBJ_FIELD(class_table, CLASS_TABLE_BLOCK);
+            uint64_t *home_context = ensure_frame_context_global(fp, om);
             uint64_t *block = om_alloc(om, block_class, FORMAT_FIELDS, BLOCK_COPIED_BASE + copied_count);
             if (block == NULL)
             {
-                unsupported_bytecode(opcode);
-                break;
+                if (!collect_and_retry_allocation(sp_ptr, fp_ptr, &ip, &bytecode_base, &class_table, om))
+                {
+                    unsupported_bytecode(opcode);
+                    break;
+                }
+
+                fp = *fp_ptr;
+                current_method = (uint64_t *)fp[FRAME_METHOD];
+                num_args = frame_num_args_local(fp);
+                num_temps = (uint64_t)untag_smallint(OBJ_FIELD(current_method, CM_NUM_TEMPS));
+                if (frame_has_block_closure(fp) && fp[FRAME_CONTEXT] != 0)
+                {
+                    num_temps += block_copied_count(fp[FRAME_CONTEXT]);
+                }
+                copied_count = num_args + num_temps;
+                literals = (uint64_t *)OBJ_FIELD(current_method, CM_LITERALS);
+                block_method = OBJ_FIELD(literals, literal_index);
+                block_class = OBJ_FIELD(class_table, CLASS_TABLE_BLOCK);
+                home_context = frame_has_context_local(fp) ? (uint64_t *)fp[FRAME_CONTEXT] : NULL;
+                block = om_alloc(om, block_class, FORMAT_FIELDS, BLOCK_COPIED_BASE + copied_count);
+                if (block == NULL)
+                {
+                    unsupported_bytecode(opcode);
+                    break;
+                }
             }
 
-            uint64_t *home_context = ensure_frame_context_global(fp, om);
             OBJ_FIELD(block, BLOCK_HOME_CONTEXT) = home_context == NULL ? TAGGED_NIL : (uint64_t)home_context;
             OBJ_FIELD(block, BLOCK_HOME_RECEIVER) = fp[FRAME_RECEIVER];
             OBJ_FIELD(block, BLOCK_CM) = block_method;
@@ -1364,8 +1396,19 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
         }
 
         case BC_PUSH_GLOBAL:
-            unsupported_bytecode(opcode);
+        {
+            uint32_t literal_index = read_u32(&ip);
+            uint64_t *method = (uint64_t *)(*fp_ptr)[FRAME_METHOD];
+            uint64_t *literals = (uint64_t *)OBJ_FIELD(method, CM_LITERALS);
+            uint64_t association = OBJ_FIELD(literals, literal_index);
+            if (!is_object_value(association))
+            {
+                unsupported_bytecode(opcode);
+                break;
+            }
+            push(sp_ptr, OBJ_FIELD((uint64_t *)association, 1));
             break;
+        }
 
         default:
             unsupported_bytecode(opcode);

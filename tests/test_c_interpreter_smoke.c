@@ -210,6 +210,25 @@ static void test_push_literal_halt(SmokeWorld *world)
              "C interpreter: PUSH_LITERAL + HALT");
 }
 
+static void test_push_global_halt(SmokeWorld *world)
+{
+    uint64_t *association = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 2);
+    OBJ_FIELD(association, 0) = tag_smallint(1001);
+    OBJ_FIELD(association, 1) = (uint64_t)world->test_class;
+
+    uint64_t *literals = make_array(world, 1);
+    OBJ_FIELD(literals, 0) = (uint64_t)association;
+    uint64_t *bytecodes = make_bytecodes(world, 6);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = BC_PUSH_GLOBAL;
+    WRITE_U32(&bc[1], 0);
+    bc[5] = BC_HALT;
+
+    uint64_t *method = make_method(world, bytecodes, literals, 0, 0);
+    CHECK_EQ(run_method(world, method, (uint64_t)world->receiver, NULL, 0),
+             (uint64_t)world->test_class, "C interpreter: PUSH_GLOBAL + HALT");
+}
+
 static void test_self_inst_var_temp_return(SmokeWorld *world)
 {
     uint64_t *bytecodes = make_bytecodes(world, 24);
@@ -1170,6 +1189,7 @@ int main(void)
     init_world(&world);
 
     test_push_literal_halt(&world);
+    test_push_global_halt(&world);
     test_self_inst_var_temp_return(&world);
     test_push_arg_duplicate_return(&world);
     test_jumps(&world);
