@@ -1,5 +1,7 @@
 "SmallInteger — tagged immediate integer"
 
+Object subclass: #SmallInteger instanceVariableNames: ''
+
 !SmallInteger methodsFor: 'arithmetic'!
 + other
     <primitive: 1>

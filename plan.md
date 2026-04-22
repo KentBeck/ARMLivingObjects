@@ -53,6 +53,7 @@ LSP Server
   - [x] Load `TestCase.st` and `TestSuite.st` as real class-definition files
 - [ ] Attach declarations for existing VM-owned core classes
   - [x] Attach `Object.st` declaration to the existing Object class
+  - [x] Attach runtime-loaded singleton and indexable core class declarations
 - [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
 - [ ] Start minimal Smalltalk compiler in Smalltalk and compile with C bootstrap
 - [ ] Run first self-hosting check (Smalltalk compiler recompiles itself)

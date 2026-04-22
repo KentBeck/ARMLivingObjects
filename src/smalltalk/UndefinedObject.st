@@ -1,5 +1,7 @@
 "UndefinedObject — class of nil"
 
+Object subclass: #UndefinedObject instanceVariableNames: ''
+
 !UndefinedObject methodsFor: 'printing'!
 printString
     ^ 'nil'

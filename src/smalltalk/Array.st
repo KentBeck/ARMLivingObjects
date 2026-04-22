@@ -1,5 +1,7 @@
 "Array — indexable object"
 
+Object variableSubclass: #Array instanceVariableNames: ''
+
 !Array class methodsFor: 'instance creation'!
 with: a
     | arr |

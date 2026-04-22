@@ -46,10 +46,16 @@ void test_smalltalk_runtime(TestContext *ctx)
 
     // --- Step 2: ReadStream.st. Build stream on a String, call next/peek/atEnd. ---
     // ReadStream uses ifTrue:ifFalse: which is defined on True/False in True.st/False.st.
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/True.st"), 1,
-              "runtime: True.st installs");
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/False.st"), 1,
-              "runtime: False.st installs");
+    uint64_t *true_class = smalltalk_world_install_existing_class_file(&world, "src/smalltalk/True.st");
+    ASSERT_EQ(ctx, true_class != NULL, 1,
+              "runtime: True.st declaration matches existing class and installs methods");
+    ASSERT_EQ(ctx, (uint64_t)true_class, (uint64_t)world.true_class,
+              "runtime: True.st attaches to the existing True class");
+    uint64_t *false_class = smalltalk_world_install_existing_class_file(&world, "src/smalltalk/False.st");
+    ASSERT_EQ(ctx, false_class != NULL, 1,
+              "runtime: False.st declaration matches existing class and installs methods");
+    ASSERT_EQ(ctx, (uint64_t)false_class, (uint64_t)world.false_class,
+              "runtime: False.st attaches to the existing False class");
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/ReadStream.st") != NULL,
               1, "runtime: ReadStream.st defines class and installs methods");
@@ -86,12 +92,21 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: Object.st declaration matches existing class and installs methods");
     ASSERT_EQ(ctx, (uint64_t)object_class, (uint64_t)world.object_class,
               "runtime: Object.st attaches to the existing Object class");
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/UndefinedObject.st"), 1,
-              "runtime: UndefinedObject.st installs");
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/SmallInteger.st"), 1,
-              "runtime: SmallInteger.st installs");
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Array.st"), 1,
-              "runtime: Array.st installs");
+    uint64_t *undefined_class = smalltalk_world_install_existing_class_file(&world, "src/smalltalk/UndefinedObject.st");
+    ASSERT_EQ(ctx, undefined_class != NULL, 1,
+              "runtime: UndefinedObject.st declaration matches existing class and installs methods");
+    ASSERT_EQ(ctx, (uint64_t)undefined_class, (uint64_t)world.undefined_class,
+              "runtime: UndefinedObject.st attaches to the existing UndefinedObject class");
+    uint64_t *smallint_class = smalltalk_world_install_existing_class_file(&world, "src/smalltalk/SmallInteger.st");
+    ASSERT_EQ(ctx, smallint_class != NULL, 1,
+              "runtime: SmallInteger.st declaration matches existing class and installs methods");
+    ASSERT_EQ(ctx, (uint64_t)smallint_class, (uint64_t)world.smallint_class,
+              "runtime: SmallInteger.st attaches to the existing SmallInteger class");
+    uint64_t *array_class = smalltalk_world_install_existing_class_file(&world, "src/smalltalk/Array.st");
+    ASSERT_EQ(ctx, array_class != NULL, 1,
+              "runtime: Array.st declaration matches existing class and installs methods");
+    ASSERT_EQ(ctx, (uint64_t)array_class, (uint64_t)world.array_class,
+              "runtime: Array.st attaches to the existing Array class");
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Tokenizer.st") != NULL,
               1, "runtime: Tokenizer.st defines class and installs methods");
