@@ -314,6 +314,48 @@ static uint64_t run_smallint_send(SmokeWorld *world, uint64_t receiver, uint64_t
     return run_method(world, method, (uint64_t)world->receiver, NULL, 0);
 }
 
+static uint64_t run_unary_send(SmokeWorld *world, uint64_t receiver, uint64_t selector)
+{
+    uint64_t *literals = make_array(world, 2);
+    OBJ_FIELD(literals, 0) = receiver;
+    OBJ_FIELD(literals, 1) = selector;
+
+    uint64_t *bytecodes = make_bytecodes(world, 15);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[1], 0);
+    bc[5] = BC_SEND_MESSAGE;
+    WRITE_U32(&bc[6], 1);
+    WRITE_U32(&bc[10], 0);
+    bc[14] = BC_HALT;
+
+    uint64_t *method = make_method(world, bytecodes, literals, 0, 0);
+    return run_method(world, method, (uint64_t)world->receiver, NULL, 0);
+}
+
+static uint64_t run_binary_send(SmokeWorld *world, uint64_t receiver, uint64_t arg,
+                                uint64_t selector)
+{
+    uint64_t *literals = make_array(world, 3);
+    OBJ_FIELD(literals, 0) = receiver;
+    OBJ_FIELD(literals, 1) = arg;
+    OBJ_FIELD(literals, 2) = selector;
+
+    uint64_t *bytecodes = make_bytecodes(world, 20);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[1], 0);
+    bc[5] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[6], 1);
+    bc[10] = BC_SEND_MESSAGE;
+    WRITE_U32(&bc[11], 2);
+    WRITE_U32(&bc[15], 1);
+    bc[19] = BC_HALT;
+
+    uint64_t *method = make_method(world, bytecodes, literals, 0, 0);
+    return run_method(world, method, (uint64_t)world->receiver, NULL, 0);
+}
+
 static void test_smallint_primitives(SmokeWorld *world)
 {
     uint64_t sel_plus = tag_smallint(2000);
@@ -351,6 +393,49 @@ static void test_smallint_primitives(SmokeWorld *world)
              "C interpreter: SmallInteger * primitive");
 }
 
+static void test_identity_class_hash_primitives(SmokeWorld *world)
+{
+    uint64_t sel_identity = tag_smallint(3000);
+    uint64_t sel_basic_class = tag_smallint(3001);
+    uint64_t sel_hash = tag_smallint(3002);
+
+    uint64_t *test_method_dict = make_array(world, 6);
+    OBJ_FIELD(test_method_dict, 0) = sel_identity;
+    OBJ_FIELD(test_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_IDENTITY_EQ, 1);
+    OBJ_FIELD(test_method_dict, 2) = sel_basic_class;
+    OBJ_FIELD(test_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_BASIC_CLASS, 0);
+    OBJ_FIELD(test_method_dict, 4) = sel_hash;
+    OBJ_FIELD(test_method_dict, 5) = (uint64_t)make_primitive_method(world, PRIM_HASH, 0);
+    OBJ_FIELD(world->test_class, CLASS_METHOD_DICT) = (uint64_t)test_method_dict;
+
+    uint64_t *smallint_method_dict = make_array(world, 4);
+    OBJ_FIELD(smallint_method_dict, 0) = sel_basic_class;
+    OBJ_FIELD(smallint_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_BASIC_CLASS, 0);
+    OBJ_FIELD(smallint_method_dict, 2) = sel_hash;
+    OBJ_FIELD(smallint_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_HASH, 0);
+    uint64_t *smallint_class = (uint64_t *)OBJ_FIELD(world->class_table, CLASS_TABLE_SMALLINT);
+    OBJ_FIELD(smallint_class, CLASS_METHOD_DICT) = (uint64_t)smallint_method_dict;
+
+    uint64_t *other = om_alloc(world->om, (uint64_t)world->test_class, FORMAT_FIELDS, 2);
+
+    CHECK_EQ(run_binary_send(world, (uint64_t)world->receiver, (uint64_t)world->receiver, sel_identity), tagged_true(),
+             "C interpreter: == same object primitive");
+    CHECK_EQ(run_binary_send(world, (uint64_t)world->receiver, (uint64_t)other, sel_identity), tagged_false(),
+             "C interpreter: == different object primitive");
+    CHECK_EQ(run_unary_send(world, (uint64_t)world->receiver, sel_basic_class), (uint64_t)world->test_class,
+             "C interpreter: basicClass heap object primitive");
+    CHECK_EQ(run_unary_send(world, tag_smallint(123), sel_basic_class),
+             OBJ_FIELD(world->class_table, CLASS_TABLE_SMALLINT),
+             "C interpreter: basicClass SmallInteger primitive");
+    CHECK_EQ(run_unary_send(world, tag_smallint(123), sel_hash), tag_smallint(123),
+             "C interpreter: hash SmallInteger primitive");
+
+    uint64_t hash1 = run_unary_send(world, (uint64_t)world->receiver, sel_hash);
+    uint64_t hash2 = run_unary_send(world, (uint64_t)world->receiver, sel_hash);
+    CHECK_EQ(hash1 & TAG_MASK, TAG_SMALLINT, "C interpreter: hash heap object returns SmallInteger");
+    CHECK_EQ(hash1, hash2, "C interpreter: hash heap object is stable");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -365,6 +450,7 @@ int main(void)
     test_zero_arg_send(&world);
     test_one_arg_send(&world);
     test_smallint_primitives(&world);
+    test_identity_class_hash_primitives(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;

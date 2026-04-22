@@ -79,9 +79,26 @@ static void replace_receiver_and_arg(uint64_t **sp_ptr, uint64_t result)
     *sp_ptr = sp;
 }
 
+static void replace_receiver(uint64_t **sp_ptr, uint64_t result)
+{
+    **sp_ptr = result;
+}
+
 static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, uint64_t primitive,
                                              uint64_t arg_count)
 {
+    switch (primitive)
+    {
+    case PRIM_SMALLINT_ADD:
+    case PRIM_SMALLINT_SUB:
+    case PRIM_SMALLINT_LT:
+    case PRIM_SMALLINT_EQ:
+    case PRIM_SMALLINT_MUL:
+        break;
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
+
     if (arg_count != 1)
     {
         return PRIMITIVE_FAILED;
@@ -138,6 +155,50 @@ static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, uint64_t primit
 
     case PRIM_SMALLINT_EQ:
         replace_receiver_and_arg(sp_ptr, lhs == rhs ? TAGGED_TRUE : TAGGED_FALSE);
+        return PRIMITIVE_SUCCEEDED;
+
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
+}
+
+static PrimitiveResult try_object_primitive(uint64_t **sp_ptr, uint64_t primitive,
+                                           uint64_t arg_count, uint64_t *class_table)
+{
+    uint64_t *sp = *sp_ptr;
+    uint64_t receiver = sp[arg_count];
+
+    switch (primitive)
+    {
+    case PRIM_IDENTITY_EQ:
+        if (arg_count != 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        replace_receiver_and_arg(sp_ptr, receiver == sp[0] ? TAGGED_TRUE : TAGGED_FALSE);
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_BASIC_CLASS:
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        replace_receiver(sp_ptr, oop_class(receiver, class_table));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_HASH:
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (is_smallint_value(receiver))
+        {
+            replace_receiver(sp_ptr, receiver);
+        }
+        else
+        {
+            replace_receiver(sp_ptr, tag_smallint((int64_t)((receiver >> 3) & 0x3FFFFFFF)));
+        }
         return PRIMITIVE_SUCCEEDED;
 
     default:
@@ -224,7 +285,12 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             uint64_t primitive = OBJ_FIELD((uint64_t *)method, CM_PRIMITIVE);
             if (primitive != tag_smallint(PRIM_NONE))
             {
-                PrimitiveResult result = try_smallint_primitive(sp_ptr, (uint64_t)untag_smallint(primitive), arg_count);
+                uint64_t primitive_id = (uint64_t)untag_smallint(primitive);
+                PrimitiveResult result = try_smallint_primitive(sp_ptr, primitive_id, arg_count);
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    result = try_object_primitive(sp_ptr, primitive_id, arg_count, class_table);
+                }
                 if (result == PRIMITIVE_SUCCEEDED)
                 {
                     break;
