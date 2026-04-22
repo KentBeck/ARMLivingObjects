@@ -13,6 +13,7 @@ extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
 extern uint64_t prim_string_as_symbol(uint64_t receiver);
+extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 
@@ -156,6 +157,104 @@ static uint64_t lookup_method_for_receiver(uint64_t receiver, uint64_t selector,
         return 0;
     }
     return class_lookup((uint64_t *)klass, selector);
+}
+
+static void initialize_word_fields(uint64_t *object, uint64_t size)
+{
+    for (uint64_t index = 0; index < size; index++)
+    {
+        OBJ_FIELD(object, index) = TAGGED_NIL;
+    }
+}
+
+static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, uint64_t primitive,
+                                               uint64_t arg_count, uint64_t *om)
+{
+    uint64_t *sp = *sp_ptr;
+    uint64_t receiver = sp[arg_count];
+
+    switch (primitive)
+    {
+    case PRIM_BASIC_NEW:
+    {
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        uint64_t size_oop = OBJ_FIELD((uint64_t *)receiver, CLASS_INST_SIZE);
+        if (!is_smallint_value(size_oop))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        int64_t size = untag_smallint(size_oop);
+        if (size < 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        uint64_t *object = om_alloc(om, receiver, FORMAT_FIELDS, (uint64_t)size);
+        if (object == NULL)
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        initialize_word_fields(object, (uint64_t)size);
+        replace_receiver(sp_ptr, (uint64_t)object);
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    case PRIM_BASIC_NEW_SIZE:
+    {
+        if (arg_count != 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        uint64_t size_oop = sp[0];
+        if (!is_smallint_value(size_oop))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        int64_t size = untag_smallint(size_oop);
+        if (size < 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        uint64_t format_oop = OBJ_FIELD((uint64_t *)receiver, CLASS_INST_FORMAT);
+        if (!is_smallint_value(format_oop))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        int64_t format = untag_smallint(format_oop);
+        if (format == FORMAT_FIELDS || (format != FORMAT_INDEXABLE && format != FORMAT_BYTES))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        uint64_t *object = om_alloc(om, receiver, (uint64_t)format, (uint64_t)size);
+        if (object == NULL)
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        if (format == FORMAT_INDEXABLE)
+        {
+            initialize_word_fields(object, (uint64_t)size);
+        }
+        replace_receiver_and_arg(sp_ptr, (uint64_t)object);
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
 }
 
 static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, uint64_t primitive,
@@ -776,7 +875,11 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                     break;
                 }
 
-                PrimitiveResult result = try_smallint_primitive(sp_ptr, primitive_id, arg_count);
+                PrimitiveResult result = try_allocation_primitive(sp_ptr, primitive_id, arg_count, om);
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    result = try_smallint_primitive(sp_ptr, primitive_id, arg_count);
+                }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
                     result = try_object_primitive(sp_ptr, primitive_id, arg_count, class_table);

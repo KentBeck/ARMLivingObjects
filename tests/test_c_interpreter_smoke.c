@@ -841,6 +841,61 @@ static void test_inst_var_transaction_and_barrier(SmokeWorld *world)
     CHECK_EQ(remembered[0], 1, "C interpreter: write barrier records remembered set entry");
 }
 
+static void test_allocation_primitives(SmokeWorld *world)
+{
+    uint64_t sel_basic_new = tag_smallint(8000);
+    uint64_t sel_basic_new_size = tag_smallint(8001);
+
+    uint64_t *class_method_dict = make_array(world, 4);
+    OBJ_FIELD(class_method_dict, 0) = sel_basic_new;
+    OBJ_FIELD(class_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_BASIC_NEW, 0);
+    OBJ_FIELD(class_method_dict, 2) = sel_basic_new_size;
+    OBJ_FIELD(class_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_BASIC_NEW_SIZE, 1);
+    OBJ_FIELD(world->class_class, CLASS_METHOD_DICT) = (uint64_t)class_method_dict;
+
+    uint64_t object = run_unary_send(world, (uint64_t)world->test_class, sel_basic_new);
+    CHECK_EQ(OBJ_CLASS((uint64_t *)object), (uint64_t)world->test_class,
+             "C interpreter: basicNew object class");
+    CHECK_EQ(OBJ_FORMAT((uint64_t *)object), FORMAT_FIELDS,
+             "C interpreter: basicNew object format");
+    CHECK_EQ(OBJ_SIZE((uint64_t *)object), 2,
+             "C interpreter: basicNew object size");
+    CHECK_EQ(OBJ_FIELD((uint64_t *)object, 0), tagged_nil(),
+             "C interpreter: basicNew initializes fields to nil");
+
+    uint64_t *array_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(array_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+    OBJ_FIELD(array_class, CLASS_INST_VARS) = tagged_nil();
+
+    uint64_t array = run_binary_send(world, (uint64_t)array_class, tag_smallint(3), sel_basic_new_size);
+    CHECK_EQ(OBJ_CLASS((uint64_t *)array), (uint64_t)array_class,
+             "C interpreter: basicNew: array class");
+    CHECK_EQ(OBJ_FORMAT((uint64_t *)array), FORMAT_INDEXABLE,
+             "C interpreter: basicNew: array format");
+    CHECK_EQ(OBJ_SIZE((uint64_t *)array), 3,
+             "C interpreter: basicNew: array size");
+    CHECK_EQ(OBJ_FIELD((uint64_t *)array, 2), tagged_nil(),
+             "C interpreter: basicNew: initializes indexable slots to nil");
+
+    uint64_t *bytes_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(bytes_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(bytes_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(bytes_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(bytes_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+    OBJ_FIELD(bytes_class, CLASS_INST_VARS) = tagged_nil();
+
+    uint64_t bytes = run_binary_send(world, (uint64_t)bytes_class, tag_smallint(5), sel_basic_new_size);
+    CHECK_EQ(OBJ_CLASS((uint64_t *)bytes), (uint64_t)bytes_class,
+             "C interpreter: basicNew: bytes class");
+    CHECK_EQ(OBJ_FORMAT((uint64_t *)bytes), FORMAT_BYTES,
+             "C interpreter: basicNew: bytes format");
+    CHECK_EQ(OBJ_SIZE((uint64_t *)bytes), 5,
+             "C interpreter: basicNew: bytes size");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -861,6 +916,7 @@ int main(void)
     test_indexed_primitives(&world);
     test_perform_primitive(&world);
     test_inst_var_transaction_and_barrier(&world);
+    test_allocation_primitives(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;

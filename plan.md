@@ -87,7 +87,9 @@ Next small steps:
   `printChar` and String `asSymbol`.
 - [x] Port indexed access primitives and transaction-aware `at:` / `at:put:`.
 - [x] Port instance-variable transaction reads/writes and write barrier behavior.
-- [ ] Port allocation primitives with GC retry/root preservation.
+- [ ] Port allocation primitives:
+  - [x] Add non-GC `basicNew` and `basicNew:` success/fallback paths.
+  - [ ] Add GC retry/root preservation for allocation primitives.
 - [ ] Port block activation and copied values.
 - [ ] Port `thisContext`, heap context materialization hooks, non-local return, and `cannotReturn:`.
 - [ ] Switch default `INTERPRETER` to `c` only after full `make test` passes with C.
