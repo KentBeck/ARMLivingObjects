@@ -7,11 +7,17 @@ ASFLAGS += -arch $(ARCH) -I src/arm
 BIN_DIR = bin
 TEST_BIN = $(BIN_DIR)/test
 GC_STRESS_BIN = $(BIN_DIR)/gc_stress
+INTERPRETER ?= asm
 
 ASM_SRCS = $(wildcard src/arm/*.s)
-ASM_SRCS := $(filter-out src/arm/tagged.s src/arm/object.s src/arm/lookup.s src/arm/stack_ops.s src/arm/frame.s src/arm/bytecode.s,$(ASM_SRCS))
-ASM_OBJS = $(patsubst src/arm/%.s,$(BIN_DIR)/%.o,$(ASM_SRCS))
 C_VM_SRCS = src/c_vm/tagged.c src/c_vm/object.c src/c_vm/lookup.c src/c_vm/stack_ops.c src/c_vm/frame.c src/c_vm/bytecode.c
+ASM_FILTER_OUT = src/arm/tagged.s src/arm/object.s src/arm/lookup.s src/arm/stack_ops.s src/arm/frame.s src/arm/bytecode.s
+ifeq ($(INTERPRETER),c)
+ASM_FILTER_OUT += src/arm/interpret.s
+C_VM_SRCS += src/c_vm/interpret.c
+endif
+ASM_SRCS := $(filter-out $(ASM_FILTER_OUT),$(ASM_SRCS))
+ASM_OBJS = $(patsubst src/arm/%.s,$(BIN_DIR)/%.o,$(ASM_SRCS))
 C_VM_OBJS = $(patsubst src/c_vm/%.c,$(BIN_DIR)/c_vm_%.o,$(C_VM_SRCS))
 GC_STRESS_OBJS = $(BIN_DIR)/c_vm_object.o $(BIN_DIR)/gc.o $(BIN_DIR)/c_vm_tagged.o
 
