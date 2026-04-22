@@ -74,12 +74,12 @@ Completed:
 
 Next small steps:
 
-- [ ] Add `make test-c-interpreter-smoke` target.
-- [ ] Add smoke tests for current C interpreter support:
+- [x] Add `make test-c-interpreter-smoke` target.
+- [x] Add smoke tests for current C interpreter support:
   `PUSH_LITERAL`, `PUSH_SELF`, `PUSH_TEMP`, `PUSH_ARG`,
   `STORE_TEMP`, `POP`, `DUPLICATE`, `RETURN_STACK_TOP`,
   `HALT`, `JUMP`, `JUMP_IF_TRUE`, and `JUMP_IF_FALSE`.
-- [ ] Make the smoke target build with `INTERPRETER=c` and run only supported cases.
+- [x] Make the smoke target build with `INTERPRETER=c` and run only supported cases.
 - [ ] Port `SEND_MESSAGE` without primitives; verify simple unary/argument sends.
 - [ ] Port primitive dispatch one primitive family at a time:
   SmallInteger arithmetic/comparison first, then identity/class/hash/character/string/symbol.
