@@ -1,6 +1,8 @@
 "TestResult — explicit result object for in-image xUnit"
 "Instance variables: runCount, passCount, failureCount, lastFailure, lastSelector, lastReason"
 
+Object subclass: #TestResult instanceVariableNames: 'runCount passCount failureCount lastFailure lastSelector lastReason'
+
 !TestResult methodsFor: 'initialization'!
 initialize
     runCount := 0.

@@ -351,38 +351,6 @@ void test_smalltalk_expressions(TestContext *ctx)
         "ifTrue: trueBlock ifFalse: falseBlock\n"
         "    ^ falseBlock value\n"
         "!\n";
-    const char *test_result_runtime_src =
-        "!TestResult methodsFor: 'initialization'!\n"
-        "initialize\n"
-        "    runCount := 0.\n"
-        "    passCount := 0.\n"
-        "    failureCount := 0.\n"
-        "    lastFailure := nil.\n"
-        "    lastSelector := nil.\n"
-        "    lastReason := nil.\n"
-        "    ^ self\n"
-        "!\n"
-        "!TestResult methodsFor: 'recording'!\n"
-        "recordPass: aCase selector: aSelector\n"
-        "    runCount := runCount + 1.\n"
-        "    passCount := passCount + 1.\n"
-        "    lastFailure := nil.\n"
-        "    lastSelector := aSelector.\n"
-        "    lastReason := nil.\n"
-        "    ^ aCase\n"
-        "!\n"
-        "recordFailure: aCase selector: aSelector reason: aSymbol\n"
-        "    runCount := runCount + 1.\n"
-        "    failureCount := failureCount + 1.\n"
-        "    lastFailure := aCase.\n"
-        "    lastSelector := aSelector.\n"
-        "    lastReason := aSymbol.\n"
-        "    ^ aCase\n"
-        "!\n"
-        "!TestResult methodsFor: 'accessing'!\n"
-        "wasSuccessful\n"
-        "    ^ failureCount = 0\n"
-        "!\n";
     const char *association_ivars[] = {"key", "value"};
     const char *dictionary_ivars[] = {"associations", "tally"};
     uint64_t *saved_global_smalltalk_dictionary = global_smalltalk_dictionary;
@@ -532,9 +500,6 @@ void test_smalltalk_expressions(TestContext *ctx)
     {
         static uint8_t xunit_om_buffer[262144] __attribute__((aligned(8)));
         uint64_t xunit_om[2];
-        const char *test_result_ivars[] = {
-            "runCount", "passCount", "failureCount", "lastFailure", "lastSelector", "lastReason"
-        };
         om_init(xunit_om_buffer, sizeof(xunit_om_buffer), xunit_om);
 
         uint64_t *class_class = om_alloc(xunit_om, 0, FORMAT_FIELDS, 5);
@@ -560,8 +525,6 @@ void test_smalltalk_expressions(TestContext *ctx)
         uint64_t *context_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL,
                                                         context_ivars, CONTEXT_VAR_BASE);
         uint64_t *object_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
-        uint64_t *test_result_class = make_class_with_ivars(xunit_om, class_class, string_class,
-                                                            object_class, test_result_ivars, 6);
 
         uint64_t *symbol_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
         for (int index = 0; index < 256; index++)
@@ -587,7 +550,6 @@ void test_smalltalk_expressions(TestContext *ctx)
         smalltalk_at_put(xunit_om, array_class, association_class, "Object", (uint64_t)object_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "Context", (uint64_t)context_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
-        smalltalk_at_put(xunit_om, array_class, association_class, "TestResult", (uint64_t)test_result_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "String", (uint64_t)string_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "Array", (uint64_t)array_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "Association", (uint64_t)association_class);
@@ -605,16 +567,21 @@ void test_smalltalk_expressions(TestContext *ctx)
                   bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, undefined_object_testing_src),
                   1,
                   "xUnit UndefinedObject methods install");
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, test_result_runtime_src),
-                  1,
-                  "xUnit TestResult methods install");
         BClassBinding xunit_class_bindings[] = {
             {"Object", object_class},
             {"String", string_class},
             {"Array", array_class},
             {"Association", association_class},
         };
+        uint64_t *test_result_class = bc_compile_and_install_class_file(
+            xunit_om, class_class, string_class, array_class, association_class,
+            xunit_class_bindings, 4, "src/smalltalk/TestResult.st");
+        ASSERT_EQ(ctx, test_result_class != NULL, 1,
+                  "xUnit TestResult.st defines class and installs methods");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_result_class, CLASS_INST_SIZE)), 6,
+                  "xUnit TestResult.st class declaration has six instance variables");
+        ASSERT_EQ(ctx, class_lookup(test_result_class, selector_oop(xunit_om, "wasSuccessful")) != 0,
+                  1, "xUnit TestResult installs wasSuccessful");
         uint64_t *expression_spec_test_class = bc_compile_and_install_class_file(
             xunit_om, class_class, string_class, array_class, association_class,
             xunit_class_bindings, 4, "src/smalltalk/ExpressionSpecTest.st");
