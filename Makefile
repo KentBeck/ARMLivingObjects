@@ -1,7 +1,7 @@
 ARCH ?= arm64
 CC ?= clang
 AS ?= as
-CFLAGS += -arch $(ARCH) -Itests -Isrc/c
+CFLAGS += -arch $(ARCH) -Itests -Isrc/c -Isrc/c_vm
 ASFLAGS += -arch $(ARCH) -I src/arm
 
 BIN_DIR = bin

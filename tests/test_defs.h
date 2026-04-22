@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include "vm_defs.h"
 
 extern void stack_push(uint64_t **sp_ptr, uint64_t *stack_base, uint64_t value);
 extern uint64_t stack_pop(uint64_t **sp_ptr);
@@ -161,109 +162,6 @@ extern void image_pointers_to_offsets(uint8_t *buf, uint64_t size, uint64_t heap
 // image_offsets_to_pointers(buf, size, new_base)
 //   Walk all objects in buf, convert offsets back to pointers by adding new_base.
 extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_base);
-
-#define GC_FORWARD_TAG 1 // bit 0 set on a forwarding pointer (real class ptrs are aligned)
-
-#define OBJ_CLASS(obj) ((obj)[0])
-#define OBJ_FORMAT(obj) ((obj)[1])
-#define OBJ_SIZE(obj) ((obj)[2])
-#define OBJ_FIELD(obj, n) ((obj)[3 + (n)])
-#define FORMAT_FIELDS 0
-#define FORMAT_INDEXABLE 1
-#define FORMAT_BYTES 2
-#define CLASS_SUPERCLASS 0
-#define CLASS_METHOD_DICT 1
-#define CLASS_INST_SIZE 2
-#define CLASS_INST_FORMAT 3 // tagged SmallInt: 0=fields, 1=indexable, 2=bytes
-#define CLASS_INST_VARS 4
-#define CM_PRIMITIVE 0
-#define CM_NUM_ARGS 1
-#define CM_NUM_TEMPS 2
-#define CM_LITERALS 3  // pointer to Array object (or tagged nil if none)
-#define CM_BYTECODES 4 // pointer to ByteArray object
-#define PRIM_NONE 0
-#define PRIM_SMALLINT_ADD 1
-#define PRIM_SMALLINT_SUB 2
-#define PRIM_SMALLINT_LT 3
-#define PRIM_SMALLINT_EQ 4
-#define PRIM_SMALLINT_MUL 5
-#define PRIM_AT 6
-#define PRIM_AT_PUT 7
-#define PRIM_BASIC_NEW 8
-#define PRIM_BLOCK_VALUE 9
-#define PRIM_BASIC_NEW_SIZE 10
-#define PRIM_SIZE 11
-#define PRIM_IDENTITY_EQ 12
-#define PRIM_BASIC_CLASS 13
-#define PRIM_HASH 14
-#define PRIM_PRINT_CHAR 15
-#define PRIM_BLOCK_VALUE_ARG 16
-#define PRIM_PERFORM 17
-#define PRIM_HALT 18
-#define PRIM_CHAR_VALUE 19
-#define PRIM_AS_CHARACTER 20
-#define PRIM_CHAR_IS_LETTER 21
-#define PRIM_CHAR_IS_DIGIT 22
-#define PRIM_CHAR_UPPERCASE 23
-#define PRIM_CHAR_LOWERCASE 24
-#define PRIM_STRING_EQ 25
-#define PRIM_STRING_HASH_FNV 26
-#define PRIM_STRING_AS_SYMBOL 27
-#define PRIM_SYMBOL_EQ 28 // Identity equality for symbols
-#define PRIM_ERROR 29
-#define BLOCK_HOME_CONTEXT 0
-#define BLOCK_HOME_RECEIVER 1
-#define BLOCK_CM 2
-#define BLOCK_COPIED_BASE 3
-#define CONTEXT_SENDER 0
-#define CONTEXT_IP 1
-#define CONTEXT_METHOD 2
-#define CONTEXT_RECEIVER 3
-#define CONTEXT_HOME 4
-#define CONTEXT_CLOSURE 5
-#define CONTEXT_FLAGS 6
-#define CONTEXT_NUM_ARGS 7
-#define CONTEXT_NUM_TEMPS 8
-#define CONTEXT_VAR_BASE 9
-#define BC_PUSH_LITERAL 0
-#define BC_PUSH_INST_VAR 1
-#define BC_PUSH_TEMP 2
-#define BC_PUSH_SELF 3
-#define BC_STORE_INST_VAR 4
-#define BC_STORE_TEMP 5
-#define BC_SEND_MESSAGE 6
-#define BC_RETURN 7
-#define BC_JUMP 8
-#define BC_JUMP_IF_TRUE 9
-#define BC_JUMP_IF_FALSE 10
-#define BC_POP 11
-#define BC_DUPLICATE 12
-#define BC_HALT 13
-#define BC_PUSH_CLOSURE 14
-#define BC_PUSH_ARG 15
-#define BC_RETURN_NON_LOCAL 16
-#define BC_PUSH_THIS_CONTEXT 17
-#define BC_PUSH_GLOBAL 18
-#define FRAME_SAVED_IP 1  // FP + 1*W
-#define FRAME_SAVED_FP 0  // FP + 0
-#define FRAME_METHOD -1   // FP - 1*W
-#define FRAME_FLAGS -2    // FP - 2*W
-#define FRAME_CONTEXT -3  // FP - 3*W
-#define FRAME_RECEIVER -4 // FP - 4*W
-#define FRAME_TEMP0 -5    // FP - 5*W
-#define FRAME_FLAGS_HAS_CONTEXT_MASK 0x1
-#define FRAME_FLAGS_BLOCK_CLOSURE_MASK 0x2
-#define STACK_WORDS 4096
-
-#define OM_SIZE (1024 * 1024)
-
-static inline void WRITE_U32(uint8_t *p, uint32_t v)
-{
-    p[0] = v & 0xFF;
-    p[1] = (v >> 8) & 0xFF;
-    p[2] = (v >> 16) & 0xFF;
-    p[3] = (v >> 24) & 0xFF;
-}
 
 typedef struct
 {
