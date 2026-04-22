@@ -321,6 +321,13 @@ int smalltalk_world_install_st_file(SmalltalkWorld *world, const char *path)
     return bc_compile_and_install_source_methods(world->om, world->class_class, NULL, 0, buf);
 }
 
+uint64_t *smalltalk_world_install_class_file(SmalltalkWorld *world, const char *path)
+{
+    return bc_compile_and_install_class_file(world->om, world->class_class,
+                                             world->string_class, world->array_class,
+                                             world->association_class, NULL, 0, path);
+}
+
 uint64_t *smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name)
 {
     uint64_t key = lookup_cstring_symbol(name);

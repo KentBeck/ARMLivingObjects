@@ -17,6 +17,16 @@ void test_smalltalk_runtime(TestContext *ctx)
     SmalltalkWorld world;
     smalltalk_world_init(&world, world_buf, sizeof(world_buf));
 
+    uint64_t *point_file_class =
+        smalltalk_world_install_class_file(&world, "tests/fixtures/PointFile.st");
+    ASSERT_EQ(ctx, point_file_class != NULL, 1,
+              "runtime: class file loader creates PointFile");
+    ASSERT_EQ(ctx, (uint64_t)smalltalk_world_lookup_class(&world, "PointFile"),
+              (uint64_t)point_file_class,
+              "runtime: class file loader registers PointFile");
+    ASSERT_EQ(ctx, class_lookup(point_file_class, intern_cstring_symbol(world.om, "y")) != 0,
+              1, "runtime: class file loader installs PointFile methods");
+
     // Define Token class (ivars: type, text, value) and install Token.st methods.
     const char *token_ivars[] = {"type", "text", "value"};
     smalltalk_world_define_class(&world, "Token", NULL, token_ivars, 3, FORMAT_FIELDS);

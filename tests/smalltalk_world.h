@@ -74,6 +74,10 @@ uint64_t *smalltalk_world_define_class(SmalltalkWorld *world, const char *name,
 // Returns 1 on success, 0 on any failure (file read, chunk parse, or install).
 int smalltalk_world_install_st_file(SmalltalkWorld *world, const char *path);
 
+// Load a .st file that starts with a class declaration, define that class, and
+// install its methods. Returns the class on success or NULL on failure.
+uint64_t *smalltalk_world_install_class_file(SmalltalkWorld *world, const char *path);
+
 // Look up a class by name, walking the Smalltalk dictionary. Safe across GC
 // since it re-fetches the live pointer each time.
 uint64_t *smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name);
