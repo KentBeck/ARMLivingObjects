@@ -1,6 +1,8 @@
 "TestCase — minimal xUnit test case without exceptions"
 "Instance variables: selector, result, failed, failureReason"
 
+Object subclass: #TestCase instanceVariableNames: 'selector result failed failureReason'
+
 !TestCase class methodsFor: 'instance creation'!
 selector: aSelector
     ^ (self new selector: aSelector) yourself

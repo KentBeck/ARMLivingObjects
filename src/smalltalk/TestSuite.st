@@ -1,6 +1,8 @@
 "TestSuite — explicit collection of TestCase instances"
 "Instance variables: tests, tally"
 
+Object subclass: #TestSuite instanceVariableNames: 'tests tally'
+
 !TestSuite class methodsFor: 'instance creation'!
 withAll: aCollection
     ^ (self new tests: aCollection) yourself
