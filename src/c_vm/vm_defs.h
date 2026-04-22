@@ -3,6 +3,26 @@
 
 #include <stdint.h>
 
+// Object-memory allocation contract markers.
+//
+// LO_NO_ALLOC: does not allocate in Living Objects object memory.
+// LO_ALLOCATES: may call om_alloc directly or transitively, but does not
+//   trigger moving GC under the current contract.
+// LO_MAY_GC: may trigger moving GC. Raw object-memory pointers must not be
+//   held across these calls unless they are rooted and reloaded afterward.
+//
+// Clang records these in the AST for future static checks; other compilers
+// treat them as documentation-only.
+#if defined(__clang__)
+#define LO_NO_ALLOC __attribute__((annotate("lo_no_alloc")))
+#define LO_ALLOCATES __attribute__((annotate("lo_allocates")))
+#define LO_MAY_GC __attribute__((annotate("lo_may_gc")))
+#else
+#define LO_NO_ALLOC
+#define LO_ALLOCATES
+#define LO_MAY_GC
+#endif
+
 #define WORD_BYTES 8
 
 // Object header layout.

@@ -58,46 +58,46 @@ typedef struct
 // Build a fresh world into the caller-provided buffer. Installs core classes
 // with primitive methods. Captures the current values of global state so
 // smalltalk_world_teardown can restore them.
-void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_size);
+void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_size) LO_ALLOCATES;
 
 // Restore the global state that was captured by smalltalk_world_init.
-void smalltalk_world_teardown(SmalltalkWorld *world);
+void smalltalk_world_teardown(SmalltalkWorld *world) LO_NO_ALLOC;
 
 // Define a new class. If `ivars`/`ivar_count` is empty, no inst_vars array is
 // allocated. Registers the class in the Smalltalk dictionary under `name`.
 uint64_t *smalltalk_world_define_class(SmalltalkWorld *world, const char *name,
                                        uint64_t *superclass,
                                        const char **ivars, int ivar_count,
-                                       int format);
+                                       int format) LO_ALLOCATES;
 
 // Load a .st file from `path` and install its methods via the C bootstrap.
 // Returns 1 on success, 0 on any failure (file read, chunk parse, or install).
-int smalltalk_world_install_st_file(SmalltalkWorld *world, const char *path);
+int smalltalk_world_install_st_file(SmalltalkWorld *world, const char *path) LO_ALLOCATES;
 
 // Load a .st file that starts with a class declaration, define that class, and
 // install its methods. Returns the class on success or NULL on failure.
-uint64_t *smalltalk_world_install_class_file(SmalltalkWorld *world, const char *path);
+uint64_t *smalltalk_world_install_class_file(SmalltalkWorld *world, const char *path) LO_ALLOCATES;
 
 // Load a .st file that starts with a class declaration for an already existing
 // class, verify the declaration matches the current class, and install methods.
 // Returns the existing class on success or NULL on failure.
-uint64_t *smalltalk_world_install_existing_class_file(SmalltalkWorld *world, const char *path);
+uint64_t *smalltalk_world_install_existing_class_file(SmalltalkWorld *world, const char *path) LO_ALLOCATES;
 
 // Look up a class by name, walking the Smalltalk dictionary. Safe across GC
 // since it re-fetches the live pointer each time.
-uint64_t *smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name);
+uint64_t *smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name) LO_NO_ALLOC;
 
 // Send a unary message to a receiver of a known class. Walks the class
 // hierarchy for method lookup and runs the interpreter.
 uint64_t sw_send0(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
-                  uint64_t *receiver_class, const char *selector);
+                  uint64_t *receiver_class, const char *selector) LO_MAY_GC;
 uint64_t sw_send1(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
-                  uint64_t *receiver_class, const char *selector, uint64_t arg);
+                  uint64_t *receiver_class, const char *selector, uint64_t arg) LO_MAY_GC;
 uint64_t sw_send2(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
                   uint64_t *receiver_class, const char *selector,
-                  uint64_t arg0, uint64_t arg1);
+                  uint64_t arg0, uint64_t arg1) LO_MAY_GC;
 
 // Make a byte String in the world's OM.
-uint64_t *sw_make_string(SmalltalkWorld *world, const char *text);
+uint64_t *sw_make_string(SmalltalkWorld *world, const char *text) LO_ALLOCATES;
 
 #endif

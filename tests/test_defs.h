@@ -49,19 +49,19 @@ extern uint64_t smallint_add(uint64_t a, uint64_t b);
 extern uint64_t smallint_sub(uint64_t a, uint64_t b);
 extern uint64_t smallint_less_than(uint64_t a, uint64_t b);
 extern uint64_t smallint_equal(uint64_t a, uint64_t b);
-extern uint64_t prim_string_eq(uint64_t receiver, uint64_t arg);
-extern uint64_t prim_string_hash_fnv(uint64_t receiver);
-extern uint64_t prim_string_as_symbol(uint64_t receiver);
-extern uint64_t prim_symbol_eq(uint64_t receiver, uint64_t arg);
-extern uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_class);
-extern uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om);
-extern uint64_t cannot_return_selector_oop(void);
+extern uint64_t prim_string_eq(uint64_t receiver, uint64_t arg) LO_NO_ALLOC;
+extern uint64_t prim_string_hash_fnv(uint64_t receiver) LO_NO_ALLOC;
+extern uint64_t prim_string_as_symbol(uint64_t receiver) LO_NO_ALLOC;
+extern uint64_t prim_symbol_eq(uint64_t receiver, uint64_t arg) LO_NO_ALLOC;
+extern uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_class) LO_ALLOCATES;
+extern uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om) LO_ALLOCATES;
+extern uint64_t cannot_return_selector_oop(void) LO_NO_ALLOC;
 extern uint64_t *global_symbol_table; // Declare global symbol table
 extern uint64_t *global_symbol_class;
 extern uint64_t *global_context_class;
 extern uint64_t *global_smalltalk_dictionary;
-extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var);
-extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
+extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var) LO_NO_ALLOC;
+extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size) LO_ALLOCATES;
 
 // GC context for the interpreter: two semi-spaces
 // Layout (all uint64_t):
@@ -114,10 +114,10 @@ static inline void gc_ctx_swap(uint64_t *gc_ctx)
     gc_ctx[GC_FROM_START] = gc_ctx[GC_TO_START];
     gc_ctx[GC_TO_START] = tmp;
 }
-extern uint64_t *oop_class(uint64_t oop, uint64_t *class_table);
-extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector);
-extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
-extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip, uint64_t *class_table, uint64_t *om, uint64_t *txn_log);
+extern uint64_t *oop_class(uint64_t oop, uint64_t *class_table) LO_NO_ALLOC;
+extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector) LO_NO_ALLOC;
+extern uint64_t class_lookup(uint64_t *klass, uint64_t selector) LO_NO_ALLOC;
+extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip, uint64_t *class_table, uint64_t *om, uint64_t *txn_log) LO_MAY_GC;
 
 // Transaction log functions
 // Log layout: [0] = count, then triples at [1+i*3], [2+i*3], [3+i*3]
@@ -131,29 +131,29 @@ extern void txn_abort(uint64_t *log);
 // gc_copy_object(obj, to_space) -> new_obj
 //   Copy obj to to_space[0] (bump pointer), leave forwarding ptr in old obj.
 //   Returns pointer to the new copy. Advances to_space[0].
-extern uint64_t *gc_copy_object(uint64_t *obj, uint64_t *to_space);
+extern uint64_t *gc_copy_object(uint64_t *obj, uint64_t *to_space) LO_MAY_GC;
 // gc_is_forwarded(obj) -> 1 if obj[0] has forwarding tag, 0 otherwise
-extern uint64_t gc_is_forwarded(uint64_t *obj);
+extern uint64_t gc_is_forwarded(uint64_t *obj) LO_NO_ALLOC;
 // gc_forwarding_ptr(obj) -> the forwarding address (clears tag)
-extern uint64_t *gc_forwarding_ptr(uint64_t *obj);
+extern uint64_t *gc_forwarding_ptr(uint64_t *obj) LO_NO_ALLOC;
 // gc_collect(roots, num_roots, from_space, to_space, from_start, from_end)
 //   Cheney's algorithm: copy roots, then scan to-space updating pointers.
 //   roots = array of tagged values (only object ptrs with tag 00 are followed)
 //   from_start/from_end = address range of from-space (to identify pointers into it)
 extern void gc_collect(uint64_t *roots, uint64_t num_roots,
                        uint64_t *from_space, uint64_t *to_space,
-                       uint64_t from_start, uint64_t from_end);
+                       uint64_t from_start, uint64_t from_end) LO_MAY_GC;
 extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
-                                       uint64_t **slot_buf, uint64_t max_slots);
+                                       uint64_t **slot_buf, uint64_t max_slots) LO_NO_ALLOC;
 
 // gc_update_stack(fp, from_start, from_end)
 //   Walk stack frames, update any pointer in from-space range to its forwarding address.
-extern void gc_update_stack(uint64_t *fp, uint64_t from_start, uint64_t from_end);
+extern void gc_update_stack(uint64_t *fp, uint64_t from_start, uint64_t from_end) LO_MAY_GC;
 
 // gc_scan_stack(fp, root_buf, max_roots) -> num_roots_found
 //   Walk stack frames from fp, collecting object pointers (receiver, method, temps)
 //   into root_buf. Stops at sentinel FP (0xCAFE or 0).
-extern uint64_t gc_scan_stack(uint64_t *fp, uint64_t *root_buf, uint64_t max_roots);
+extern uint64_t gc_scan_stack(uint64_t *fp, uint64_t *root_buf, uint64_t max_roots) LO_NO_ALLOC;
 
 // Persistence: pointer <-> offset conversion
 // image_pointers_to_offsets(buf, size, heap_base)

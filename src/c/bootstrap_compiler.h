@@ -2,6 +2,7 @@
 #define BOOTSTRAP_COMPILER_H
 
 #include <stdint.h>
+#include "vm_defs.h"
 
 typedef enum
 {
@@ -123,11 +124,11 @@ typedef struct
 
 int bc_install_compiled_methods(uint64_t *om, uint64_t *class_class,
                                 const BClassBinding *classes, int class_count,
-                                const BCompiledMethodDef *methods, int method_count);
+                                const BCompiledMethodDef *methods, int method_count) LO_ALLOCATES;
 
 int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
                                           const BClassBinding *classes, int class_count,
-                                          const char *source);
+                                          const char *source) LO_ALLOCATES;
 
 typedef enum
 {
@@ -140,47 +141,47 @@ uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_
                           uint64_t *array_class, uint64_t *association_class,
                           const char *name, uint64_t *superclass,
                           const char **ivar_names, int ivar_count,
-                          BClassFormat format);
+                          BClassFormat format) LO_ALLOCATES;
 
 uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
                                       uint64_t *string_class, uint64_t *array_class,
                                       uint64_t *association_class,
                                       const BClassBinding *classes, int class_count,
-                                      const char *source);
+                                      const char *source) LO_ALLOCATES;
 
 uint64_t *bc_compile_and_install_class_source(uint64_t *om, uint64_t *class_class,
                                               uint64_t *string_class, uint64_t *array_class,
                                               uint64_t *association_class,
                                               const BClassBinding *classes, int class_count,
-                                              const char *source);
+                                              const char *source) LO_ALLOCATES;
 
 uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
                                             uint64_t *string_class, uint64_t *array_class,
                                             uint64_t *association_class,
                                             const BClassBinding *classes, int class_count,
-                                            const char *path);
+                                            const char *path) LO_ALLOCATES;
 
 uint64_t *bc_attach_class_from_source(const BClassBinding *classes, int class_count,
-                                      const char *source);
+                                      const char *source) LO_NO_ALLOC;
 
 uint64_t *bc_compile_and_install_existing_class_source(uint64_t *om, uint64_t *class_class,
                                                        const BClassBinding *classes, int class_count,
-                                                       const char *source);
+                                                       const char *source) LO_ALLOCATES;
 
 uint64_t *bc_compile_and_install_existing_class_file(uint64_t *om, uint64_t *class_class,
                                                      const BClassBinding *classes, int class_count,
-                                                     const char *path);
+                                                     const char *path) LO_ALLOCATES;
 
 int bc_compile_and_install_classes_source(uint64_t *om, uint64_t *class_class,
                                           uint64_t *string_class, uint64_t *array_class,
                                           uint64_t *association_class,
                                           const BClassBinding *classes, int class_count,
-                                          const char *source);
+                                          const char *source) LO_ALLOCATES;
 
 int bc_compile_and_install_classes_file(uint64_t *om, uint64_t *class_class,
                                         uint64_t *string_class, uint64_t *array_class,
                                         uint64_t *association_class,
                                         const BClassBinding *classes, int class_count,
-                                        const char *path);
+                                        const char *path) LO_ALLOCATES;
 
 #endif
