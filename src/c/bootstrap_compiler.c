@@ -83,6 +83,19 @@ static void skip_whitespace(BTokenizer *tokenizer)
             advance(tokenizer);
             continue;
         }
+        if (character == '"')
+        {
+            advance(tokenizer);
+            while (peek(tokenizer) != '\0' && peek(tokenizer) != '"')
+            {
+                advance(tokenizer);
+            }
+            if (peek(tokenizer) == '"')
+            {
+                advance(tokenizer);
+            }
+            continue;
+        }
         break;
     }
 }
@@ -2703,14 +2716,14 @@ uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_
                           const char **ivar_names, int ivar_count,
                           BClassFormat format)
 {
-    // Metaclass holds class-side methods. Use class_class as its class
-    // because we don't have a proper Metaclass object in the boot image.
+    // Metaclass holds class-side methods. It inherits from Class so
+    // Class>>new/basicNew stay reachable from user-defined classes.
     uint64_t *metaclass = om_alloc(om, (uint64_t)class_class, 0, 5);
     if (metaclass == NULL)
     {
         return NULL;
     }
-    BC_OBJ_FIELD(metaclass, BC_CLASS_SUPERCLASS) = tagged_nil();
+    BC_OBJ_FIELD(metaclass, BC_CLASS_SUPERCLASS) = (uint64_t)class_class;
     BC_OBJ_FIELD(metaclass, BC_CLASS_METHOD_DICT) = tagged_nil();
     BC_OBJ_FIELD(metaclass, BC_CLASS_INST_SIZE) = tag_smallint(0);
     BC_OBJ_FIELD(metaclass, BC_CLASS_INST_FORMAT) = tag_smallint(0);

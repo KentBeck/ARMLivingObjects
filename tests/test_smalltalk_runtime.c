@@ -27,12 +27,8 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, class_lookup(point_file_class, intern_cstring_symbol(world.om, "y")) != 0,
               1, "runtime: class file loader installs PointFile methods");
 
-    // Define Token class (ivars: type, text, value) and install Token.st methods.
-    const char *token_ivars[] = {"type", "text", "value"};
-    smalltalk_world_define_class(&world, "Token", NULL, token_ivars, 3, FORMAT_FIELDS);
-
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Token.st"), 1,
-              "runtime: Token.st installs");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Token.st") != NULL,
+              1, "runtime: Token.st defines class and installs methods");
 
     // --- `Token eof` should return a Token instance with type = #eof. ---
     uint64_t *token_class = smalltalk_world_lookup_class(&world, "Token");

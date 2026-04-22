@@ -1,6 +1,8 @@
 "Token — lexical token with type, text, and optional value"
 "Instance variables: type, text, value"
 
+Object subclass: #Token instanceVariableNames: 'type text value'
+
 !Token class methodsFor: 'instance creation'!
 type: aSymbol text: aString
     ^ self new type: aSymbol text: aString value: nil

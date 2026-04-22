@@ -174,6 +174,15 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
+        BTokenizer tokenizer;
+        bt_init(&tokenizer, "\"comment\" Object subclass: #Token");
+
+        assert_tok(ctx, &tokenizer, BTOK_IDENTIFIER, "Object");
+        assert_tok(ctx, &tokenizer, BTOK_KEYWORD, "subclass:");
+        assert_tok(ctx, &tokenizer, BTOK_SYMBOL, "Token");
+    }
+
+    {
         BMethodHeader header;
         ASSERT_EQ(ctx, bc_parse_method_header("size", &header), 1,
                   "parse unary method header");
