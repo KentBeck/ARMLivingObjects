@@ -894,6 +894,56 @@ static void test_allocation_primitives(SmokeWorld *world)
              "C interpreter: basicNew: bytes format");
     CHECK_EQ(OBJ_SIZE((uint64_t *)bytes), 5,
              "C interpreter: basicNew: bytes size");
+
+    static uint8_t gc_a[4096] __attribute__((aligned(8)));
+    static uint8_t gc_b[4096] __attribute__((aligned(8)));
+    uint64_t gc_ctx[10];
+    gc_ctx_init(gc_ctx, gc_a, gc_b, sizeof(gc_a));
+
+    uint64_t *gc_inst_class = om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(gc_inst_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(gc_inst_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(gc_inst_class, CLASS_INST_SIZE) = tag_smallint(3);
+    OBJ_FIELD(gc_inst_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    OBJ_FIELD(gc_inst_class, CLASS_INST_VARS) = tagged_nil();
+
+    uint64_t *gc_lits = om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_INDEXABLE, 2);
+    OBJ_FIELD(gc_lits, 0) = (uint64_t)gc_inst_class;
+    OBJ_FIELD(gc_lits, 1) = sel_basic_new;
+    uint64_t *gc_bytecodes = om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_BYTES, 15);
+    uint8_t *gbc = (uint8_t *)&OBJ_FIELD(gc_bytecodes, 0);
+    gbc[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&gbc[1], 0);
+    gbc[5] = BC_SEND_MESSAGE;
+    WRITE_U32(&gbc[6], 1);
+    WRITE_U32(&gbc[10], 0);
+    gbc[14] = BC_HALT;
+    uint64_t *gc_method = om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(gc_method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(gc_method, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(gc_method, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(gc_method, CM_LITERALS) = (uint64_t)gc_lits;
+    OBJ_FIELD(gc_method, CM_BYTECODES) = (uint64_t)gc_bytecodes;
+
+    uint64_t remaining = gc_ctx[GC_FROM_END] - gc_ctx[GC_FROM_FREE];
+    if (remaining > 24)
+    {
+        uint64_t fill = (remaining - 24) / 8;
+        if (fill > 3)
+        {
+            (void)om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_FIELDS, fill - 3);
+        }
+    }
+
+    uint64_t gc_object = run_method_with_om(world, gc_method, tag_smallint(0), NULL, 0, gc_ctx, NULL);
+    CHECK_EQ(gc_object >= gc_ctx[GC_FROM_START], 1,
+             "C interpreter: basicNew GC retry returns active-space object");
+    CHECK_EQ(gc_object < gc_ctx[GC_FROM_END], 1,
+             "C interpreter: basicNew GC retry result within active semispace");
+    CHECK_EQ(OBJ_SIZE((uint64_t *)gc_object), 3,
+             "C interpreter: basicNew GC retry preserves class shape");
+    CHECK_EQ(OBJ_FIELD((uint64_t *)gc_object, 2), tagged_nil(),
+             "C interpreter: basicNew GC retry initializes fields");
 }
 
 int main(void)

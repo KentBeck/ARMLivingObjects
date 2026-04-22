@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <signal.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -14,13 +15,23 @@ extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
 extern uint64_t prim_string_as_symbol(uint64_t receiver);
 extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
+extern void gc_collect(uint64_t *roots, uint64_t num_roots,
+                       uint64_t *from_space, uint64_t *to_space,
+                       uint64_t from_start, uint64_t from_end);
+extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
+                                       uint64_t **slot_buf, uint64_t max_slots);
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 
 enum
 {
+    GC_FROM_FREE = 0,
     GC_FROM_END = 1,
+    GC_TO_FREE = 2,
+    GC_TO_END = 3,
     GC_FROM_START = 4,
+    GC_TO_START = 5,
+    GC_SPACE_SIZE = 6,
     GC_TENURED_START = 7,
     GC_TENURED_END = 8,
     GC_REMEMBERED = 9
@@ -167,8 +178,74 @@ static void initialize_word_fields(uint64_t *object, uint64_t size)
     }
 }
 
+static int collect_and_retry_allocation(uint64_t **sp_ptr, uint64_t **fp_ptr,
+                                        uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
+                                        uint64_t **class_table_ptr, uint64_t *om)
+{
+    uint64_t slot_count = gc_collect_stack_slots(*sp_ptr, *fp_ptr, NULL, 0);
+    uint64_t **slots = NULL;
+    uint64_t *roots = NULL;
+
+    if (slot_count != 0)
+    {
+        slots = (uint64_t **)malloc((size_t)(slot_count * sizeof(uint64_t *)));
+        if (slots == NULL)
+        {
+            return 0;
+        }
+    }
+
+    roots = (uint64_t *)malloc((size_t)((slot_count + 1) * sizeof(uint64_t)));
+    if (roots == NULL)
+    {
+        free(slots);
+        return 0;
+    }
+
+    (void)gc_collect_stack_slots(*sp_ptr, *fp_ptr, slots, slot_count);
+    for (uint64_t index = 0; index < slot_count; index++)
+    {
+        roots[index] = *slots[index];
+    }
+    roots[slot_count] = (uint64_t)*class_table_ptr;
+
+    gc_collect(roots, slot_count + 1, om, om + GC_TO_FREE,
+               om[GC_FROM_START], om[GC_FROM_END]);
+
+    for (uint64_t index = 0; index < slot_count; index++)
+    {
+        *slots[index] = roots[index];
+    }
+    *class_table_ptr = (uint64_t *)roots[slot_count];
+
+    uint64_t from_free = om[GC_FROM_FREE];
+    uint64_t from_end = om[GC_FROM_END];
+    uint64_t from_start = om[GC_FROM_START];
+    om[GC_FROM_FREE] = om[GC_TO_FREE];
+    om[GC_FROM_END] = om[GC_TO_END];
+    om[GC_TO_FREE] = from_free;
+    om[GC_TO_END] = from_end;
+    om[GC_FROM_START] = om[GC_TO_START];
+    om[GC_TO_START] = from_start;
+    om[GC_TO_FREE] = om[GC_TO_START];
+    om[GC_TO_END] = om[GC_TO_START] + om[GC_SPACE_SIZE];
+
+    uint64_t ip_offset = (uint64_t)(*ip_ptr - *bytecode_base_ptr);
+    uint64_t *current_method = (uint64_t *)(*fp_ptr)[FRAME_METHOD];
+    uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(current_method, CM_BYTECODES);
+    *bytecode_base_ptr = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    *ip_ptr = *bytecode_base_ptr + ip_offset;
+
+    free(roots);
+    free(slots);
+    return 1;
+}
+
 static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, uint64_t primitive,
-                                               uint64_t arg_count, uint64_t *om)
+                                               uint64_t arg_count, uint64_t *om,
+                                               uint64_t **fp_ptr, uint8_t **ip_ptr,
+                                               uint8_t **bytecode_base_ptr,
+                                               uint64_t **class_table_ptr)
 {
     uint64_t *sp = *sp_ptr;
     uint64_t receiver = sp[arg_count];
@@ -199,8 +276,20 @@ static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, uint64_t prim
         uint64_t *object = om_alloc(om, receiver, FORMAT_FIELDS, (uint64_t)size);
         if (object == NULL)
         {
-            raise(SIGTRAP);
-            return PRIMITIVE_UNSUPPORTED;
+            if (!collect_and_retry_allocation(sp_ptr, fp_ptr, ip_ptr, bytecode_base_ptr, class_table_ptr, om))
+            {
+                raise(SIGTRAP);
+                return PRIMITIVE_UNSUPPORTED;
+            }
+            sp = *sp_ptr;
+            receiver = sp[arg_count];
+            size = untag_smallint(OBJ_FIELD((uint64_t *)receiver, CLASS_INST_SIZE));
+            object = om_alloc(om, receiver, FORMAT_FIELDS, (uint64_t)size);
+            if (object == NULL)
+            {
+                raise(SIGTRAP);
+                return PRIMITIVE_UNSUPPORTED;
+            }
         }
         initialize_word_fields(object, (uint64_t)size);
         replace_receiver(sp_ptr, (uint64_t)object);
@@ -241,8 +330,21 @@ static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, uint64_t prim
         uint64_t *object = om_alloc(om, receiver, (uint64_t)format, (uint64_t)size);
         if (object == NULL)
         {
-            raise(SIGTRAP);
-            return PRIMITIVE_UNSUPPORTED;
+            if (!collect_and_retry_allocation(sp_ptr, fp_ptr, ip_ptr, bytecode_base_ptr, class_table_ptr, om))
+            {
+                raise(SIGTRAP);
+                return PRIMITIVE_UNSUPPORTED;
+            }
+            sp = *sp_ptr;
+            receiver = sp[arg_count];
+            size = untag_smallint(sp[0]);
+            format = untag_smallint(OBJ_FIELD((uint64_t *)receiver, CLASS_INST_FORMAT));
+            object = om_alloc(om, receiver, (uint64_t)format, (uint64_t)size);
+            if (object == NULL)
+            {
+                raise(SIGTRAP);
+                return PRIMITIVE_UNSUPPORTED;
+            }
         }
         if (format == FORMAT_INDEXABLE)
         {
@@ -875,7 +977,9 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                     break;
                 }
 
-                PrimitiveResult result = try_allocation_primitive(sp_ptr, primitive_id, arg_count, om);
+                PrimitiveResult result = try_allocation_primitive(sp_ptr, primitive_id, arg_count, om,
+                                                                  fp_ptr, &ip, &bytecode_base,
+                                                                  &class_table);
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
                     result = try_smallint_primitive(sp_ptr, primitive_id, arg_count);
