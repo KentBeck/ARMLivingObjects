@@ -1,5 +1,7 @@
 "WriteStream — sequential writes over a String"
 
+Object subclass: #WriteStream instanceVariableNames: 'collection position'
+
 !WriteStream class methodsFor: 'instance creation'!
 on: aCollection
     ^ self new initializeOn: aCollection
