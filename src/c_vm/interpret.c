@@ -20,6 +20,7 @@ extern void gc_collect(uint64_t *roots, uint64_t num_roots,
                        uint64_t from_start, uint64_t from_end);
 extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
                                        uint64_t **slot_buf, uint64_t max_slots);
+extern uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om);
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 
@@ -1209,7 +1210,8 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                 break;
             }
 
-            OBJ_FIELD(block, BLOCK_HOME_CONTEXT) = TAGGED_NIL;
+            uint64_t *home_context = ensure_frame_context_global(fp, om);
+            OBJ_FIELD(block, BLOCK_HOME_CONTEXT) = home_context == NULL ? TAGGED_NIL : (uint64_t)home_context;
             OBJ_FIELD(block, BLOCK_HOME_RECEIVER) = fp[FRAME_RECEIVER];
             OBJ_FIELD(block, BLOCK_CM) = block_method;
 
@@ -1237,8 +1239,19 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             break;
         }
 
-        case BC_RETURN_NON_LOCAL:
         case BC_PUSH_THIS_CONTEXT:
+        {
+            uint64_t *context = ensure_frame_context_global(*fp_ptr, om);
+            if (context == NULL)
+            {
+                unsupported_bytecode(opcode);
+                break;
+            }
+            push(sp_ptr, (uint64_t)context);
+            break;
+        }
+
+        case BC_RETURN_NON_LOCAL:
         case BC_PUSH_GLOBAL:
             unsupported_bytecode(opcode);
             break;

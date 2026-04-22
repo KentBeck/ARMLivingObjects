@@ -91,7 +91,9 @@ Next small steps:
   - [x] Add non-GC `basicNew` and `basicNew:` success/fallback paths.
   - [x] Add GC retry/root preservation for allocation primitives.
 - [x] Port block activation and copied values.
-- [ ] Port `thisContext`, heap context materialization hooks, non-local return, and `cannotReturn:`.
+- [ ] Port context and non-local return support:
+  - [x] Add `thisContext` and closure home-context materialization.
+  - [ ] Add non-local block return and `cannotReturn:`.
 - [ ] Switch default `INTERPRETER` to `c` only after full `make test` passes with C.
 - [ ] Remove obsolete assembly helper/interpreter files after the C default has stayed green.
 

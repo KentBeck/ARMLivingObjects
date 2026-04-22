@@ -30,6 +30,7 @@ typedef struct
     uint64_t *test_class;
     uint64_t *symbol_class;
     uint64_t *symbol_table;
+    uint64_t *context_class;
     uint64_t *receiver;
     uint64_t stack[STACK_WORDS];
 } SmokeWorld;
@@ -180,6 +181,14 @@ static void init_world(SmokeWorld *world)
     }
     global_symbol_class = world->symbol_class;
     global_symbol_table = world->symbol_table;
+
+    world->context_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(world->context_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(world->context_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(world->context_class, CLASS_INST_SIZE) = tag_smallint(CONTEXT_VAR_BASE);
+    OBJ_FIELD(world->context_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+    OBJ_FIELD(world->context_class, CLASS_INST_VARS) = tagged_nil();
+    global_context_class = world->context_class;
 
     world->receiver = om_alloc(world->om, (uint64_t)world->test_class, FORMAT_FIELDS, 2);
     OBJ_FIELD(world->receiver, 0) = tag_smallint(111);
@@ -997,6 +1006,9 @@ static void test_block_primitives(SmokeWorld *world)
              "C interpreter: PUSH_CLOSURE records home receiver");
     CHECK_EQ(OBJ_FIELD((uint64_t *)block, BLOCK_CM), (uint64_t)literal_body,
              "C interpreter: PUSH_CLOSURE records block method");
+    CHECK_EQ(OBJ_CLASS((uint64_t *)OBJ_FIELD((uint64_t *)block, BLOCK_HOME_CONTEXT)),
+             (uint64_t)world->context_class,
+             "C interpreter: PUSH_CLOSURE records home context");
 
     uint64_t *arg_body_bytecodes = make_bytecodes(world, 6);
     uint8_t *abb = (uint8_t *)&OBJ_FIELD(arg_body_bytecodes, 0);
@@ -1056,6 +1068,39 @@ static void test_block_primitives(SmokeWorld *world)
              "C interpreter: Block copied temp keeps creation value");
 }
 
+static void test_this_context(SmokeWorld *world)
+{
+    uint64_t *bytecodes = make_bytecodes(world, 12);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[1], 0);
+    bc[5] = BC_STORE_TEMP;
+    WRITE_U32(&bc[6], 0);
+    bc[10] = BC_PUSH_THIS_CONTEXT;
+    bc[11] = BC_HALT;
+    uint64_t *literals = make_array(world, 1);
+    OBJ_FIELD(literals, 0) = tag_smallint(5150);
+    uint64_t arg = tag_smallint(123);
+    uint64_t *method = make_method(world, bytecodes, literals, 1, 1);
+    uint64_t context_oop = run_method(world, method, (uint64_t)world->receiver, &arg, 1);
+    uint64_t *context = (uint64_t *)context_oop;
+
+    CHECK_EQ(OBJ_CLASS(context), (uint64_t)world->context_class,
+             "C interpreter: PUSH_THIS_CONTEXT returns Context");
+    CHECK_EQ(OBJ_FIELD(context, CONTEXT_METHOD), (uint64_t)method,
+             "C interpreter: context stores method");
+    CHECK_EQ(OBJ_FIELD(context, CONTEXT_RECEIVER), (uint64_t)world->receiver,
+             "C interpreter: context stores receiver");
+    CHECK_EQ(OBJ_FIELD(context, CONTEXT_NUM_ARGS), tag_smallint(1),
+             "C interpreter: context stores arg count");
+    CHECK_EQ(OBJ_FIELD(context, CONTEXT_NUM_TEMPS), tag_smallint(1),
+             "C interpreter: context stores temp count");
+    CHECK_EQ(OBJ_FIELD(context, CONTEXT_VAR_BASE), arg,
+             "C interpreter: context stores arg value");
+    CHECK_EQ(OBJ_FIELD(context, CONTEXT_VAR_BASE + 1), tag_smallint(5150),
+             "C interpreter: context stores temp value");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -1078,6 +1123,7 @@ int main(void)
     test_inst_var_transaction_and_barrier(&world);
     test_allocation_primitives(&world);
     test_block_primitives(&world);
+    test_this_context(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;
