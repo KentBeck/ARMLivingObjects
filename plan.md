@@ -38,6 +38,7 @@ LSP Server
   - [x] Define classes from a restricted Smalltalk class declaration
   - [x] Load one class declaration plus method chunks from one source
 - [ ] Implement `.st` file loader (compile/install methods into classes)
+  - [x] Load one class declaration plus method chunks from a `.st` file
 - [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
 - [ ] Start minimal Smalltalk compiler in Smalltalk and compile with C bootstrap
 - [ ] Run first self-hosting check (Smalltalk compiler recompiles itself)

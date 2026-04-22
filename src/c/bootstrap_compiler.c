@@ -2910,3 +2910,30 @@ uint64_t *bc_compile_and_install_class_source(uint64_t *om, uint64_t *class_clas
     }
     return klass;
 }
+
+uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
+                                            uint64_t *string_class, uint64_t *array_class,
+                                            uint64_t *association_class,
+                                            const BClassBinding *classes, int class_count,
+                                            const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL)
+    {
+        return NULL;
+    }
+
+    char source[32768];
+    size_t size = fread(source, 1, sizeof(source) - 1, file);
+    int read_error = ferror(file);
+    int too_large = size == sizeof(source) - 1 && !feof(file);
+    fclose(file);
+    if (read_error || too_large)
+    {
+        return NULL;
+    }
+    source[size] = '\0';
+
+    return bc_compile_and_install_class_source(om, class_class, string_class, array_class,
+                                               association_class, classes, class_count, source);
+}

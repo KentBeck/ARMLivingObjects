@@ -972,6 +972,16 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, class_lookup(point_with_methods_class, intern_cstring_symbol(ctx->om, "x")) != 0,
                   1, "PointWithMethods understands x");
 
+        uint64_t *point_file_class = bc_compile_and_install_class_file(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4, "tests/fixtures/PointFile.st");
+        ASSERT_EQ(ctx, point_file_class != NULL, 1,
+                  "class file defines class and installs methods");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(point_file_class, CLASS_INST_SIZE)), 2,
+                  "PointFile class has parsed instance variables");
+        ASSERT_EQ(ctx, class_lookup(point_file_class, intern_cstring_symbol(ctx->om, "y")) != 0,
+                  1, "PointFile understands y");
+
         uint64_t *token_metaclass = (uint64_t *)OBJ_CLASS(token_class);
         ASSERT_EQ(ctx, token_metaclass != NULL, 1, "Token metaclass was created");
 

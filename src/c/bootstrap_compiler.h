@@ -154,4 +154,10 @@ uint64_t *bc_compile_and_install_class_source(uint64_t *om, uint64_t *class_clas
                                               const BClassBinding *classes, int class_count,
                                               const char *source);
 
+uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
+                                            uint64_t *string_class, uint64_t *array_class,
+                                            uint64_t *association_class,
+                                            const BClassBinding *classes, int class_count,
+                                            const char *path);
+
 #endif
