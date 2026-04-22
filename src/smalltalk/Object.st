@@ -1,5 +1,7 @@
 "Object — root of the class hierarchy"
 
+nil subclass: #Object instanceVariableNames: ''
+
 !Object methodsFor: 'comparing'!
 == anObject
     <primitive: 12>

@@ -81,8 +81,11 @@ void test_smalltalk_runtime(TestContext *ctx)
     // --- Step 3: Tokenizer.st end-to-end. Tokenize "1" and inspect the result. ---
     // The Tokenizer uses isNil on Character results (Object.st/UndefinedObject.st)
     // and `>`/`<=` on integers (SmallInteger.st adds these helpers).
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Object.st"), 1,
-              "runtime: Object.st installs");
+    uint64_t *object_class = smalltalk_world_install_existing_class_file(&world, "src/smalltalk/Object.st");
+    ASSERT_EQ(ctx, object_class != NULL, 1,
+              "runtime: Object.st declaration matches existing class and installs methods");
+    ASSERT_EQ(ctx, (uint64_t)object_class, (uint64_t)world.object_class,
+              "runtime: Object.st attaches to the existing Object class");
     ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/UndefinedObject.st"), 1,
               "runtime: UndefinedObject.st installs");
     ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/SmallInteger.st"), 1,

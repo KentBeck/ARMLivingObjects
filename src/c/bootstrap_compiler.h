@@ -160,6 +160,17 @@ uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
                                             const BClassBinding *classes, int class_count,
                                             const char *path);
 
+uint64_t *bc_attach_class_from_source(const BClassBinding *classes, int class_count,
+                                      const char *source);
+
+uint64_t *bc_compile_and_install_existing_class_source(uint64_t *om, uint64_t *class_class,
+                                                       const BClassBinding *classes, int class_count,
+                                                       const char *source);
+
+uint64_t *bc_compile_and_install_existing_class_file(uint64_t *om, uint64_t *class_class,
+                                                     const BClassBinding *classes, int class_count,
+                                                     const char *path);
+
 int bc_compile_and_install_classes_source(uint64_t *om, uint64_t *class_class,
                                           uint64_t *string_class, uint64_t *array_class,
                                           uint64_t *association_class,

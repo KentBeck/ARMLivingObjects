@@ -2822,11 +2822,17 @@ static int bc_parse_instance_var_names(const char *source, char names[16][32],
     return 1;
 }
 
-uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
-                                      uint64_t *string_class, uint64_t *array_class,
-                                      uint64_t *association_class,
-                                      const BClassBinding *classes, int class_count,
-                                      const char *source)
+typedef struct
+{
+    char superclass_name[64];
+    char class_name[64];
+    char ivar_names[16][32];
+    const char *ivar_name_ptrs[16];
+    int ivar_count;
+    BClassFormat format;
+} BClassDeclaration;
+
+static int bc_parse_class_declaration(const char *source, BClassDeclaration *declaration)
 {
     BTokenizer tokenizer;
     bt_init(&tokenizer, source);
@@ -2844,7 +2850,7 @@ uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
         strcmp(ivar_keyword.text, "instanceVariableNames:") != 0 ||
         ivar_string.type != BTOK_STRING)
     {
-        return NULL;
+        return 0;
     }
 
     BClassFormat format = BC_CLASS_FORMAT_FIELDS;
@@ -2862,7 +2868,7 @@ uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
     }
     else
     {
-        return NULL;
+        return 0;
     }
 
     for (;;)
@@ -2878,31 +2884,134 @@ uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
         }
         if (token.type != BTOK_KEYWORD)
         {
-            return NULL;
+            return 0;
         }
         BToken ignored_value = bt_next(&tokenizer);
         if (ignored_value.type != BTOK_STRING && ignored_value.type != BTOK_SYMBOL)
         {
-            return NULL;
+            return 0;
         }
     }
 
-    char ivar_names[16][32];
-    const char *ivar_name_ptrs[16];
-    int ivar_count = 0;
-    if (!bc_parse_instance_var_names(ivar_string.text, ivar_names, ivar_name_ptrs, &ivar_count))
+    memset(declaration, 0, sizeof(*declaration));
+    strncpy(declaration->superclass_name, superclass_token.text, sizeof(declaration->superclass_name) - 1);
+    strncpy(declaration->class_name, class_name_token.text, sizeof(declaration->class_name) - 1);
+    declaration->format = format;
+    return bc_parse_instance_var_names(ivar_string.text, declaration->ivar_names,
+                                       declaration->ivar_name_ptrs, &declaration->ivar_count);
+}
+
+static int bc_byte_object_equals_cstring(uint64_t oop, const char *text)
+{
+    if (!is_object_ptr(oop))
+    {
+        return 0;
+    }
+    uint64_t *object = (uint64_t *)oop;
+    size_t len = strlen(text);
+    return BC_OBJ_SIZE(object) == (uint64_t)len &&
+           memcmp(&BC_OBJ_FIELD(object, 0), text, len) == 0;
+}
+
+static int bc_class_matches_declaration(uint64_t *klass, uint64_t *superclass,
+                                        const BClassDeclaration *declaration)
+{
+    uint64_t expected_superclass = superclass != NULL ? (uint64_t)superclass : tagged_nil();
+    if (BC_OBJ_FIELD(klass, BC_CLASS_SUPERCLASS) != expected_superclass)
+    {
+        return 0;
+    }
+    if (untag_smallint(BC_OBJ_FIELD(klass, BC_CLASS_INST_SIZE)) != declaration->ivar_count)
+    {
+        return 0;
+    }
+    if (untag_smallint(BC_OBJ_FIELD(klass, BC_CLASS_INST_FORMAT)) != declaration->format)
+    {
+        return 0;
+    }
+
+    uint64_t ivars_oop = BC_OBJ_FIELD(klass, BC_CLASS_INST_VARS);
+    if (declaration->ivar_count == 0)
+    {
+        return ivars_oop == tagged_nil() ||
+               (is_object_ptr(ivars_oop) && BC_OBJ_SIZE((uint64_t *)ivars_oop) == 0);
+    }
+    if (!is_object_ptr(ivars_oop))
+    {
+        return 0;
+    }
+    uint64_t *ivars = (uint64_t *)ivars_oop;
+    if (BC_OBJ_SIZE(ivars) != (uint64_t)declaration->ivar_count)
+    {
+        return 0;
+    }
+    for (int index = 0; index < declaration->ivar_count; index++)
+    {
+        if (!bc_byte_object_equals_cstring(BC_OBJ_FIELD(ivars, (uint64_t)index),
+                                          declaration->ivar_names[index]))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
+                                      uint64_t *string_class, uint64_t *array_class,
+                                      uint64_t *association_class,
+                                      const BClassBinding *classes, int class_count,
+                                      const char *source)
+{
+    BClassDeclaration declaration;
+    if (!bc_parse_class_declaration(source, &declaration))
     {
         return NULL;
     }
 
-    uint64_t *superclass = bc_lookup_class_named(classes, class_count, superclass_token.text);
-    if (superclass == NULL)
+    uint64_t *superclass = NULL;
+    if (strcmp(declaration.superclass_name, "nil") != 0)
+    {
+        superclass = bc_lookup_class_named(classes, class_count, declaration.superclass_name);
+    }
+    if (superclass == NULL && strcmp(declaration.superclass_name, "nil") != 0)
     {
         return NULL;
     }
 
     return bc_define_class(om, class_class, string_class, array_class, association_class,
-                           class_name_token.text, superclass, ivar_name_ptrs, ivar_count, format);
+                           declaration.class_name, superclass, declaration.ivar_name_ptrs,
+                           declaration.ivar_count, declaration.format);
+}
+
+uint64_t *bc_attach_class_from_source(const BClassBinding *classes, int class_count,
+                                      const char *source)
+{
+    BClassDeclaration declaration;
+    if (!bc_parse_class_declaration(source, &declaration))
+    {
+        return NULL;
+    }
+
+    uint64_t *klass = bc_lookup_class_named(classes, class_count, declaration.class_name);
+    if (klass == NULL)
+    {
+        return NULL;
+    }
+
+    uint64_t *superclass = NULL;
+    if (strcmp(declaration.superclass_name, "nil") != 0)
+    {
+        superclass = bc_lookup_class_named(classes, class_count, declaration.superclass_name);
+        if (superclass == NULL)
+        {
+            return NULL;
+        }
+    }
+    if (!bc_class_matches_declaration(klass, superclass, &declaration))
+    {
+        return NULL;
+    }
+    return klass;
 }
 
 uint64_t *bc_compile_and_install_class_source(uint64_t *om, uint64_t *class_class,
@@ -2949,6 +3058,46 @@ uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
 
     return bc_compile_and_install_class_source(om, class_class, string_class, array_class,
                                                association_class, classes, class_count, source);
+}
+
+uint64_t *bc_compile_and_install_existing_class_source(uint64_t *om, uint64_t *class_class,
+                                                       const BClassBinding *classes, int class_count,
+                                                       const char *source)
+{
+    uint64_t *klass = bc_attach_class_from_source(classes, class_count, source);
+    if (klass == NULL)
+    {
+        return NULL;
+    }
+    if (!bc_compile_and_install_source_methods(om, class_class, classes, class_count, source))
+    {
+        return NULL;
+    }
+    return klass;
+}
+
+uint64_t *bc_compile_and_install_existing_class_file(uint64_t *om, uint64_t *class_class,
+                                                     const BClassBinding *classes, int class_count,
+                                                     const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL)
+    {
+        return NULL;
+    }
+
+    char source[32768];
+    size_t size = fread(source, 1, sizeof(source) - 1, file);
+    int read_error = ferror(file);
+    int too_large = size == sizeof(source) - 1 && !feof(file);
+    fclose(file);
+    if (read_error || too_large)
+    {
+        return NULL;
+    }
+    source[size] = '\0';
+
+    return bc_compile_and_install_existing_class_source(om, class_class, classes, class_count, source);
 }
 
 int bc_compile_and_install_classes_source(uint64_t *om, uint64_t *class_class,
