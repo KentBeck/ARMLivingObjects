@@ -47,6 +47,7 @@ LSP Server
   - [x] Load `CodeGenerator.st` as a real class-definition file
   - [x] Load `Compiler.st` as a real class-definition file
   - [x] Load `WriteStream.st` as a real class-definition file
+  - [x] Load multi-class `ASTNodes.st` as a real class-definition file
 - [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
 - [ ] Start minimal Smalltalk compiler in Smalltalk and compile with C bootstrap
 - [ ] Run first self-hosting check (Smalltalk compiler recompiles itself)

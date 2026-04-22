@@ -2950,3 +2950,92 @@ uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
     return bc_compile_and_install_class_source(om, class_class, string_class, array_class,
                                                association_class, classes, class_count, source);
 }
+
+int bc_compile_and_install_classes_source(uint64_t *om, uint64_t *class_class,
+                                          uint64_t *string_class, uint64_t *array_class,
+                                          uint64_t *association_class,
+                                          const BClassBinding *classes, int class_count,
+                                          const char *source)
+{
+    const char *line = source;
+    int defined_count = 0;
+
+    while (*line != '\0')
+    {
+        const char *line_end = line;
+        while (*line_end != '\0' && *line_end != '\n' && *line_end != '\r')
+        {
+            line_end++;
+        }
+
+        const char *trimmed = line;
+        while (trimmed < line_end && (*trimmed == ' ' || *trimmed == '\t'))
+        {
+            trimmed++;
+        }
+
+        if (trimmed < line_end && *trimmed == '!')
+        {
+            break;
+        }
+        if (trimmed < line_end && *trimmed != '"')
+        {
+            uint64_t line_len = (uint64_t)(line_end - trimmed);
+            if (line_len >= 512)
+            {
+                return 0;
+            }
+
+            char declaration[512];
+            memcpy(declaration, trimmed, (size_t)line_len);
+            declaration[line_len] = '\0';
+
+            if (bc_define_class_from_source(om, class_class, string_class, array_class,
+                                            association_class, classes, class_count,
+                                            declaration) == NULL)
+            {
+                return 0;
+            }
+            defined_count++;
+        }
+
+        line = line_end;
+        while (*line == '\n' || *line == '\r')
+        {
+            line++;
+        }
+    }
+
+    if (defined_count == 0)
+    {
+        return 0;
+    }
+    return bc_compile_and_install_source_methods(om, class_class, classes, class_count, source);
+}
+
+int bc_compile_and_install_classes_file(uint64_t *om, uint64_t *class_class,
+                                        uint64_t *string_class, uint64_t *array_class,
+                                        uint64_t *association_class,
+                                        const BClassBinding *classes, int class_count,
+                                        const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL)
+    {
+        return 0;
+    }
+
+    char source[32768];
+    size_t size = fread(source, 1, sizeof(source) - 1, file);
+    int read_error = ferror(file);
+    int too_large = size == sizeof(source) - 1 && !feof(file);
+    fclose(file);
+    if (read_error || too_large)
+    {
+        return 0;
+    }
+    source[size] = '\0';
+
+    return bc_compile_and_install_classes_source(om, class_class, string_class, array_class,
+                                                 association_class, classes, class_count, source);
+}
