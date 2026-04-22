@@ -11,6 +11,70 @@
 #include "primitives.h"
 #include "bootstrap_compiler.h"
 
+#ifdef ALO_INTERPRETER_C
+static uint64_t *materialize_codegen_method(SmalltalkWorld *world, uint64_t *generator)
+{
+    int64_t bytecode_count = untag_smallint(OBJ_FIELD(generator, 1));
+    int64_t literal_count = untag_smallint(OBJ_FIELD(generator, 3));
+    int64_t temp_count = untag_smallint(OBJ_FIELD(generator, 5));
+    int64_t arg_count = untag_smallint(OBJ_FIELD(generator, 7));
+    if (bytecode_count < 0 || literal_count < 0 || temp_count < 0 || arg_count < 0)
+    {
+        return NULL;
+    }
+
+    uint64_t *source_bytecodes = (uint64_t *)OBJ_FIELD(generator, 0);
+    uint64_t *source_literals = (uint64_t *)OBJ_FIELD(generator, 2);
+    uint64_t *bytecodes = om_alloc(world->om, (uint64_t)world->class_class,
+                                   FORMAT_BYTES, (uint64_t)bytecode_count);
+    if (bytecodes == NULL)
+    {
+        return NULL;
+    }
+    memcpy(&OBJ_FIELD(bytecodes, 0), &OBJ_FIELD(source_bytecodes, 0), (size_t)bytecode_count);
+
+    uint64_t *literals = NULL;
+    if (literal_count > 0)
+    {
+        literals = om_alloc(world->om, (uint64_t)world->class_class,
+                            FORMAT_INDEXABLE, (uint64_t)literal_count);
+        if (literals == NULL)
+        {
+            return NULL;
+        }
+        for (int64_t index = 0; index < literal_count; index++)
+        {
+            OBJ_FIELD(literals, index) = OBJ_FIELD(source_literals, index);
+        }
+    }
+
+    uint64_t *method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    if (method == NULL)
+    {
+        return NULL;
+    }
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint(arg_count);
+    OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(temp_count);
+    OBJ_FIELD(method, CM_LITERALS) = literals != NULL ? (uint64_t)literals : tagged_nil();
+    OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+    return method;
+}
+
+static uint64_t run_materialized_method(SmalltalkWorld *world, TestContext *ctx,
+                                        uint64_t *method, uint64_t receiver)
+{
+    uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(method, CM_BYTECODES);
+    uint64_t num_args = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_ARGS));
+    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
+    uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+    uint64_t *fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, ctx->stack, receiver);
+    activate_method(&sp, &fp, 0, (uint64_t)method, num_args, num_temps);
+    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+}
+#endif
+
 void test_smalltalk_runtime(TestContext *ctx)
 {
     static uint8_t world_buf[16 * 1024 * 1024] __attribute__((aligned(8)));
@@ -180,6 +244,14 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: generated method literals are stored in an array");
     ASSERT_EQ(ctx, OBJ_FIELD(generated_literals, 0), tag_smallint(1),
               "runtime: Smalltalk compiler records literal 1");
+
+    uint64_t *materialized_method = materialize_codegen_method(&world, method_gen_ptr);
+    ASSERT_EQ(ctx, materialized_method != NULL, 1,
+              "runtime: Smalltalk compiler output materializes as a CompiledMethod");
+    uint64_t materialized_result =
+        run_materialized_method(&world, ctx, materialized_method, tagged_nil());
+    ASSERT_EQ(ctx, materialized_result, tag_smallint(1),
+              "runtime: materialized Smalltalk-compiled method executes");
 #endif
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestCase.st") != NULL,
