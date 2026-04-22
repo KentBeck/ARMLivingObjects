@@ -50,9 +50,8 @@ LSP Server
 
 ### ARM-to-C Interpreter Migration
 
-Goal: replace the ARM assembly interpreter with vanilla C while keeping the
-default assembly-backed VM green at every step. The C interpreter remains
-opt-in with `INTERPRETER=c` until it reaches full behavioral parity.
+Goal: replace the ARM assembly interpreter with vanilla C while keeping both
+the default C-backed VM and explicit `INTERPRETER=asm` comparison path green.
 
 Rules:
 
@@ -70,7 +69,8 @@ Completed:
 - [x] Replace leaf helper assembly with C:
   `tagged`, `object`, `lookup`, `stack_ops`, `frame`, and standalone `bytecode` helpers.
 - [x] Add opt-in C interpreter skeleton behind `INTERPRETER=c`.
-- [x] Keep assembly interpreter as the default build.
+- [x] Keep assembly interpreter as the default build during the parity push.
+- [x] Switch the default build to the C interpreter once the full suite passed with C.
 
 Next small steps:
 
@@ -87,14 +87,14 @@ Next small steps:
   `printChar` and String `asSymbol`.
 - [x] Port indexed access primitives and transaction-aware `at:` / `at:put:`.
 - [x] Port instance-variable transaction reads/writes and write barrier behavior.
-- [ ] Port allocation primitives:
+- [x] Port allocation primitives:
   - [x] Add non-GC `basicNew` and `basicNew:` success/fallback paths.
   - [x] Add GC retry/root preservation for allocation primitives.
 - [x] Port block activation and copied values.
-- [ ] Port context and non-local return support:
+- [x] Port context and non-local return support:
   - [x] Add `thisContext` and closure home-context materialization.
   - [x] Add non-local block return and `cannotReturn:`.
-- [ ] Switch default `INTERPRETER` to `c` only after full `make test` passes with C.
+- [x] Switch default `INTERPRETER` to `c` only after full `make test` passes with C.
 - [ ] Remove obsolete assembly helper/interpreter files after the C default has stayed green.
 
 ### 17. Primitive Infrastructure
