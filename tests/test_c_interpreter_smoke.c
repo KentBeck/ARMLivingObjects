@@ -15,7 +15,7 @@ static int passes = 0;
         }                                                                       \
         else                                                                    \
         {                                                                       \
-            printf("PASS: %s\n", msg);                                          \
+            (void)(msg);                                                        \
             passes++;                                                           \
         }                                                                       \
     } while (0)

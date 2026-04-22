@@ -197,7 +197,7 @@ typedef void (*TrapTestFn)(TestContext *ctx);
         }                                                                \
         else                                                             \
         {                                                                \
-            printf("PASS: %s\n", msg);                                   \
+            (void)(msg);                                                 \
             (ctx)->passes++;                                             \
         }                                                                \
     } while (0)
