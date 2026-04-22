@@ -1088,13 +1088,13 @@ void test_bootstrap_compiler(TestContext *ctx)
         uint64_t *method_md = (uint64_t *)OBJ_FIELD(method_node_class, CLASS_METHOD_DICT);
         ASSERT_EQ(ctx, method_md != NULL, 1, "MethodNode methods installed");
 
-        // Define Tokenizer to validate outer-temp/arg propagation in blocks.
-        const char *tokenizer_ivars[] = {"source", "stream", "buffered"};
-        uint64_t *tokenizer_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
-                                                    array_class, association_class,
-                                                    "Tokenizer", NULL,
-                                                    tokenizer_ivars, 3, BC_CLASS_FORMAT_FIELDS);
-        ASSERT_EQ(ctx, tokenizer_class != NULL, 1, "Tokenizer class created");
+        // Define Tokenizer from its class declaration before validating block compilation.
+        uint64_t *tokenizer_class = bc_compile_and_install_class_file(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4, "src/smalltalk/Tokenizer.st");
+        ASSERT_EQ(ctx, tokenizer_class != NULL, 1, "Tokenizer.st defines class and installs methods");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(tokenizer_class, CLASS_INST_SIZE)), 3,
+                  "Tokenizer.st class declaration has three instance variables");
 
         // Shallow block with outer-temp reference.
         {
@@ -1126,14 +1126,8 @@ void test_bootstrap_compiler(TestContext *ctx)
                       1, "nested block access outer temp install");
         }
 
-        // Full Tokenizer.st install — exercises many nested-block patterns.
-        static char tokenizer_src[32768];
-        ASSERT_EQ(ctx, read_source_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
-                  "Tokenizer.st loads");
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, tokenizer_src),
-                  1,
-                  "Tokenizer.st methods install");
+        ASSERT_EQ(ctx, class_lookup(tokenizer_class, intern_cstring_symbol(ctx->om, "next")) != 0,
+                  1, "Tokenizer.st installs next");
 
         // Define Parser from its class declaration and install Parser.st.
         uint64_t *parser_class = bc_compile_and_install_class_file(
