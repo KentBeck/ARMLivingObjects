@@ -16,6 +16,15 @@ extern uint64_t prim_string_as_symbol(uint64_t receiver);
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 
+enum
+{
+    GC_FROM_END = 1,
+    GC_FROM_START = 4,
+    GC_TENURED_START = 7,
+    GC_TENURED_END = 8,
+    GC_REMEMBERED = 9
+};
+
 static uint32_t read_u32(uint8_t **ip)
 {
     uint8_t *p = *ip;
@@ -114,6 +123,28 @@ static void replace_receiver(uint64_t **sp_ptr, uint64_t result)
 static uint64_t byte_txn_index(uint64_t index)
 {
     return (UINT64_C(1) << 63) | index;
+}
+
+static void record_write_barrier(uint64_t *om, uint64_t receiver, uint64_t field_index,
+                                 uint64_t value)
+{
+    uint64_t tenured_start = om[GC_TENURED_START];
+    if (tenured_start == 0 || receiver < tenured_start || receiver >= om[GC_TENURED_END])
+    {
+        return;
+    }
+
+    if (!is_object_value(value) || value == 0 ||
+        value < om[GC_FROM_START] || value >= om[GC_FROM_END])
+    {
+        return;
+    }
+
+    uint64_t *remembered = (uint64_t *)om[GC_REMEMBERED];
+    if (remembered != NULL)
+    {
+        txn_log_write(remembered, receiver, field_index, value);
+    }
 }
 
 static uint64_t lookup_method_for_receiver(uint64_t receiver, uint64_t selector,
@@ -620,8 +651,6 @@ static PrimitiveResult try_indexed_primitive(uint64_t **sp_ptr, uint64_t primiti
 uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                    uint64_t *class_table, uint64_t *om, uint64_t *txn_log)
 {
-    (void)om;
-
     uint8_t *bytecode_base = ip;
     uint64_t *entry_fp = *fp_ptr;
 
@@ -644,6 +673,16 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
         {
             uint32_t field_index = read_u32(&ip);
             uint64_t *receiver = (uint64_t *)(*fp_ptr)[FRAME_RECEIVER];
+            if (txn_log != NULL)
+            {
+                uint64_t found = 0;
+                uint64_t value = txn_log_read(txn_log, (uint64_t)receiver, field_index, &found);
+                if (found != 0)
+                {
+                    push(sp_ptr, value);
+                    break;
+                }
+            }
             push(sp_ptr, OBJ_FIELD(receiver, field_index));
             break;
         }
@@ -664,7 +703,15 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             uint32_t field_index = read_u32(&ip);
             uint64_t value = pop(sp_ptr);
             uint64_t *receiver = (uint64_t *)(*fp_ptr)[FRAME_RECEIVER];
-            OBJ_FIELD(receiver, field_index) = value;
+            if (txn_log != NULL)
+            {
+                txn_log_write(txn_log, (uint64_t)receiver, field_index, value);
+            }
+            else
+            {
+                OBJ_FIELD(receiver, field_index) = value;
+                record_write_barrier(om, (uint64_t)receiver, field_index, value);
+            }
             break;
         }
 

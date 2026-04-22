@@ -24,7 +24,7 @@ static int passes = 0;
 
 typedef struct
 {
-    uint64_t om[2];
+    uint64_t om[10];
     uint64_t *class_class;
     uint64_t *class_table;
     uint64_t *test_class;
@@ -94,6 +94,9 @@ static void install_method(SmokeWorld *world, uint64_t selector, uint64_t *metho
 
 static uint64_t run_method_with_txn(SmokeWorld *world, uint64_t *method, uint64_t receiver,
                                     const uint64_t *args, uint64_t arg_count, uint64_t *txn_log);
+static uint64_t run_method_with_om(SmokeWorld *world, uint64_t *method, uint64_t receiver,
+                                   const uint64_t *args, uint64_t arg_count, uint64_t *om,
+                                   uint64_t *txn_log);
 
 static uint64_t run_method(SmokeWorld *world, uint64_t *method, uint64_t receiver,
                            const uint64_t *args, uint64_t arg_count)
@@ -103,6 +106,13 @@ static uint64_t run_method(SmokeWorld *world, uint64_t *method, uint64_t receive
 
 static uint64_t run_method_with_txn(SmokeWorld *world, uint64_t *method, uint64_t receiver,
                                     const uint64_t *args, uint64_t arg_count, uint64_t *txn_log)
+{
+    return run_method_with_om(world, method, receiver, args, arg_count, world->om, txn_log);
+}
+
+static uint64_t run_method_with_om(SmokeWorld *world, uint64_t *method, uint64_t receiver,
+                                   const uint64_t *args, uint64_t arg_count, uint64_t *om,
+                                   uint64_t *txn_log)
 {
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(method, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)world->stack + STACK_WORDS * sizeof(uint64_t));
@@ -114,12 +124,16 @@ static uint64_t run_method_with_txn(SmokeWorld *world, uint64_t *method, uint64_
         stack_push(&sp, world->stack, args[index]);
     }
     activate_method(&sp, &fp, 0, (uint64_t)method, arg_count, (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS)));
-    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, txn_log);
+    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, om, txn_log);
 }
 
 static void init_world(SmokeWorld *world)
 {
     static uint8_t om_buffer[OM_SIZE] __attribute__((aligned(8)));
+    for (uint64_t index = 0; index < 10; index++)
+    {
+        world->om[index] = 0;
+    }
     om_init(om_buffer, OM_SIZE, world->om);
 
     world->class_class = om_alloc(world->om, 0, FORMAT_FIELDS, 5);
@@ -755,6 +769,78 @@ static void test_perform_primitive(SmokeWorld *world)
              "C interpreter: perform: primitive target keeps receiver on stack");
 }
 
+static void test_inst_var_transaction_and_barrier(SmokeWorld *world)
+{
+    uint64_t *literals = make_array(world, 1);
+    OBJ_FIELD(literals, 0) = tag_smallint(99);
+    uint64_t *bytecodes = make_bytecodes(world, 16);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    uint64_t ip = 0;
+    bc[ip++] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[ip], 0);
+    ip += 4;
+    bc[ip++] = BC_STORE_INST_VAR;
+    WRITE_U32(&bc[ip], 0);
+    ip += 4;
+    bc[ip++] = BC_PUSH_INST_VAR;
+    WRITE_U32(&bc[ip], 0);
+    ip += 4;
+    bc[ip++] = BC_HALT;
+
+    uint64_t *method = make_method(world, bytecodes, literals, 0, 0);
+    uint64_t txn_log[32] = {0};
+    CHECK_EQ(run_method_with_txn(world, method, (uint64_t)world->receiver, NULL, 0, txn_log),
+             tag_smallint(99),
+             "C interpreter: txn inst var read sees pending write");
+    CHECK_EQ(OBJ_FIELD(world->receiver, 0), tag_smallint(111),
+             "C interpreter: txn inst var write leaves object unchanged");
+    CHECK_EQ(txn_log[0], 1, "C interpreter: txn inst var write records log entry");
+
+    static uint8_t young_a[4096] __attribute__((aligned(8)));
+    static uint8_t young_b[4096] __attribute__((aligned(8)));
+    static uint8_t tenured_space[4096] __attribute__((aligned(8)));
+    uint64_t gc_ctx[10];
+    gc_ctx_init(gc_ctx, young_a, young_b, sizeof(young_a));
+    gc_ctx[GC_TENURED_START] = (uint64_t)tenured_space;
+    gc_ctx[GC_TENURED_END] = (uint64_t)(tenured_space + sizeof(tenured_space));
+    uint64_t remembered[32] = {0};
+    gc_ctx[GC_REMEMBERED] = (uint64_t)remembered;
+
+    uint64_t tenured_om[2];
+    om_init(tenured_space, sizeof(tenured_space), tenured_om);
+    uint64_t *tenured = om_alloc(tenured_om, (uint64_t)world->class_class, FORMAT_FIELDS, 1);
+    uint64_t *young = om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_FIELDS, 1);
+
+    uint64_t *barrier_literals = om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(barrier_literals, 0) = (uint64_t)young;
+    uint64_t *barrier_bytecodes = om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_BYTES, 16);
+    uint8_t *bbc = (uint8_t *)&OBJ_FIELD(barrier_bytecodes, 0);
+    ip = 0;
+    bbc[ip++] = BC_PUSH_LITERAL;
+    WRITE_U32(&bbc[ip], 0);
+    ip += 4;
+    bbc[ip++] = BC_STORE_INST_VAR;
+    WRITE_U32(&bbc[ip], 0);
+    ip += 4;
+    bbc[ip++] = BC_PUSH_INST_VAR;
+    WRITE_U32(&bbc[ip], 0);
+    ip += 4;
+    bbc[ip++] = BC_HALT;
+    uint64_t *barrier_method = om_alloc(gc_ctx, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(barrier_method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(barrier_method, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(barrier_method, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(barrier_method, CM_LITERALS) = (uint64_t)barrier_literals;
+    OBJ_FIELD(barrier_method, CM_BYTECODES) = (uint64_t)barrier_bytecodes;
+
+    CHECK_EQ(run_method_with_om(world, barrier_method, (uint64_t)tenured, NULL, 0, gc_ctx, NULL),
+             (uint64_t)young,
+             "C interpreter: write barrier store leaves young value on top");
+    CHECK_EQ(OBJ_FIELD(tenured, 0), (uint64_t)young,
+             "C interpreter: write barrier stores young object");
+    CHECK_EQ(remembered[0], 1, "C interpreter: write barrier records remembered set entry");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -774,6 +860,7 @@ int main(void)
     test_string_symbol_primitives(&world);
     test_indexed_primitives(&world);
     test_perform_primitive(&world);
+    test_inst_var_transaction_and_barrier(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;

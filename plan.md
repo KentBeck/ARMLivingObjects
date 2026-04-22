@@ -86,7 +86,7 @@ Next small steps:
 - [x] Port remaining standalone primitives:
   `printChar` and String `asSymbol`.
 - [x] Port indexed access primitives and transaction-aware `at:` / `at:put:`.
-- [ ] Port instance-variable transaction reads/writes and write barrier behavior.
+- [x] Port instance-variable transaction reads/writes and write barrier behavior.
 - [ ] Port allocation primitives with GC retry/root preservation.
 - [ ] Port block activation and copied values.
 - [ ] Port `thisContext`, heap context materialization hooks, non-local return, and `cannotReturn:`.
