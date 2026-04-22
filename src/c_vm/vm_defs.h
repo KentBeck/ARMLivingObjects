@@ -211,7 +211,7 @@
 // GC and test heap defaults.
 #define GC_FORWARD_TAG 1
 #define STACK_WORDS 4096
-#define OM_SIZE (1024 * 1024)
+#define OM_SIZE (4 * 1024 * 1024)
 
 static inline void WRITE_U32(uint8_t *p, uint32_t v)
 {

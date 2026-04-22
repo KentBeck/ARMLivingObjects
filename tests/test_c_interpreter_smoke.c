@@ -1220,6 +1220,55 @@ static void test_this_context(SmokeWorld *world)
              "C interpreter: context stores arg value");
     CHECK_EQ(OBJ_FIELD(context, CONTEXT_VAR_BASE + 1), tag_smallint(5150),
              "C interpreter: context stores temp value");
+
+    static uint8_t context_gc_a[4096] __attribute__((aligned(8)));
+    static uint8_t context_gc_b[4096] __attribute__((aligned(8)));
+    uint64_t context_gc_ctx[10];
+    gc_ctx_init(context_gc_ctx, context_gc_a, context_gc_b, sizeof(context_gc_a));
+
+    uint64_t *context_gc_bytecodes = om_alloc(context_gc_ctx, (uint64_t)world->class_class, FORMAT_BYTES, 12);
+    uint8_t *cgb = (uint8_t *)&OBJ_FIELD(context_gc_bytecodes, 0);
+    cgb[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&cgb[1], 0);
+    cgb[5] = BC_STORE_TEMP;
+    WRITE_U32(&cgb[6], 0);
+    cgb[10] = BC_PUSH_THIS_CONTEXT;
+    cgb[11] = BC_HALT;
+    uint64_t *context_gc_literals = om_alloc(context_gc_ctx, (uint64_t)world->class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(context_gc_literals, 0) = tag_smallint(6160);
+    uint64_t *context_gc_method = om_alloc(context_gc_ctx, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(context_gc_method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(context_gc_method, CM_NUM_ARGS) = tag_smallint(1);
+    OBJ_FIELD(context_gc_method, CM_NUM_TEMPS) = tag_smallint(1);
+    OBJ_FIELD(context_gc_method, CM_LITERALS) = (uint64_t)context_gc_literals;
+    OBJ_FIELD(context_gc_method, CM_BYTECODES) = (uint64_t)context_gc_bytecodes;
+
+    uint64_t context_gc_remaining = context_gc_ctx[GC_FROM_END] - context_gc_ctx[GC_FROM_FREE];
+    if (context_gc_remaining > 80)
+    {
+        uint64_t fill_words = (context_gc_remaining - 80) / WORD_BYTES;
+        if (fill_words > OBJ_HEADER_WORDS)
+        {
+            (void)om_alloc(context_gc_ctx, (uint64_t)world->class_class,
+                           FORMAT_FIELDS, fill_words - OBJ_HEADER_WORDS);
+        }
+    }
+
+    uint64_t context_gc_arg = tag_smallint(321);
+    uint64_t context_gc_oop = run_method_with_om(world, context_gc_method,
+                                                 (uint64_t)world->receiver,
+                                                 &context_gc_arg, 1, context_gc_ctx, NULL);
+    uint64_t *context_gc = (uint64_t *)context_gc_oop;
+    CHECK_EQ(context_gc_oop >= context_gc_ctx[GC_FROM_START], 1,
+             "C interpreter: PUSH_THIS_CONTEXT GC retry returns active-space context lower bound");
+    CHECK_EQ(context_gc_oop < context_gc_ctx[GC_FROM_END], 1,
+             "C interpreter: PUSH_THIS_CONTEXT GC retry returns active-space context upper bound");
+    CHECK_EQ(OBJ_CLASS(context_gc), (uint64_t)world->context_class,
+             "C interpreter: PUSH_THIS_CONTEXT GC retry preserves context class");
+    CHECK_EQ(OBJ_FIELD(context_gc, CONTEXT_VAR_BASE), context_gc_arg,
+             "C interpreter: PUSH_THIS_CONTEXT GC retry preserves arg");
+    CHECK_EQ(OBJ_FIELD(context_gc, CONTEXT_VAR_BASE + 1), tag_smallint(6160),
+             "C interpreter: PUSH_THIS_CONTEXT GC retry preserves temp");
 }
 
 int main(void)

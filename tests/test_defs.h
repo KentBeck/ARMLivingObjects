@@ -62,6 +62,8 @@ extern uint64_t *global_context_class;
 extern uint64_t *global_smalltalk_dictionary;
 extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var) LO_NO_ALLOC;
 extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size) LO_ALLOCATES;
+extern void gc_register_context(uint64_t *gc_ctx) LO_NO_ALLOC;
+extern uint64_t gc_is_registered_context(uint64_t *om) LO_NO_ALLOC;
 
 // GC context for the interpreter: two semi-spaces
 // Layout (all uint64_t):
@@ -98,6 +100,7 @@ static inline void gc_ctx_init(uint64_t *gc_ctx, uint8_t *buf_a, uint8_t *buf_b,
     gc_ctx[GC_TENURED_START] = 0;
     gc_ctx[GC_TENURED_END] = 0;
     gc_ctx[GC_REMEMBERED] = 0;
+    gc_register_context(gc_ctx);
 }
 
 // Swap from/to spaces in the GC context

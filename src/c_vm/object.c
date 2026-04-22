@@ -4,6 +4,39 @@
 #include <stdint.h>
 #include <string.h>
 
+#define MAX_REGISTERED_GC_CONTEXTS 128
+
+static uint64_t *registered_gc_contexts[MAX_REGISTERED_GC_CONTEXTS];
+static uint64_t registered_gc_context_count = 0;
+
+void gc_register_context(uint64_t *gc_ctx)
+{
+    for (uint64_t index = 0; index < registered_gc_context_count; index++)
+    {
+        if (registered_gc_contexts[index] == gc_ctx)
+        {
+            return;
+        }
+    }
+
+    if (registered_gc_context_count < MAX_REGISTERED_GC_CONTEXTS)
+    {
+        registered_gc_contexts[registered_gc_context_count++] = gc_ctx;
+    }
+}
+
+uint64_t gc_is_registered_context(uint64_t *om)
+{
+    for (uint64_t index = 0; index < registered_gc_context_count; index++)
+    {
+        if (registered_gc_contexts[index] == om)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var)
 {
     free_ptr_var[0] = (uint64_t)buffer;

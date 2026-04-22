@@ -15,12 +15,14 @@ extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
 extern uint64_t prim_string_as_symbol(uint64_t receiver);
 extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
+extern uint64_t gc_is_registered_context(uint64_t *om);
 extern void gc_collect(uint64_t *roots, uint64_t num_roots,
                        uint64_t *from_space, uint64_t *to_space,
                        uint64_t from_start, uint64_t from_end);
 extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
                                        uint64_t **slot_buf, uint64_t max_slots);
 extern uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om);
+extern uint64_t *global_context_class;
 extern uint64_t cannot_return_selector_oop(void);
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
@@ -190,10 +192,41 @@ static void initialize_word_fields(uint64_t *object, uint64_t size)
     }
 }
 
+static int has_gc_context_layout(uint64_t *om)
+{
+    if (gc_is_registered_context(om) == 0)
+    {
+        return 0;
+    }
+
+    uint64_t from_free = om[GC_FROM_FREE];
+    uint64_t from_end = om[GC_FROM_END];
+    uint64_t to_free = om[GC_TO_FREE];
+    uint64_t to_end = om[GC_TO_END];
+    uint64_t from_start = om[GC_FROM_START];
+    uint64_t to_start = om[GC_TO_START];
+    uint64_t space_size = om[GC_SPACE_SIZE];
+
+    return space_size != 0 &&
+           from_start < from_end &&
+           to_start < to_end &&
+           from_end == from_start + space_size &&
+           to_end == to_start + space_size &&
+           from_free >= from_start &&
+           from_free <= from_end &&
+           to_free >= to_start &&
+           to_free <= to_end;
+}
+
 static int collect_and_retry_allocation(uint64_t **sp_ptr, uint64_t **fp_ptr,
                                         uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
                                         uint64_t **class_table_ptr, uint64_t *om)
 {
+    if (!has_gc_context_layout(om))
+    {
+        return 0;
+    }
+
     uint64_t slot_count = gc_collect_stack_slots(*sp_ptr, *fp_ptr, NULL, 0);
     uint64_t **slots = NULL;
     uint64_t *roots = NULL;
@@ -251,6 +284,24 @@ static int collect_and_retry_allocation(uint64_t **sp_ptr, uint64_t **fp_ptr,
     free(roots);
     free(slots);
     return 1;
+}
+
+static uint64_t *ensure_frame_context_with_retry(uint64_t **sp_ptr, uint64_t **fp_ptr,
+                                                 uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
+                                                 uint64_t **class_table_ptr, uint64_t *om)
+{
+    uint64_t *context = ensure_frame_context_global(*fp_ptr, om);
+    if (context != NULL)
+    {
+        return context;
+    }
+
+    if (!collect_and_retry_allocation(sp_ptr, fp_ptr, ip_ptr, bytecode_base_ptr, class_table_ptr, om))
+    {
+        return NULL;
+    }
+
+    return ensure_frame_context_global(*fp_ptr, om);
 }
 
 static uint8_t cannot_return_after_bytecodes[] = {BC_RETURN_STACK_TOP};
@@ -1246,7 +1297,35 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             uint64_t *literals = (uint64_t *)OBJ_FIELD(current_method, CM_LITERALS);
             uint64_t block_method = OBJ_FIELD(literals, literal_index);
             uint64_t block_class = OBJ_FIELD(class_table, CLASS_TABLE_BLOCK);
-            (void)ensure_frame_context_global(fp, om);
+            if (ensure_frame_context_global(fp, om) == NULL)
+            {
+                if (global_context_class != NULL &&
+                    !collect_and_retry_allocation(sp_ptr, fp_ptr, &ip, &bytecode_base, &class_table, om))
+                {
+                    unsupported_bytecode(opcode);
+                    break;
+                }
+
+                fp = *fp_ptr;
+                current_method = (uint64_t *)fp[FRAME_METHOD];
+                num_args = frame_num_args_local(fp);
+                num_temps = (uint64_t)untag_smallint(OBJ_FIELD(current_method, CM_NUM_TEMPS));
+                if (frame_has_block_closure(fp) && fp[FRAME_CONTEXT] != 0)
+                {
+                    num_temps += block_copied_count(fp[FRAME_CONTEXT]);
+                }
+                copied_count = num_args + num_temps;
+
+                if (global_context_class != NULL && ensure_frame_context_global(fp, om) == NULL)
+                {
+                    unsupported_bytecode(opcode);
+                    break;
+                }
+
+                literals = (uint64_t *)OBJ_FIELD(current_method, CM_LITERALS);
+                block_method = OBJ_FIELD(literals, literal_index);
+                block_class = OBJ_FIELD(class_table, CLASS_TABLE_BLOCK);
+            }
             uint64_t *home_context = frame_has_context_local(fp) ? (uint64_t *)fp[FRAME_CONTEXT] : NULL;
             uint64_t *block = om_alloc(om, block_class, FORMAT_FIELDS, BLOCK_COPIED_BASE + copied_count);
             if (block == NULL)
@@ -1308,7 +1387,7 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
 
         case BC_PUSH_THIS_CONTEXT:
         {
-            uint64_t *context = ensure_frame_context_global(*fp_ptr, om);
+            uint64_t *context = ensure_frame_context_with_retry(sp_ptr, fp_ptr, &ip, &bytecode_base, &class_table, om);
             if (context == NULL)
             {
                 unsupported_bytecode(opcode);
