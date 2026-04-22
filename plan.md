@@ -83,7 +83,7 @@ Next small steps:
 - [x] Port `SEND_MESSAGE` without primitives; verify simple unary/argument sends.
 - [x] Port non-allocating primitive families:
   SmallInteger arithmetic/comparison, identity/class/hash, character, String equality/hash, and Symbol equality.
-- [ ] Port remaining standalone primitives:
+- [x] Port remaining standalone primitives:
   `printChar` and String `asSymbol`.
 - [x] Port indexed access primitives and transaction-aware `at:` / `at:put:`.
 - [ ] Port instance-variable transaction reads/writes and write barrier behavior.

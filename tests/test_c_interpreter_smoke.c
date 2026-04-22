@@ -1,5 +1,7 @@
 #include "test_defs.h"
 
+#include <unistd.h>
+
 static int failures = 0;
 static int passes = 0;
 
@@ -26,6 +28,8 @@ typedef struct
     uint64_t *class_class;
     uint64_t *class_table;
     uint64_t *test_class;
+    uint64_t *symbol_class;
+    uint64_t *symbol_table;
     uint64_t *receiver;
     uint64_t stack[STACK_WORDS];
 } SmokeWorld;
@@ -147,6 +151,21 @@ static void init_world(SmokeWorld *world)
     OBJ_FIELD(world->test_class, CLASS_INST_SIZE) = tag_smallint(2);
     OBJ_FIELD(world->test_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
     OBJ_FIELD(world->test_class, CLASS_INST_VARS) = tagged_nil();
+
+    world->symbol_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(world->symbol_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(world->symbol_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(world->symbol_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(world->symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+    OBJ_FIELD(world->symbol_class, CLASS_INST_VARS) = tagged_nil();
+
+    world->symbol_table = make_array(world, 16);
+    for (uint64_t index = 0; index < OBJ_SIZE(world->symbol_table); index++)
+    {
+        OBJ_FIELD(world->symbol_table, index) = tagged_nil();
+    }
+    global_symbol_class = world->symbol_class;
+    global_symbol_table = world->symbol_table;
 
     world->receiver = om_alloc(world->om, (uint64_t)world->test_class, FORMAT_FIELDS, 2);
     OBJ_FIELD(world->receiver, 0) = tag_smallint(111);
@@ -519,8 +538,9 @@ static void test_character_primitives(SmokeWorld *world)
     uint64_t sel_is_digit = tag_smallint(4003);
     uint64_t sel_uppercase = tag_smallint(4004);
     uint64_t sel_lowercase = tag_smallint(4005);
+    uint64_t sel_print_char = tag_smallint(4006);
 
-    uint64_t *character_method_dict = make_array(world, 10);
+    uint64_t *character_method_dict = make_array(world, 12);
     OBJ_FIELD(character_method_dict, 0) = sel_value;
     OBJ_FIELD(character_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_CHAR_VALUE, 0);
     OBJ_FIELD(character_method_dict, 2) = sel_is_letter;
@@ -531,6 +551,8 @@ static void test_character_primitives(SmokeWorld *world)
     OBJ_FIELD(character_method_dict, 7) = (uint64_t)make_primitive_method(world, PRIM_CHAR_UPPERCASE, 0);
     OBJ_FIELD(character_method_dict, 8) = sel_lowercase;
     OBJ_FIELD(character_method_dict, 9) = (uint64_t)make_primitive_method(world, PRIM_CHAR_LOWERCASE, 0);
+    OBJ_FIELD(character_method_dict, 10) = sel_print_char;
+    OBJ_FIELD(character_method_dict, 11) = (uint64_t)make_primitive_method(world, PRIM_PRINT_CHAR, 0);
     uint64_t *character_class = (uint64_t *)OBJ_FIELD(world->class_table, CLASS_TABLE_CHARACTER);
     OBJ_FIELD(character_class, CLASS_METHOD_DICT) = (uint64_t)character_method_dict;
 
@@ -556,6 +578,21 @@ static void test_character_primitives(SmokeWorld *world)
              "C interpreter: Character asUppercase primitive");
     CHECK_EQ(run_unary_send(world, tag_character('A'), sel_lowercase), tag_character('a'),
              "C interpreter: Character asLowercase primitive");
+
+    int pipe_fds[2];
+    CHECK_EQ(pipe(pipe_fds), 0, "C interpreter: printChar pipe setup");
+    int saved_stdout = dup(STDOUT_FILENO);
+    CHECK_EQ(saved_stdout >= 0, 1, "C interpreter: printChar dup stdout");
+    CHECK_EQ(dup2(pipe_fds[1], STDOUT_FILENO) >= 0, 1, "C interpreter: printChar redirect stdout");
+    CHECK_EQ(run_unary_send(world, tag_character('.'), sel_print_char), tag_character('.'),
+             "C interpreter: Character printChar returns self");
+    CHECK_EQ(dup2(saved_stdout, STDOUT_FILENO) >= 0, 1, "C interpreter: printChar restore stdout");
+    close(saved_stdout);
+    close(pipe_fds[1]);
+    char printed = 0;
+    CHECK_EQ(read(pipe_fds[0], &printed, 1), 1, "C interpreter: printChar captured byte");
+    close(pipe_fds[0]);
+    CHECK_EQ((uint64_t)(uint8_t)printed, (uint64_t)'.', "C interpreter: Character printChar writes byte");
 }
 
 static void test_string_symbol_primitives(SmokeWorld *world)
@@ -563,6 +600,7 @@ static void test_string_symbol_primitives(SmokeWorld *world)
     uint64_t sel_string_eq = tag_smallint(5000);
     uint64_t sel_string_hash = tag_smallint(5001);
     uint64_t sel_symbol_eq = tag_smallint(5002);
+    uint64_t sel_as_symbol = tag_smallint(5003);
 
     uint64_t *string_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
     OBJ_FIELD(string_class, CLASS_SUPERCLASS) = tagged_nil();
@@ -576,11 +614,13 @@ static void test_string_symbol_primitives(SmokeWorld *world)
     OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
     OBJ_FIELD(symbol_class, CLASS_INST_VARS) = tagged_nil();
 
-    uint64_t *string_method_dict = make_array(world, 4);
+    uint64_t *string_method_dict = make_array(world, 6);
     OBJ_FIELD(string_method_dict, 0) = sel_string_eq;
     OBJ_FIELD(string_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_STRING_EQ, 1);
     OBJ_FIELD(string_method_dict, 2) = sel_string_hash;
     OBJ_FIELD(string_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_STRING_HASH_FNV, 0);
+    OBJ_FIELD(string_method_dict, 4) = sel_as_symbol;
+    OBJ_FIELD(string_method_dict, 5) = (uint64_t)make_primitive_method(world, PRIM_STRING_AS_SYMBOL, 0);
     OBJ_FIELD(string_class, CLASS_METHOD_DICT) = (uint64_t)string_method_dict;
 
     uint64_t *symbol_method_dict = make_array(world, 2);
@@ -605,6 +645,12 @@ static void test_string_symbol_primitives(SmokeWorld *world)
              "C interpreter: Symbol = identical primitive");
     CHECK_EQ(run_binary_send(world, (uint64_t)symbol1, (uint64_t)symbol2, sel_symbol_eq), tagged_false(),
              "C interpreter: Symbol = distinct primitive");
+
+    uint64_t as_symbol1 = run_unary_send(world, (uint64_t)hello1, sel_as_symbol);
+    uint64_t as_symbol2 = run_unary_send(world, (uint64_t)hello2, sel_as_symbol);
+    CHECK_EQ(as_symbol1, as_symbol2, "C interpreter: String asSymbol reuses interned symbol");
+    CHECK_EQ(OBJ_CLASS((uint64_t *)as_symbol1), (uint64_t)world->symbol_class,
+             "C interpreter: String asSymbol returns Symbol");
 }
 
 static void test_indexed_primitives(SmokeWorld *world)

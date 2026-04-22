@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
 
 extern uint64_t oop_class(uint64_t oop, uint64_t *class_table);
 extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
@@ -11,6 +12,7 @@ extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved
                             uint64_t method, uint64_t num_args, uint64_t num_temps);
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
+extern uint64_t prim_string_as_symbol(uint64_t receiver);
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 
@@ -258,6 +260,7 @@ static PrimitiveResult try_character_primitive(uint64_t **sp_ptr, uint64_t primi
     case PRIM_CHAR_IS_DIGIT:
     case PRIM_CHAR_UPPERCASE:
     case PRIM_CHAR_LOWERCASE:
+    case PRIM_PRINT_CHAR:
         break;
     default:
         return PRIMITIVE_UNSUPPORTED;
@@ -342,6 +345,20 @@ static PrimitiveResult try_character_primitive(uint64_t **sp_ptr, uint64_t primi
         replace_receiver(sp_ptr, receiver);
         return PRIMITIVE_SUCCEEDED;
 
+    case PRIM_PRINT_CHAR:
+        if (!is_character_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        code_point = receiver >> CHAR_SHIFT;
+        {
+            uint8_t byte = (uint8_t)code_point;
+            (void)write(STDOUT_FILENO, &byte, 1);
+        }
+        replace_receiver(sp_ptr, receiver);
+        return PRIMITIVE_SUCCEEDED;
+
     default:
         return PRIMITIVE_UNSUPPORTED;
     }
@@ -410,6 +427,19 @@ static PrimitiveResult try_string_symbol_primitive(uint64_t **sp_ptr, uint64_t p
         replace_receiver(sp_ptr, tag_smallint((int64_t)hash));
         return PRIMITIVE_SUCCEEDED;
     }
+
+    case PRIM_STRING_AS_SYMBOL:
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_bytes_object(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        replace_receiver(sp_ptr, prim_string_as_symbol(receiver));
+        return PRIMITIVE_SUCCEEDED;
 
     case PRIM_SYMBOL_EQ:
         if (arg_count != 1)

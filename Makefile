@@ -23,7 +23,7 @@ C_VM_OBJS = $(patsubst src/c_vm/%.c,$(BIN_DIR)/c_vm_%.o,$(C_VM_SRCS))
 GC_STRESS_OBJS = $(BIN_DIR)/c_vm_object.o $(BIN_DIR)/gc.o $(BIN_DIR)/c_vm_tagged.o
 
 TEST_SRCS = $(filter-out tests/test_c_interpreter_smoke.c,$(wildcard tests/*.c)) src/c/bootstrap_compiler.c src/c/primitives.c
-C_INTERPRETER_SMOKE_SRCS = tests/test_c_interpreter_smoke.c
+C_INTERPRETER_SMOKE_SRCS = tests/test_c_interpreter_smoke.c src/c/primitives.c
 GC_STRESS_SRCS = tools/gc_stress.c
 
 test: $(TEST_BIN)
