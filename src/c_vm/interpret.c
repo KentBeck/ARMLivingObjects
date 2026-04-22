@@ -21,6 +21,7 @@ extern void gc_collect(uint64_t *roots, uint64_t num_roots,
 extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
                                        uint64_t **slot_buf, uint64_t max_slots);
 extern uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om);
+extern uint64_t cannot_return_selector_oop(void);
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 
@@ -78,6 +79,11 @@ static uint64_t frame_arg_local(uint64_t *fp, uint64_t index)
 static int frame_has_block_closure(uint64_t *fp)
 {
     return (fp[FRAME_FLAGS] & FRAME_FLAGS_BLOCK_CLOSURE_MASK) != 0;
+}
+
+static int frame_has_context_local(uint64_t *fp)
+{
+    return (fp[FRAME_FLAGS] & FRAME_FLAGS_HAS_CONTEXT_MASK) != 0;
 }
 
 static void unsupported_bytecode(uint8_t opcode)
@@ -247,6 +253,8 @@ static int collect_and_retry_allocation(uint64_t **sp_ptr, uint64_t **fp_ptr,
     return 1;
 }
 
+static uint8_t cannot_return_after_bytecodes[] = {BC_RETURN_STACK_TOP};
+
 static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, uint64_t primitive,
                                                uint64_t arg_count, uint64_t *om,
                                                uint64_t **fp_ptr, uint8_t **ip_ptr,
@@ -368,6 +376,32 @@ static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, uint64_t prim
 static uint64_t block_copied_count(uint64_t block)
 {
     return OBJ_SIZE((uint64_t *)block) - BLOCK_COPIED_BASE;
+}
+
+static uint64_t block_closure_for_frame(uint64_t *fp)
+{
+    if (frame_has_context_local(fp))
+    {
+        return OBJ_FIELD((uint64_t *)fp[FRAME_CONTEXT], CONTEXT_CLOSURE);
+    }
+    if (frame_has_block_closure(fp))
+    {
+        return fp[FRAME_CONTEXT];
+    }
+    return TAGGED_NIL;
+}
+
+static uint64_t block_home_context_for_frame(uint64_t *fp)
+{
+    if (frame_has_context_local(fp))
+    {
+        return OBJ_FIELD((uint64_t *)fp[FRAME_CONTEXT], CONTEXT_HOME);
+    }
+    if (frame_has_block_closure(fp))
+    {
+        return OBJ_FIELD((uint64_t *)fp[FRAME_CONTEXT], BLOCK_HOME_CONTEXT);
+    }
+    return TAGGED_NIL;
 }
 
 static void mark_block_frame(uint64_t *fp, uint64_t block)
@@ -1252,6 +1286,83 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
         }
 
         case BC_RETURN_NON_LOCAL:
+        {
+            uint64_t return_value = **sp_ptr;
+            uint64_t *current_fp = *fp_ptr;
+            uint64_t home_context = block_home_context_for_frame(current_fp);
+            uint64_t closure = block_closure_for_frame(current_fp);
+            uint64_t *home_fp = current_fp;
+
+            while (home_fp != NULL && home_fp != (uint64_t *)0xCAFE)
+            {
+                if (frame_has_context_local(home_fp) && home_fp[FRAME_CONTEXT] == home_context)
+                {
+                    uint64_t num_args = frame_num_args_local(home_fp);
+                    uint64_t *new_sp = home_fp + FP_ARG_BASE_WORDS + num_args;
+                    uint64_t *caller_fp = (uint64_t *)home_fp[FRAME_SAVED_FP];
+                    uint8_t *caller_ip = (uint8_t *)home_fp[FRAME_SAVED_IP];
+
+                    *new_sp = return_value;
+                    *sp_ptr = new_sp;
+                    *fp_ptr = caller_fp;
+
+                    if (home_fp == entry_fp)
+                    {
+                        return return_value;
+                    }
+
+                    ip = caller_ip;
+                    if (caller_fp != NULL && caller_fp != (uint64_t *)0xCAFE)
+                    {
+                        uint64_t *caller_method = (uint64_t *)caller_fp[FRAME_METHOD];
+                        uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(caller_method, CM_BYTECODES);
+                        bytecode_base = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+                    }
+                    break;
+                }
+                home_fp = (uint64_t *)home_fp[FRAME_SAVED_FP];
+            }
+
+            if (home_fp != NULL && home_fp != (uint64_t *)0xCAFE)
+            {
+                break;
+            }
+
+            if (closure == TAGGED_NIL)
+            {
+                unsupported_bytecode(opcode);
+                break;
+            }
+
+            uint64_t selector = cannot_return_selector_oop();
+            uint64_t method = lookup_method_for_receiver(closure, selector, class_table);
+            if (method == 0)
+            {
+                unsupported_bytecode(opcode);
+                break;
+            }
+
+            uint64_t *sp = *sp_ptr;
+            sp -= 1;
+            sp[0] = return_value;
+            sp[1] = closure;
+            *sp_ptr = sp;
+
+            uint64_t primitive = OBJ_FIELD((uint64_t *)method, CM_PRIMITIVE);
+            if (primitive != tag_smallint(PRIM_NONE))
+            {
+                unsupported_bytecode(opcode);
+                break;
+            }
+            uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD((uint64_t *)method, CM_NUM_TEMPS));
+            activate_method(sp_ptr, fp_ptr, (uint64_t)cannot_return_after_bytecodes, method, 1, num_temps);
+            uint64_t *new_method = (uint64_t *)(*fp_ptr)[FRAME_METHOD];
+            uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(new_method, CM_BYTECODES);
+            bytecode_base = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+            ip = bytecode_base;
+            break;
+        }
+
         case BC_PUSH_GLOBAL:
             unsupported_bytecode(opcode);
             break;

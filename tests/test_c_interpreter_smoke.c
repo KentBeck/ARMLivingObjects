@@ -959,12 +959,21 @@ static void test_block_primitives(SmokeWorld *world)
 {
     uint64_t sel_value = tag_smallint(9000);
     uint64_t sel_value_arg = tag_smallint(9001);
+    uint64_t sel_cannot_return = cannot_return_selector_oop();
     uint64_t *block_class = (uint64_t *)OBJ_FIELD(world->class_table, CLASS_TABLE_BLOCK);
-    uint64_t *block_method_dict = make_array(world, 4);
+    uint64_t *cannot_return_bytecodes = make_bytecodes(world, 6);
+    uint8_t *crb = (uint8_t *)&OBJ_FIELD(cannot_return_bytecodes, 0);
+    crb[0] = BC_PUSH_ARG;
+    WRITE_U32(&crb[1], 0);
+    crb[5] = BC_RETURN;
+    uint64_t *cannot_return = make_method(world, cannot_return_bytecodes, NULL, 1, 0);
+    uint64_t *block_method_dict = make_array(world, 6);
     OBJ_FIELD(block_method_dict, 0) = sel_value;
     OBJ_FIELD(block_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_BLOCK_VALUE, 0);
     OBJ_FIELD(block_method_dict, 2) = sel_value_arg;
     OBJ_FIELD(block_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_BLOCK_VALUE_ARG, 1);
+    OBJ_FIELD(block_method_dict, 4) = sel_cannot_return;
+    OBJ_FIELD(block_method_dict, 5) = (uint64_t)cannot_return;
     OBJ_FIELD(block_class, CLASS_METHOD_DICT) = (uint64_t)block_method_dict;
 
     uint64_t *literal_body_literals = make_array(world, 1);
@@ -1066,6 +1075,58 @@ static void test_block_primitives(SmokeWorld *world)
     uint64_t *copied_caller = make_method(world, copied_caller_bytecodes, copied_caller_literals, 0, 1);
     CHECK_EQ(run_method(world, copied_caller, (uint64_t)world->receiver, NULL, 0), tag_smallint(41),
              "C interpreter: Block copied temp keeps creation value");
+
+    uint64_t *nlr_body_literals = make_array(world, 1);
+    OBJ_FIELD(nlr_body_literals, 0) = tag_smallint(88);
+    uint64_t *nlr_body_bytecodes = make_bytecodes(world, 6);
+    uint8_t *nbb = (uint8_t *)&OBJ_FIELD(nlr_body_bytecodes, 0);
+    nbb[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&nbb[1], 0);
+    nbb[5] = BC_RETURN_NON_LOCAL;
+    uint64_t *nlr_body = make_method(world, nlr_body_bytecodes, nlr_body_literals, 0, 0);
+
+    uint64_t *nlr_caller_literals = make_array(world, 3);
+    OBJ_FIELD(nlr_caller_literals, 0) = (uint64_t)nlr_body;
+    OBJ_FIELD(nlr_caller_literals, 1) = sel_value;
+    OBJ_FIELD(nlr_caller_literals, 2) = tag_smallint(99);
+    uint64_t *nlr_caller_bytecodes = make_bytecodes(world, 20);
+    uint8_t *ncb = (uint8_t *)&OBJ_FIELD(nlr_caller_bytecodes, 0);
+    ncb[0] = BC_PUSH_CLOSURE;
+    WRITE_U32(&ncb[1], 0);
+    ncb[5] = BC_SEND_MESSAGE;
+    WRITE_U32(&ncb[6], 1);
+    WRITE_U32(&ncb[10], 0);
+    ncb[14] = BC_PUSH_LITERAL;
+    WRITE_U32(&ncb[15], 2);
+    ncb[19] = BC_RETURN;
+    uint64_t *nlr_caller = make_method(world, nlr_caller_bytecodes, nlr_caller_literals, 0, 0);
+    CHECK_EQ(run_method(world, nlr_caller, (uint64_t)world->receiver, NULL, 0), tag_smallint(88),
+             "C interpreter: Block non-local return unwinds to home");
+
+    uint64_t *escaped_maker_literals = make_array(world, 1);
+    OBJ_FIELD(escaped_maker_literals, 0) = (uint64_t)nlr_body;
+    uint64_t *escaped_maker_bytecodes = make_bytecodes(world, 6);
+    uint8_t *emb = (uint8_t *)&OBJ_FIELD(escaped_maker_bytecodes, 0);
+    emb[0] = BC_PUSH_CLOSURE;
+    WRITE_U32(&emb[1], 0);
+    emb[5] = BC_RETURN;
+    uint64_t *escaped_maker = make_method(world, escaped_maker_bytecodes, escaped_maker_literals, 0, 0);
+    uint64_t escaped_block = run_method(world, escaped_maker, (uint64_t)world->receiver, NULL, 0);
+
+    uint64_t *escaped_invoke_literals = make_array(world, 2);
+    OBJ_FIELD(escaped_invoke_literals, 0) = escaped_block;
+    OBJ_FIELD(escaped_invoke_literals, 1) = sel_value;
+    uint64_t *escaped_invoke_bytecodes = make_bytecodes(world, 15);
+    uint8_t *eib = (uint8_t *)&OBJ_FIELD(escaped_invoke_bytecodes, 0);
+    eib[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&eib[1], 0);
+    eib[5] = BC_SEND_MESSAGE;
+    WRITE_U32(&eib[6], 1);
+    WRITE_U32(&eib[10], 0);
+    eib[14] = BC_HALT;
+    uint64_t *escaped_invoke = make_method(world, escaped_invoke_bytecodes, escaped_invoke_literals, 0, 0);
+    CHECK_EQ(run_method(world, escaped_invoke, (uint64_t)world->receiver, NULL, 0), tag_smallint(88),
+             "C interpreter: escaped non-local return sends cannotReturn:");
 }
 
 static void test_this_context(SmokeWorld *world)
