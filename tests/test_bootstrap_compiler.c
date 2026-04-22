@@ -1177,17 +1177,15 @@ void test_bootstrap_compiler(TestContext *ctx)
         }
 
         // Compiler class + install.
-        uint64_t *compiler_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
-                                                   array_class, association_class,
-                                                   "Compiler", NULL, NULL, 0,
-                                                   BC_CLASS_FORMAT_FIELDS);
-        ASSERT_EQ(ctx, compiler_class != NULL, 1, "Compiler class created");
-        static char compiler_src[4096];
-        ASSERT_EQ(ctx, read_source_file("src/smalltalk/Compiler.st", compiler_src, sizeof(compiler_src)), 1,
-                  "Compiler.st loads");
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, compiler_src),
-                  1, "Compiler.st methods install");
+        uint64_t *compiler_class = bc_compile_and_install_class_file(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4, "src/smalltalk/Compiler.st");
+        ASSERT_EQ(ctx, compiler_class != NULL, 1, "Compiler.st defines class and installs methods");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(compiler_class, CLASS_INST_SIZE)), 0,
+                  "Compiler.st class declaration has no instance variables");
+        uint64_t *compiler_metaclass = (uint64_t *)OBJ_CLASS(compiler_class);
+        ASSERT_EQ(ctx, class_lookup(compiler_metaclass, intern_cstring_symbol(ctx->om, "compileExpression:")) != 0,
+                  1, "Compiler.st installs class-side compileExpression:");
 
         uint64_t *codegen_md = (uint64_t *)OBJ_FIELD(codegen_class, CLASS_METHOD_DICT);
         uint64_t *compiler_meta_md = (uint64_t *)OBJ_FIELD((uint64_t *)OBJ_CLASS(compiler_class), CLASS_METHOD_DICT);

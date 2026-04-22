@@ -1,5 +1,7 @@
 "Compiler — Wires tokenizer, parser, and code generator"
 
+Object subclass: #Compiler instanceVariableNames: ''
+
 !Compiler class methodsFor: 'compiling'!
 compileExpression: aString
     | gen |
