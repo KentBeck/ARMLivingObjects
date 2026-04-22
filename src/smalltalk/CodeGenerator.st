@@ -1,6 +1,8 @@
 "CodeGenerator — Emits bytecodes from AST nodes"
 "Instance variables: bytecodes, bytecodeCount, literals, literalCount, temps, tempCount, args, argCount, instVarNames, instVarCount, inBlock"
 
+Object subclass: #CodeGenerator instanceVariableNames: 'bytecodes bytecodeCount literals literalCount temps tempCount args argCount instVarNames instVarCount inBlock'
+
 !CodeGenerator class methodsFor: 'instance creation'!
 new
     ^ super new initialize

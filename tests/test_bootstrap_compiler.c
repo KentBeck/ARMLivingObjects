@@ -1145,18 +1145,15 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, class_lookup(parser_class, intern_cstring_symbol(ctx->om, "parseMethod")) != 0,
                   1, "Parser.st installs parseMethod");
 
-        // Define CodeGenerator and install its .st file.
-        const char *codegen_ivars[] = {"bytecodes", "bytecodeCount", "literals", "literalCount",
-                                       "temps", "tempCount", "args", "argCount",
-                                       "instVarNames", "instVarCount", "inBlock"};
-        uint64_t *codegen_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
-                                                  array_class, association_class,
-                                                  "CodeGenerator", NULL,
-                                                  codegen_ivars, 11, BC_CLASS_FORMAT_FIELDS);
-        ASSERT_EQ(ctx, codegen_class != NULL, 1, "CodeGenerator class created");
-        static char codegen_src[16384];
-        ASSERT_EQ(ctx, read_source_file("src/smalltalk/CodeGenerator.st", codegen_src, sizeof(codegen_src)), 1,
-                  "CodeGenerator.st loads");
+        // Define CodeGenerator from its class declaration and install its .st file.
+        uint64_t *codegen_class = bc_compile_and_install_class_file(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4, "src/smalltalk/CodeGenerator.st");
+        ASSERT_EQ(ctx, codegen_class != NULL, 1, "CodeGenerator.st defines class and installs methods");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(codegen_class, CLASS_INST_SIZE)), 11,
+                  "CodeGenerator.st class declaration has eleven instance variables");
+        ASSERT_EQ(ctx, class_lookup(codegen_class, intern_cstring_symbol(ctx->om, "compileExpression:")) != 0,
+                  1, "CodeGenerator.st installs compileExpression:");
         // Minimal test: Parser class ref inside a CodeGenerator method
         {
             const char *t1 =
@@ -1178,9 +1175,6 @@ void test_bootstrap_compiler(TestContext *ctx)
                       bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, t2),
                       1, "parserOn install");
         }
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, codegen_src),
-                  1, "CodeGenerator.st methods install");
 
         // Compiler class + install.
         uint64_t *compiler_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
