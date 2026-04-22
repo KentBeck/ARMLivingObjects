@@ -114,6 +114,17 @@ static uint64_t byte_txn_index(uint64_t index)
     return (UINT64_C(1) << 63) | index;
 }
 
+static uint64_t lookup_method_for_receiver(uint64_t receiver, uint64_t selector,
+                                           uint64_t *class_table)
+{
+    uint64_t klass = oop_class(receiver, class_table);
+    if (klass == 0)
+    {
+        return 0;
+    }
+    return class_lookup((uint64_t *)klass, selector);
+}
+
 static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, uint64_t primitive,
                                              uint64_t arg_count)
 {
@@ -642,8 +653,7 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             uint64_t *literals = (uint64_t *)OBJ_FIELD(current_method, CM_LITERALS);
             uint64_t selector = OBJ_FIELD(literals, selector_index);
             uint64_t receiver = (*sp_ptr)[arg_count];
-            uint64_t klass = oop_class(receiver, class_table);
-            uint64_t method = class_lookup((uint64_t *)klass, selector);
+            uint64_t method = lookup_method_for_receiver(receiver, selector, class_table);
 
             if (method == 0)
             {
@@ -651,10 +661,44 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                 break;
             }
 
-            uint64_t primitive = OBJ_FIELD((uint64_t *)method, CM_PRIMITIVE);
-            if (primitive != tag_smallint(PRIM_NONE))
+            int primitive_completed = 0;
+            for (;;)
             {
+                uint64_t primitive = OBJ_FIELD((uint64_t *)method, CM_PRIMITIVE);
+                if (primitive == tag_smallint(PRIM_NONE))
+                {
+                    break;
+                }
+
                 uint64_t primitive_id = (uint64_t)untag_smallint(primitive);
+                if (primitive_id == PRIM_PERFORM)
+                {
+                    if (arg_count != 1)
+                    {
+                        break;
+                    }
+
+                    selector = (*sp_ptr)[0];
+                    receiver = (*sp_ptr)[1];
+                    *sp_ptr = *sp_ptr + 1;
+                    arg_count = 0;
+                    method = lookup_method_for_receiver(receiver, selector, class_table);
+                    if (method == 0)
+                    {
+                        unsupported_bytecode(opcode);
+                        primitive_completed = 1;
+                        break;
+                    }
+                    continue;
+                }
+
+                if (primitive_id == PRIM_HALT)
+                {
+                    unsupported_bytecode(opcode);
+                    primitive_completed = 1;
+                    break;
+                }
+
                 PrimitiveResult result = try_smallint_primitive(sp_ptr, primitive_id, arg_count);
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
@@ -674,13 +718,22 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                 }
                 if (result == PRIMITIVE_SUCCEEDED)
                 {
+                    primitive_completed = 1;
                     break;
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
                     unsupported_bytecode(opcode);
+                    primitive_completed = 1;
                     break;
                 }
+
+                break;
+            }
+
+            if (primitive_completed)
+            {
+                break;
             }
 
             uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD((uint64_t *)method, CM_NUM_TEMPS));

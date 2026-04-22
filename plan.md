@@ -84,7 +84,7 @@ Next small steps:
 - [x] Port non-allocating primitive families:
   SmallInteger arithmetic/comparison, identity/class/hash, character, String equality/hash, and Symbol equality.
 - [ ] Port remaining standalone primitives:
-  `printChar`, `halt`, `perform:`, and String `asSymbol`.
+  `printChar` and String `asSymbol`.
 - [x] Port indexed access primitives and transaction-aware `at:` / `at:put:`.
 - [ ] Port instance-variable transaction reads/writes and write barrier behavior.
 - [ ] Port allocation primitives with GC retry/root preservation.

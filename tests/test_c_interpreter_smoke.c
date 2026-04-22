@@ -678,6 +678,37 @@ static void test_indexed_primitives(SmokeWorld *world)
              "C interpreter: txn at: reads pending byte value");
 }
 
+static void test_perform_primitive(SmokeWorld *world)
+{
+    uint64_t sel_perform = tag_smallint(7000);
+    uint64_t sel_answer = tag_smallint(7001);
+    uint64_t sel_basic_class = tag_smallint(7002);
+
+    uint64_t *answer_literals = make_array(world, 1);
+    OBJ_FIELD(answer_literals, 0) = tag_smallint(4242);
+    uint64_t *answer_bytecodes = make_bytecodes(world, 6);
+    uint8_t *abc = (uint8_t *)&OBJ_FIELD(answer_bytecodes, 0);
+    abc[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&abc[1], 0);
+    abc[5] = BC_RETURN;
+    uint64_t *answer_method = make_method(world, answer_bytecodes, answer_literals, 0, 0);
+
+    uint64_t *method_dict = make_array(world, 6);
+    OBJ_FIELD(method_dict, 0) = sel_perform;
+    OBJ_FIELD(method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_PERFORM, 1);
+    OBJ_FIELD(method_dict, 2) = sel_answer;
+    OBJ_FIELD(method_dict, 3) = (uint64_t)answer_method;
+    OBJ_FIELD(method_dict, 4) = sel_basic_class;
+    OBJ_FIELD(method_dict, 5) = (uint64_t)make_primitive_method(world, PRIM_BASIC_CLASS, 0);
+    OBJ_FIELD(world->test_class, CLASS_METHOD_DICT) = (uint64_t)method_dict;
+
+    CHECK_EQ(run_binary_send(world, (uint64_t)world->receiver, sel_answer, sel_perform), tag_smallint(4242),
+             "C interpreter: perform: sends normal target method");
+    CHECK_EQ(run_binary_send(world, (uint64_t)world->receiver, sel_basic_class, sel_perform),
+             (uint64_t)world->test_class,
+             "C interpreter: perform: primitive target keeps receiver on stack");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -696,6 +727,7 @@ int main(void)
     test_character_primitives(&world);
     test_string_symbol_primitives(&world);
     test_indexed_primitives(&world);
+    test_perform_primitive(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;
