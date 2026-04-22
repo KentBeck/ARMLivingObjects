@@ -19,6 +19,10 @@ and: aBlock
     ^ false
 !
 
+& aBoolean
+    ^ false
+!
+
 or: aBlock
     ^ aBlock value
 !

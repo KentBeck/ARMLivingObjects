@@ -5,11 +5,11 @@ Object subclass: #CodeGenerator instanceVariableNames: 'bytecodes bytecodeCount 
 
 !CodeGenerator class methodsFor: 'instance creation'!
 new
-    ^ super new initialize
+    ^ self basicNew initialize
 !
 
 forBlock
-    ^ super new initializeForBlock
+    ^ self basicNew initializeForBlock
 !
 
 !CodeGenerator methodsFor: 'initialization'!

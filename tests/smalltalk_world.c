@@ -236,6 +236,10 @@ void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_s
               (uint64_t)make_primitive_cm_local(world->om, world->class_class, PRIM_BASIC_NEW, 0));
     md_append_local(world->om, world->class_class, world->class_class, "new:",
               (uint64_t)make_primitive_cm_local(world->om, world->class_class, PRIM_BASIC_NEW_SIZE, 1));
+    md_append_local(world->om, world->class_class, world->class_class, "basicNew",
+              (uint64_t)make_primitive_cm_local(world->om, world->class_class, PRIM_BASIC_NEW, 0));
+    md_append_local(world->om, world->class_class, world->class_class, "basicNew:",
+              (uint64_t)make_primitive_cm_local(world->om, world->class_class, PRIM_BASIC_NEW_SIZE, 1));
     md_append_local(world->om, world->class_class, world->class_class, "==",
               (uint64_t)make_primitive_cm_local(world->om, world->class_class, PRIM_IDENTITY_EQ, 1));
 
@@ -381,10 +385,11 @@ uint64_t sw_send0(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
     uint64_t method_oop = class_lookup(dc, sel_oop);
     uint64_t *cm = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
+    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(cm, CM_NUM_TEMPS));
     uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
     uint64_t *fp = (uint64_t *)0xCAFE;
     stack_push(&sp, ctx->stack, receiver);
-    activate_method(&sp, &fp, 0, (uint64_t)cm, 0, 0);
+    activate_method(&sp, &fp, 0, (uint64_t)cm, 0, num_temps);
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
 }
 
@@ -396,11 +401,12 @@ uint64_t sw_send1(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
     uint64_t method_oop = class_lookup(dc, sel_oop);
     uint64_t *cm = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
+    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(cm, CM_NUM_TEMPS));
     uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
     uint64_t *fp = (uint64_t *)0xCAFE;
     stack_push(&sp, ctx->stack, receiver);
     stack_push(&sp, ctx->stack, arg);
-    activate_method(&sp, &fp, 0, (uint64_t)cm, 1, 0);
+    activate_method(&sp, &fp, 0, (uint64_t)cm, 1, num_temps);
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
 }
 
@@ -413,11 +419,12 @@ uint64_t sw_send2(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
     uint64_t method_oop = class_lookup(dc, sel_oop);
     uint64_t *cm = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
+    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(cm, CM_NUM_TEMPS));
     uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
     uint64_t *fp = (uint64_t *)0xCAFE;
     stack_push(&sp, ctx->stack, receiver);
     stack_push(&sp, ctx->stack, arg0);
     stack_push(&sp, ctx->stack, arg1);
-    activate_method(&sp, &fp, 0, (uint64_t)cm, 2, 0);
+    activate_method(&sp, &fp, 0, (uint64_t)cm, 2, num_temps);
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
 }

@@ -137,6 +137,51 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, OBJ_FIELD(first_tok, 2), tag_smallint(1),
               "runtime: Tokenizer produced a Token with value 1");
 
+#ifdef ALO_INTERPRETER_C
+    ASSERT_EQ(ctx,
+              bc_compile_and_install_classes_file(world.om, world.class_class,
+                                                  world.string_class, world.array_class,
+                                                  world.association_class,
+                                                  NULL, 0, "src/smalltalk/ASTNodes.st"),
+              1, "runtime: ASTNodes.st defines classes and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Parser.st") != NULL,
+              1, "runtime: Parser.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/CodeGenerator.st") != NULL,
+              1, "runtime: CodeGenerator.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Compiler.st") != NULL,
+              1, "runtime: Compiler.st defines class and installs methods");
+
+    uint64_t *compiler_class = smalltalk_world_lookup_class(&world, "Compiler");
+    ASSERT_EQ(ctx, compiler_class != NULL, 1, "runtime: Compiler in Smalltalk dict");
+    uint64_t method_source = (uint64_t)sw_make_string(&world, "answer ^ 1");
+    uint64_t method_gen = sw_send1(&world, ctx, (uint64_t)compiler_class, world.class_class,
+                                   "compileMethod:", method_source);
+    ASSERT_EQ(ctx, is_object_ptr(method_gen), 1,
+              "runtime: Compiler compileMethod: returns a CodeGenerator object");
+    uint64_t *method_gen_ptr = (uint64_t *)method_gen;
+    ASSERT_EQ(ctx, OBJ_SIZE(method_gen_ptr), 11,
+              "runtime: method CodeGenerator has expected ivar slots");
+    ASSERT_EQ(ctx, OBJ_FIELD(method_gen_ptr, 1), tag_smallint(7),
+              "runtime: Smalltalk compiler emits seven bytes for answer ^ 1");
+    ASSERT_EQ(ctx, OBJ_FIELD(method_gen_ptr, 3), tag_smallint(1),
+              "runtime: Smalltalk compiler records one literal for answer ^ 1");
+    uint64_t *generated_bytecodes = (uint64_t *)OBJ_FIELD(method_gen_ptr, 0);
+    ASSERT_EQ(ctx, is_object_ptr((uint64_t)generated_bytecodes), 1,
+              "runtime: generated method bytecodes are stored in a byte object");
+    uint8_t *generated_bytes = (uint8_t *)&OBJ_FIELD(generated_bytecodes, 0);
+    ASSERT_EQ(ctx, generated_bytes[0], BC_PUSH_LITERAL,
+              "runtime: Smalltalk compiler emits push literal first");
+    ASSERT_EQ(ctx, generated_bytes[5], BC_RETURN,
+              "runtime: Smalltalk compiler emits return after literal");
+    ASSERT_EQ(ctx, generated_bytes[6], BC_RETURN,
+              "runtime: Smalltalk compiler currently emits trailing implicit return");
+    uint64_t *generated_literals = (uint64_t *)OBJ_FIELD(method_gen_ptr, 2);
+    ASSERT_EQ(ctx, is_object_ptr((uint64_t)generated_literals), 1,
+              "runtime: generated method literals are stored in an array");
+    ASSERT_EQ(ctx, OBJ_FIELD(generated_literals, 0), tag_smallint(1),
+              "runtime: Smalltalk compiler records literal 1");
+#endif
+
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestCase.st") != NULL,
               1, "runtime: TestCase.st defines class and installs methods");
     uint64_t *test_case_class = smalltalk_world_lookup_class(&world, "TestCase");

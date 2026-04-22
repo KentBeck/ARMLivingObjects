@@ -9,6 +9,11 @@ TEST_BIN = $(BIN_DIR)/test
 GC_STRESS_BIN = $(BIN_DIR)/gc_stress
 C_INTERPRETER_SMOKE_BIN = $(BIN_DIR)/c_interpreter_smoke
 INTERPRETER ?= c
+ifeq ($(INTERPRETER),c)
+CFLAGS += -DALO_INTERPRETER_C
+else ifeq ($(INTERPRETER),asm)
+CFLAGS += -DALO_INTERPRETER_ASM
+endif
 
 ASM_SRCS = $(wildcard src/arm/*.s)
 C_VM_SRCS = src/c_vm/tagged.c src/c_vm/object.c src/c_vm/lookup.c src/c_vm/stack_ops.c src/c_vm/frame.c src/c_vm/bytecode.c
