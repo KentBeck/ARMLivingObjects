@@ -90,10 +90,8 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Array.st"), 1,
               "runtime: Array.st installs");
 
-    const char *tokenizer_ivars[] = {"source", "stream", "buffered"};
-    smalltalk_world_define_class(&world, "Tokenizer", NULL, tokenizer_ivars, 3, FORMAT_FIELDS);
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Tokenizer.st"), 1,
-              "runtime: Tokenizer.st installs");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Tokenizer.st") != NULL,
+              1, "runtime: Tokenizer.st defines class and installs methods");
 
     uint64_t *tokenizer_class = smalltalk_world_lookup_class(&world, "Tokenizer");
     ASSERT_EQ(ctx, tokenizer_class != NULL, 1, "runtime: Tokenizer in Smalltalk dict");

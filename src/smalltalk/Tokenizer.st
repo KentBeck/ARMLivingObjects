@@ -1,6 +1,8 @@
 "Tokenizer — lexical analyzer for Smalltalk source code"
 "Instance variables: source, stream, buffered"
 
+Object subclass: #Tokenizer instanceVariableNames: 'source stream buffered'
+
 !Tokenizer class methodsFor: 'instance creation'!
 on: aString
     ^ self new initializeOn: aString
