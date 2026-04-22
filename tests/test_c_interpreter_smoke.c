@@ -40,6 +40,23 @@ static uint64_t *make_bytecodes(SmokeWorld *world, uint64_t size)
     return om_alloc(world->om, (uint64_t)world->class_class, FORMAT_BYTES, size);
 }
 
+static uint64_t *make_bytes_object(SmokeWorld *world, uint64_t *klass, const char *text)
+{
+    uint64_t size = 0;
+    while (text[size] != '\0')
+    {
+        size++;
+    }
+
+    uint64_t *object = om_alloc(world->om, (uint64_t)klass, FORMAT_BYTES, size);
+    uint8_t *bytes = (uint8_t *)&OBJ_FIELD(object, 0);
+    for (uint64_t index = 0; index < size; index++)
+    {
+        bytes[index] = (uint8_t)text[index];
+    }
+    return object;
+}
+
 static uint64_t *make_method(SmokeWorld *world, uint64_t *bytecodes, uint64_t *literals,
                              uint64_t num_args, uint64_t num_temps)
 {
@@ -483,6 +500,55 @@ static void test_character_primitives(SmokeWorld *world)
              "C interpreter: Character asLowercase primitive");
 }
 
+static void test_string_symbol_primitives(SmokeWorld *world)
+{
+    uint64_t sel_string_eq = tag_smallint(5000);
+    uint64_t sel_string_hash = tag_smallint(5001);
+    uint64_t sel_symbol_eq = tag_smallint(5002);
+
+    uint64_t *string_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(string_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(string_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(string_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+    OBJ_FIELD(string_class, CLASS_INST_VARS) = tagged_nil();
+
+    uint64_t *symbol_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(symbol_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(symbol_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+    OBJ_FIELD(symbol_class, CLASS_INST_VARS) = tagged_nil();
+
+    uint64_t *string_method_dict = make_array(world, 4);
+    OBJ_FIELD(string_method_dict, 0) = sel_string_eq;
+    OBJ_FIELD(string_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_STRING_EQ, 1);
+    OBJ_FIELD(string_method_dict, 2) = sel_string_hash;
+    OBJ_FIELD(string_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_STRING_HASH_FNV, 0);
+    OBJ_FIELD(string_class, CLASS_METHOD_DICT) = (uint64_t)string_method_dict;
+
+    uint64_t *symbol_method_dict = make_array(world, 2);
+    OBJ_FIELD(symbol_method_dict, 0) = sel_symbol_eq;
+    OBJ_FIELD(symbol_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_SYMBOL_EQ, 1);
+    OBJ_FIELD(symbol_class, CLASS_METHOD_DICT) = (uint64_t)symbol_method_dict;
+
+    uint64_t *hello1 = make_bytes_object(world, string_class, "hello");
+    uint64_t *hello2 = make_bytes_object(world, string_class, "hello");
+    uint64_t *world_string = make_bytes_object(world, string_class, "world");
+    uint64_t *symbol1 = make_bytes_object(world, symbol_class, "name");
+    uint64_t *symbol2 = make_bytes_object(world, symbol_class, "name");
+
+    CHECK_EQ(run_binary_send(world, (uint64_t)hello1, (uint64_t)hello2, sel_string_eq), tagged_true(),
+             "C interpreter: String = equal primitive");
+    CHECK_EQ(run_binary_send(world, (uint64_t)hello1, (uint64_t)world_string, sel_string_eq), tagged_false(),
+             "C interpreter: String = different primitive");
+    CHECK_EQ(run_unary_send(world, (uint64_t)hello1, sel_string_hash),
+             run_unary_send(world, (uint64_t)hello2, sel_string_hash),
+             "C interpreter: String hash equal bytes primitive");
+    CHECK_EQ(run_binary_send(world, (uint64_t)symbol1, (uint64_t)symbol1, sel_symbol_eq), tagged_true(),
+             "C interpreter: Symbol = identical primitive");
+    CHECK_EQ(run_binary_send(world, (uint64_t)symbol1, (uint64_t)symbol2, sel_symbol_eq), tagged_false(),
+             "C interpreter: Symbol = distinct primitive");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -499,6 +565,7 @@ int main(void)
     test_smallint_primitives(&world);
     test_identity_class_hash_primitives(&world);
     test_character_primitives(&world);
+    test_string_symbol_primitives(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;

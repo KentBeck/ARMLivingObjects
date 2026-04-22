@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <signal.h>
 #include <stdint.h>
+#include <string.h>
 
 extern uint64_t oop_class(uint64_t oop, uint64_t *class_table);
 extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
@@ -69,6 +70,16 @@ static int is_smallint_value(uint64_t value)
 static int is_character_value(uint64_t value)
 {
     return (value & CHAR_TAG_MASK) == CHAR_TAG_VALUE;
+}
+
+static int is_object_value(uint64_t value)
+{
+    return (value & TAG_MASK) == TAG_OBJECT;
+}
+
+static int is_bytes_object(uint64_t value)
+{
+    return is_object_value(value) && OBJ_FORMAT((uint64_t *)value) == FORMAT_BYTES;
 }
 
 static int fits_smallint(int64_t value)
@@ -214,6 +225,19 @@ static PrimitiveResult try_object_primitive(uint64_t **sp_ptr, uint64_t primitiv
 static PrimitiveResult try_character_primitive(uint64_t **sp_ptr, uint64_t primitive,
                                               uint64_t arg_count)
 {
+    switch (primitive)
+    {
+    case PRIM_CHAR_VALUE:
+    case PRIM_AS_CHARACTER:
+    case PRIM_CHAR_IS_LETTER:
+    case PRIM_CHAR_IS_DIGIT:
+    case PRIM_CHAR_UPPERCASE:
+    case PRIM_CHAR_LOWERCASE:
+        break;
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
+
     if (arg_count != 0)
     {
         return PRIMITIVE_FAILED;
@@ -291,6 +315,83 @@ static PrimitiveResult try_character_primitive(uint64_t **sp_ptr, uint64_t primi
             receiver = ((code_point + ('a' - 'A')) << CHAR_SHIFT) | CHAR_TAG_VALUE;
         }
         replace_receiver(sp_ptr, receiver);
+        return PRIMITIVE_SUCCEEDED;
+
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
+}
+
+static PrimitiveResult try_string_symbol_primitive(uint64_t **sp_ptr, uint64_t primitive,
+                                                  uint64_t arg_count)
+{
+    uint64_t *sp = *sp_ptr;
+    uint64_t receiver = sp[arg_count];
+
+    switch (primitive)
+    {
+    case PRIM_STRING_EQ:
+    {
+        if (arg_count != 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_bytes_object(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        uint64_t arg = sp[0];
+        if (!is_bytes_object(arg))
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        uint64_t *receiver_object = (uint64_t *)receiver;
+        uint64_t *arg_object = (uint64_t *)arg;
+        uint64_t result = TAGGED_FALSE;
+        if (OBJ_SIZE(receiver_object) == OBJ_SIZE(arg_object) &&
+            memcmp(&OBJ_FIELD(receiver_object, 0), &OBJ_FIELD(arg_object, 0),
+                   (size_t)OBJ_SIZE(receiver_object)) == 0)
+        {
+            result = TAGGED_TRUE;
+        }
+
+        replace_receiver_and_arg(sp_ptr, result);
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    case PRIM_STRING_HASH_FNV:
+    {
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_bytes_object(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+
+        uint64_t *receiver_object = (uint64_t *)receiver;
+        uint8_t *bytes = (uint8_t *)&OBJ_FIELD(receiver_object, 0);
+        uint32_t hash = 0x811C9DC5u;
+        for (uint64_t index = 0; index < OBJ_SIZE(receiver_object); index++)
+        {
+            hash ^= bytes[index];
+            hash *= 0x01000193u;
+        }
+
+        replace_receiver(sp_ptr, tag_smallint((int64_t)hash));
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    case PRIM_SYMBOL_EQ:
+        if (arg_count != 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        replace_receiver_and_arg(sp_ptr, receiver == sp[0] ? TAGGED_TRUE : TAGGED_FALSE);
         return PRIMITIVE_SUCCEEDED;
 
     default:
@@ -386,6 +487,10 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
                     result = try_character_primitive(sp_ptr, primitive_id, arg_count);
+                }
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    result = try_string_symbol_primitive(sp_ptr, primitive_id, arg_count);
                 }
                 if (result == PRIMITIVE_SUCCEEDED)
                 {
