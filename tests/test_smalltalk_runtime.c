@@ -51,10 +51,8 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/False.st"), 1,
               "runtime: False.st installs");
 
-    const char *readstream_ivars[] = {"collection", "position", "readLimit"};
-    smalltalk_world_define_class(&world, "ReadStream", NULL, readstream_ivars, 3, FORMAT_FIELDS);
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/ReadStream.st"), 1,
-              "runtime: ReadStream.st installs");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/ReadStream.st") != NULL,
+              1, "runtime: ReadStream.st defines class and installs methods");
 
     uint64_t *rs_class = smalltalk_world_lookup_class(&world, "ReadStream");
     ASSERT_EQ(ctx, rs_class != NULL, 1, "runtime: ReadStream in Smalltalk dict");

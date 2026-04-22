@@ -1,5 +1,7 @@
 "ReadStream — sequential read over a collection"
 
+Object subclass: #ReadStream instanceVariableNames: 'collection position readLimit'
+
 !ReadStream class methodsFor: 'instance creation'!
 on: aCollection
     ^ self new initializeOn: aCollection
