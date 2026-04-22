@@ -2763,3 +2763,131 @@ uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_
 
     return klass;
 }
+
+static int bc_parse_instance_var_names(const char *source, char names[16][32],
+                                       const char *name_ptrs[16], int *out_count)
+{
+    int count = 0;
+    const char *cursor = source;
+
+    while (*cursor != '\0')
+    {
+        while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+        {
+            cursor++;
+        }
+        if (*cursor == '\0')
+        {
+            break;
+        }
+        if (count >= 16 || !(isalpha((unsigned char)*cursor) || *cursor == '_'))
+        {
+            return 0;
+        }
+
+        int length = 0;
+        while (isalnum((unsigned char)*cursor) || *cursor == '_')
+        {
+            if (length >= 31)
+            {
+                return 0;
+            }
+            names[count][length++] = *cursor++;
+        }
+        names[count][length] = '\0';
+        name_ptrs[count] = names[count];
+        count++;
+
+        if (*cursor != '\0' && *cursor != ' ' && *cursor != '\t' &&
+            *cursor != '\n' && *cursor != '\r')
+        {
+            return 0;
+        }
+    }
+
+    *out_count = count;
+    return 1;
+}
+
+uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
+                                      uint64_t *string_class, uint64_t *array_class,
+                                      uint64_t *association_class,
+                                      const BClassBinding *classes, int class_count,
+                                      const char *source)
+{
+    BTokenizer tokenizer;
+    bt_init(&tokenizer, source);
+
+    BToken superclass_token = bt_next(&tokenizer);
+    BToken subclass_token = bt_next(&tokenizer);
+    BToken class_name_token = bt_next(&tokenizer);
+    BToken ivar_keyword = bt_next(&tokenizer);
+    BToken ivar_string = bt_next(&tokenizer);
+
+    if (superclass_token.type != BTOK_IDENTIFIER ||
+        subclass_token.type != BTOK_KEYWORD ||
+        class_name_token.type != BTOK_SYMBOL ||
+        ivar_keyword.type != BTOK_KEYWORD ||
+        strcmp(ivar_keyword.text, "instanceVariableNames:") != 0 ||
+        ivar_string.type != BTOK_STRING)
+    {
+        return NULL;
+    }
+
+    BClassFormat format = BC_CLASS_FORMAT_FIELDS;
+    if (strcmp(subclass_token.text, "subclass:") == 0)
+    {
+        format = BC_CLASS_FORMAT_FIELDS;
+    }
+    else if (strcmp(subclass_token.text, "variableSubclass:") == 0)
+    {
+        format = BC_CLASS_FORMAT_INDEXABLE;
+    }
+    else if (strcmp(subclass_token.text, "variableByteSubclass:") == 0)
+    {
+        format = BC_CLASS_FORMAT_BYTES;
+    }
+    else
+    {
+        return NULL;
+    }
+
+    for (;;)
+    {
+        BToken token = bt_next(&tokenizer);
+        if (token.type == BTOK_EOF)
+        {
+            break;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "!") == 0)
+        {
+            continue;
+        }
+        if (token.type != BTOK_KEYWORD)
+        {
+            return NULL;
+        }
+        BToken ignored_value = bt_next(&tokenizer);
+        if (ignored_value.type != BTOK_STRING && ignored_value.type != BTOK_SYMBOL)
+        {
+            return NULL;
+        }
+    }
+
+    char ivar_names[16][32];
+    const char *ivar_name_ptrs[16];
+    int ivar_count = 0;
+    if (!bc_parse_instance_var_names(ivar_string.text, ivar_names, ivar_name_ptrs, &ivar_count))
+    {
+        return NULL;
+    }
+
+    uint64_t *superclass = bc_lookup_class_named(classes, class_count, superclass_token.text);
+    if (superclass == NULL)
+    {
+        return NULL;
+    }
+
+    return bc_define_class(om, class_class, string_class, array_class, association_class,
+                           class_name_token.text, superclass, ivar_name_ptrs, ivar_count, format);
+}

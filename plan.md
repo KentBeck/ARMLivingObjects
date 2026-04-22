@@ -26,15 +26,16 @@ LSP Server
 
 - [x] Add `PUSH_CLOSURE` codegen for block literals
 - [x] Add stack bounds checking for direct stack push and method activation
-- [ ] Replace ARM interpreter with C incrementally, keeping assembly tests green
-- [ ] Add focused opt-in C interpreter smoke tests and run them alongside default assembly tests
-- [ ] Introduce real heap context objects using the existing frame context slot
-- [ ] Materialize contexts lazily for block homes, `thisContext`, and debugger/exception paths
-- [ ] Change block closures to reference a home context, not only copied values
-- [ ] Implement non-local block return using home contexts
-- [ ] Implement `cannotReturn:` when a non-local return targets a dead home
+- [x] Replace ARM interpreter with C incrementally, keeping assembly tests green
+- [x] Add focused C interpreter smoke tests and run them alongside full-suite checks
+- [x] Introduce real heap context objects using the existing frame context slot
+- [x] Materialize contexts lazily for block homes, `thisContext`, and debugger/exception paths
+- [x] Change block closures to reference a home context, not only copied values
+- [x] Implement non-local block return using home contexts
+- [x] Implement `cannotReturn:` when a non-local return targets a dead home
 - [ ] Preserve arguments but not volatile non-argument temps for widowed contexts
 - [ ] Implement class builder (`Class` + method install from parsed source)
+  - [x] Define classes from a restricted Smalltalk class declaration
 - [ ] Implement `.st` file loader (compile/install methods into classes)
 - [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
 - [ ] Start minimal Smalltalk compiler in Smalltalk and compile with C bootstrap

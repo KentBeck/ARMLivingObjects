@@ -142,4 +142,10 @@ uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_
                           const char **ivar_names, int ivar_count,
                           BClassFormat format);
 
+uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
+                                      uint64_t *string_class, uint64_t *array_class,
+                                      uint64_t *association_class,
+                                      const BClassBinding *classes, int class_count,
+                                      const char *source);
+
 #endif

@@ -30,6 +30,19 @@ static int read_source_file(const char *path, char *buf, size_t cap)
     return 1;
 }
 
+static int byte_object_equals_cstring(uint64_t value, const char *text)
+{
+    if (!is_object_ptr(value))
+    {
+        return 0;
+    }
+    uint64_t *object = (uint64_t *)value;
+    size_t len = strlen(text);
+    return OBJ_FORMAT(object) == FORMAT_BYTES &&
+           OBJ_SIZE(object) == (uint64_t)len &&
+           memcmp(&OBJ_FIELD(object, 0), text, len) == 0;
+}
+
 static void smalltalk_at_put(uint64_t *om, uint64_t *array_class, uint64_t *association_class,
                              const char *name, uint64_t value)
 {
@@ -910,6 +923,33 @@ void test_bootstrap_compiler(TestContext *ctx)
 
         uint64_t tally = (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
         ASSERT_EQ(ctx, tally, 11, "Token plus runtime classes registered in Smalltalk dictionary");
+
+        BClassBinding class_bindings[] = {
+            {"Object", ctx->test_class},
+            {"String", ctx->string_class},
+            {"Array", array_class},
+            {"Association", association_class},
+        };
+        uint64_t *point_class = bc_define_class_from_source(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4,
+            "Object subclass: #Point instanceVariableNames: 'x y'");
+        ASSERT_EQ(ctx, point_class != NULL, 1, "class definition source creates Point class");
+        ASSERT_EQ(ctx, OBJ_FIELD(point_class, CLASS_SUPERCLASS), (uint64_t)ctx->test_class,
+                  "Point class has parsed superclass");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(point_class, CLASS_INST_SIZE)), 2,
+                  "Point class has parsed instance variable count");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(point_class, CLASS_INST_FORMAT)), FORMAT_FIELDS,
+                  "Point class has fields format");
+        ASSERT_EQ(ctx, OBJ_FIELD(point_class, CLASS_METHOD_DICT), tagged_nil(),
+                  "Point class starts with empty method dictionary");
+        uint64_t *point_ivars = (uint64_t *)OBJ_FIELD(point_class, CLASS_INST_VARS);
+        ASSERT_EQ(ctx, point_ivars != NULL, 1, "Point class stores ivar array");
+        ASSERT_EQ(ctx, OBJ_SIZE(point_ivars), 2, "Point ivar array has two entries");
+        ASSERT_EQ(ctx, byte_object_equals_cstring(OBJ_FIELD(point_ivars, 0), "x"), 1,
+                  "Point first ivar is x");
+        ASSERT_EQ(ctx, byte_object_equals_cstring(OBJ_FIELD(point_ivars, 1), "y"), 1,
+                  "Point second ivar is y");
 
         uint64_t *token_metaclass = (uint64_t *)OBJ_CLASS(token_class);
         ASSERT_EQ(ctx, token_metaclass != NULL, 1, "Token metaclass was created");
