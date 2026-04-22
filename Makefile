@@ -29,6 +29,16 @@ GC_STRESS_SRCS = tools/gc_stress.c
 test: $(TEST_BIN)
 	./$(TEST_BIN)
 
+test-c:
+	$(MAKE) clean
+	$(MAKE) INTERPRETER=c test
+
+test-asm:
+	$(MAKE) clean
+	$(MAKE) INTERPRETER=asm test
+
+test-both-interpreters: test-c test-asm test-c-interpreter-smoke
+
 test-c-interpreter-smoke:
 	$(MAKE) INTERPRETER=c $(C_INTERPRETER_SMOKE_BIN)
 	./$(C_INTERPRETER_SMOKE_BIN)
@@ -57,4 +67,4 @@ clean:
 	rm -rf $(BIN_DIR)
 	rm -f *.o test test_new
 
-.PHONY: clean gc-stress test-c-interpreter-smoke
+.PHONY: clean gc-stress test-c test-asm test-both-interpreters test-c-interpreter-smoke

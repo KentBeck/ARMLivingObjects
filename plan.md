@@ -56,7 +56,7 @@ the default C-backed VM and explicit `INTERPRETER=asm` comparison path green.
 Rules:
 
 - Default `make test` must pass after every change.
-- `make INTERPRETER=c bin/test` must keep compiling after every change.
+- `make test-both-interpreters` must pass before interpreter migration commits.
 - Add focused C-interpreter smoke tests for only the bytecodes/features the C
   interpreter is expected to support so far; run those alongside `make test`.
 - Keep the external VM ABI stable: `interpret(sp_ptr, fp_ptr, ip, class_table, om, txn_log)`.
