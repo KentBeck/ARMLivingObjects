@@ -946,6 +946,116 @@ static void test_allocation_primitives(SmokeWorld *world)
              "C interpreter: basicNew GC retry initializes fields");
 }
 
+static void test_block_primitives(SmokeWorld *world)
+{
+    uint64_t sel_value = tag_smallint(9000);
+    uint64_t sel_value_arg = tag_smallint(9001);
+    uint64_t *block_class = (uint64_t *)OBJ_FIELD(world->class_table, CLASS_TABLE_BLOCK);
+    uint64_t *block_method_dict = make_array(world, 4);
+    OBJ_FIELD(block_method_dict, 0) = sel_value;
+    OBJ_FIELD(block_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_BLOCK_VALUE, 0);
+    OBJ_FIELD(block_method_dict, 2) = sel_value_arg;
+    OBJ_FIELD(block_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_BLOCK_VALUE_ARG, 1);
+    OBJ_FIELD(block_class, CLASS_METHOD_DICT) = (uint64_t)block_method_dict;
+
+    uint64_t *literal_body_literals = make_array(world, 1);
+    OBJ_FIELD(literal_body_literals, 0) = tag_smallint(77);
+    uint64_t *literal_body_bytecodes = make_bytecodes(world, 6);
+    uint8_t *lbb = (uint8_t *)&OBJ_FIELD(literal_body_bytecodes, 0);
+    lbb[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&lbb[1], 0);
+    lbb[5] = BC_RETURN;
+    uint64_t *literal_body = make_method(world, literal_body_bytecodes, literal_body_literals, 0, 0);
+
+    uint64_t *caller_literals = make_array(world, 2);
+    OBJ_FIELD(caller_literals, 0) = (uint64_t)literal_body;
+    OBJ_FIELD(caller_literals, 1) = sel_value;
+    uint64_t *caller_bytecodes = make_bytecodes(world, 15);
+    uint8_t *cb = (uint8_t *)&OBJ_FIELD(caller_bytecodes, 0);
+    cb[0] = BC_PUSH_CLOSURE;
+    WRITE_U32(&cb[1], 0);
+    cb[5] = BC_SEND_MESSAGE;
+    WRITE_U32(&cb[6], 1);
+    WRITE_U32(&cb[10], 0);
+    cb[14] = BC_HALT;
+    uint64_t *caller = make_method(world, caller_bytecodes, caller_literals, 0, 0);
+    CHECK_EQ(run_method(world, caller, (uint64_t)world->receiver, NULL, 0), tag_smallint(77),
+             "C interpreter: Block value returns literal");
+
+    uint64_t *inspect_literals = make_array(world, 1);
+    OBJ_FIELD(inspect_literals, 0) = (uint64_t)literal_body;
+    uint64_t *inspect_bytecodes = make_bytecodes(world, 6);
+    uint8_t *ib = (uint8_t *)&OBJ_FIELD(inspect_bytecodes, 0);
+    ib[0] = BC_PUSH_CLOSURE;
+    WRITE_U32(&ib[1], 0);
+    ib[5] = BC_HALT;
+    uint64_t *inspect = make_method(world, inspect_bytecodes, inspect_literals, 0, 0);
+    uint64_t block = run_method(world, inspect, (uint64_t)world->receiver, NULL, 0);
+    CHECK_EQ(OBJ_CLASS((uint64_t *)block), (uint64_t)block_class,
+             "C interpreter: PUSH_CLOSURE returns Block object");
+    CHECK_EQ(OBJ_FIELD((uint64_t *)block, BLOCK_HOME_RECEIVER), (uint64_t)world->receiver,
+             "C interpreter: PUSH_CLOSURE records home receiver");
+    CHECK_EQ(OBJ_FIELD((uint64_t *)block, BLOCK_CM), (uint64_t)literal_body,
+             "C interpreter: PUSH_CLOSURE records block method");
+
+    uint64_t *arg_body_bytecodes = make_bytecodes(world, 6);
+    uint8_t *abb = (uint8_t *)&OBJ_FIELD(arg_body_bytecodes, 0);
+    abb[0] = BC_PUSH_ARG;
+    WRITE_U32(&abb[1], 0);
+    abb[5] = BC_RETURN;
+    uint64_t *arg_body = make_method(world, arg_body_bytecodes, NULL, 1, 0);
+
+    uint64_t *arg_caller_literals = make_array(world, 3);
+    OBJ_FIELD(arg_caller_literals, 0) = (uint64_t)arg_body;
+    OBJ_FIELD(arg_caller_literals, 1) = tag_smallint(88);
+    OBJ_FIELD(arg_caller_literals, 2) = sel_value_arg;
+    uint64_t *arg_caller_bytecodes = make_bytecodes(world, 20);
+    uint8_t *acb = (uint8_t *)&OBJ_FIELD(arg_caller_bytecodes, 0);
+    acb[0] = BC_PUSH_CLOSURE;
+    WRITE_U32(&acb[1], 0);
+    acb[5] = BC_PUSH_LITERAL;
+    WRITE_U32(&acb[6], 1);
+    acb[10] = BC_SEND_MESSAGE;
+    WRITE_U32(&acb[11], 2);
+    WRITE_U32(&acb[15], 1);
+    acb[19] = BC_HALT;
+    uint64_t *arg_caller = make_method(world, arg_caller_bytecodes, arg_caller_literals, 0, 0);
+    CHECK_EQ(run_method(world, arg_caller, (uint64_t)world->receiver, NULL, 0), tag_smallint(88),
+             "C interpreter: Block value: passes argument");
+
+    uint64_t *copied_body_bytecodes = make_bytecodes(world, 6);
+    uint8_t *cbb = (uint8_t *)&OBJ_FIELD(copied_body_bytecodes, 0);
+    cbb[0] = BC_PUSH_TEMP;
+    WRITE_U32(&cbb[1], 0);
+    cbb[5] = BC_RETURN;
+    uint64_t *copied_body = make_method(world, copied_body_bytecodes, NULL, 0, 0);
+
+    uint64_t *copied_caller_literals = make_array(world, 4);
+    OBJ_FIELD(copied_caller_literals, 0) = tag_smallint(41);
+    OBJ_FIELD(copied_caller_literals, 1) = (uint64_t)copied_body;
+    OBJ_FIELD(copied_caller_literals, 2) = tag_smallint(99);
+    OBJ_FIELD(copied_caller_literals, 3) = sel_value;
+    uint64_t *copied_caller_bytecodes = make_bytecodes(world, 35);
+    uint8_t *ccb = (uint8_t *)&OBJ_FIELD(copied_caller_bytecodes, 0);
+    ccb[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&ccb[1], 0);
+    ccb[5] = BC_STORE_TEMP;
+    WRITE_U32(&ccb[6], 0);
+    ccb[10] = BC_PUSH_CLOSURE;
+    WRITE_U32(&ccb[11], 1);
+    ccb[15] = BC_PUSH_LITERAL;
+    WRITE_U32(&ccb[16], 2);
+    ccb[20] = BC_STORE_TEMP;
+    WRITE_U32(&ccb[21], 0);
+    ccb[25] = BC_SEND_MESSAGE;
+    WRITE_U32(&ccb[26], 3);
+    WRITE_U32(&ccb[30], 0);
+    ccb[34] = BC_HALT;
+    uint64_t *copied_caller = make_method(world, copied_caller_bytecodes, copied_caller_literals, 0, 1);
+    CHECK_EQ(run_method(world, copied_caller, (uint64_t)world->receiver, NULL, 0), tag_smallint(41),
+             "C interpreter: Block copied temp keeps creation value");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -967,6 +1077,7 @@ int main(void)
     test_perform_primitive(&world);
     test_inst_var_transaction_and_barrier(&world);
     test_allocation_primitives(&world);
+    test_block_primitives(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;

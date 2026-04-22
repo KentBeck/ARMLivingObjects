@@ -74,6 +74,11 @@ static uint64_t frame_arg_local(uint64_t *fp, uint64_t index)
     return fp[FP_ARG_BASE_WORDS + (num_args - 1 - index)];
 }
 
+static int frame_has_block_closure(uint64_t *fp)
+{
+    return (fp[FRAME_FLAGS] & FRAME_FLAGS_BLOCK_CLOSURE_MASK) != 0;
+}
+
 static void unsupported_bytecode(uint8_t opcode)
 {
     (void)opcode;
@@ -357,6 +362,84 @@ static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, uint64_t prim
     default:
         return PRIMITIVE_UNSUPPORTED;
     }
+}
+
+static uint64_t block_copied_count(uint64_t block)
+{
+    return OBJ_SIZE((uint64_t *)block) - BLOCK_COPIED_BASE;
+}
+
+static void mark_block_frame(uint64_t *fp, uint64_t block)
+{
+    fp[FRAME_FLAGS] |= (UINT64_C(1) << FRAME_FLAGS_IS_BLOCK_SHIFT) |
+                       FRAME_FLAGS_BLOCK_CLOSURE_MASK;
+    fp[FRAME_CONTEXT] = block;
+}
+
+static void populate_block_copied_values(uint64_t *fp, uint64_t block, uint64_t copied_count)
+{
+    uint64_t *block_object = (uint64_t *)block;
+    for (uint64_t index = 0; index < copied_count; index++)
+    {
+        fp[-(int64_t)(FP_TEMP_BASE_WORDS + index)] = OBJ_FIELD(block_object, BLOCK_COPIED_BASE + index);
+    }
+}
+
+static PrimitiveResult try_block_primitive(uint64_t **sp_ptr, uint64_t **fp_ptr,
+                                          uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
+                                          uint64_t primitive, uint64_t arg_count,
+                                          uint64_t *class_table)
+{
+    switch (primitive)
+    {
+    case PRIM_BLOCK_VALUE:
+    case PRIM_BLOCK_VALUE_ARG:
+        break;
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
+
+    if ((primitive == PRIM_BLOCK_VALUE && arg_count != 0) ||
+        (primitive == PRIM_BLOCK_VALUE_ARG && arg_count != 1))
+    {
+        return PRIMITIVE_FAILED;
+    }
+
+    uint64_t *sp = *sp_ptr;
+    uint64_t block = sp[arg_count];
+    if (!is_object_value(block) ||
+        OBJ_CLASS((uint64_t *)block) != OBJ_FIELD(class_table, CLASS_TABLE_BLOCK))
+    {
+        raise(SIGTRAP);
+        return PRIMITIVE_UNSUPPORTED;
+    }
+
+    uint64_t *block_object = (uint64_t *)block;
+    uint64_t home_receiver = OBJ_FIELD(block_object, BLOCK_HOME_RECEIVER);
+    uint64_t block_method = OBJ_FIELD(block_object, BLOCK_CM);
+    uint64_t copied_count = block_copied_count(block);
+    uint64_t method_temps = (uint64_t)untag_smallint(OBJ_FIELD((uint64_t *)block_method, CM_NUM_TEMPS));
+
+    if (primitive == PRIM_BLOCK_VALUE)
+    {
+        (void)pop(sp_ptr);
+        push(sp_ptr, home_receiver);
+    }
+    else
+    {
+        sp[arg_count] = home_receiver;
+    }
+
+    activate_method(sp_ptr, fp_ptr, (uint64_t)*ip_ptr, block_method, arg_count,
+                    method_temps + copied_count);
+    populate_block_copied_values(*fp_ptr, block, copied_count);
+    mark_block_frame(*fp_ptr, block);
+
+    uint64_t *new_method = (uint64_t *)(*fp_ptr)[FRAME_METHOD];
+    uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(new_method, CM_BYTECODES);
+    *bytecode_base_ptr = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    *ip_ptr = *bytecode_base_ptr;
+    return PRIMITIVE_SUCCEEDED;
 }
 
 static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, uint64_t primitive,
@@ -982,6 +1065,11 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                                                                   &class_table);
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
+                    result = try_block_primitive(sp_ptr, fp_ptr, &ip, &bytecode_base,
+                                                 primitive_id, arg_count, class_table);
+                }
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
                     result = try_smallint_primitive(sp_ptr, primitive_id, arg_count);
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
@@ -1099,8 +1187,48 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             return **sp_ptr;
 
         case BC_PUSH_CLOSURE:
-            unsupported_bytecode(opcode);
+        {
+            uint32_t literal_index = read_u32(&ip);
+            uint64_t *fp = *fp_ptr;
+            uint64_t *current_method = (uint64_t *)fp[FRAME_METHOD];
+            uint64_t num_args = frame_num_args_local(fp);
+            uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(current_method, CM_NUM_TEMPS));
+            if (frame_has_block_closure(fp) && fp[FRAME_CONTEXT] != 0)
+            {
+                num_temps += block_copied_count(fp[FRAME_CONTEXT]);
+            }
+            uint64_t copied_count = num_args + num_temps;
+
+            uint64_t *literals = (uint64_t *)OBJ_FIELD(current_method, CM_LITERALS);
+            uint64_t block_method = OBJ_FIELD(literals, literal_index);
+            uint64_t block_class = OBJ_FIELD(class_table, CLASS_TABLE_BLOCK);
+            uint64_t *block = om_alloc(om, block_class, FORMAT_FIELDS, BLOCK_COPIED_BASE + copied_count);
+            if (block == NULL)
+            {
+                unsupported_bytecode(opcode);
+                break;
+            }
+
+            OBJ_FIELD(block, BLOCK_HOME_CONTEXT) = TAGGED_NIL;
+            OBJ_FIELD(block, BLOCK_HOME_RECEIVER) = fp[FRAME_RECEIVER];
+            OBJ_FIELD(block, BLOCK_CM) = block_method;
+
+            uint64_t copied_index = 0;
+            for (uint64_t index = 0; index < num_args; index++)
+            {
+                OBJ_FIELD(block, BLOCK_COPIED_BASE + copied_index) = frame_arg_local(fp, index);
+                copied_index++;
+            }
+            for (uint64_t index = 0; index < num_temps; index++)
+            {
+                OBJ_FIELD(block, BLOCK_COPIED_BASE + copied_index) =
+                    fp[-(int64_t)(FP_TEMP_BASE_WORDS + index)];
+                copied_index++;
+            }
+
+            push(sp_ptr, (uint64_t)block);
             break;
+        }
 
         case BC_PUSH_ARG:
         {
