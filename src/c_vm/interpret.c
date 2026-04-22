@@ -3,6 +3,13 @@
 #include <signal.h>
 #include <stdint.h>
 
+extern uint64_t oop_class(uint64_t oop, uint64_t *class_table);
+extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
+extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved_ip,
+                            uint64_t method, uint64_t num_args, uint64_t num_temps);
+extern uint64_t tag_smallint(int64_t value);
+extern int64_t untag_smallint(uint64_t tagged);
+
 static uint32_t read_u32(uint8_t **ip)
 {
     uint8_t *p = *ip;
@@ -49,7 +56,6 @@ static void unsupported_bytecode(uint8_t opcode)
 uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                    uint64_t *class_table, uint64_t *om, uint64_t *txn_log)
 {
-    (void)class_table;
     (void)om;
     (void)txn_log;
 
@@ -107,8 +113,31 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
         }
 
         case BC_SEND_MESSAGE:
-            unsupported_bytecode(opcode);
+        {
+            uint32_t selector_index = read_u32(&ip);
+            uint32_t arg_count = read_u32(&ip);
+            uint64_t *current_method = (uint64_t *)(*fp_ptr)[FRAME_METHOD];
+            uint64_t *literals = (uint64_t *)OBJ_FIELD(current_method, CM_LITERALS);
+            uint64_t selector = OBJ_FIELD(literals, selector_index);
+            uint64_t receiver = (*sp_ptr)[arg_count];
+            uint64_t klass = oop_class(receiver, class_table);
+            uint64_t method = class_lookup((uint64_t *)klass, selector);
+
+            if (method == 0 || OBJ_FIELD((uint64_t *)method, CM_PRIMITIVE) != tag_smallint(PRIM_NONE))
+            {
+                unsupported_bytecode(opcode);
+                break;
+            }
+
+            uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD((uint64_t *)method, CM_NUM_TEMPS));
+            activate_method(sp_ptr, fp_ptr, (uint64_t)ip, method, arg_count, num_temps);
+
+            uint64_t *new_method = (uint64_t *)(*fp_ptr)[FRAME_METHOD];
+            uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(new_method, CM_BYTECODES);
+            bytecode_base = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+            ip = bytecode_base;
             break;
+        }
 
         case BC_RETURN_STACK_TOP:
         {

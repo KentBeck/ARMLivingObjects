@@ -52,6 +52,14 @@ static uint64_t *make_method(SmokeWorld *world, uint64_t *bytecodes, uint64_t *l
     return method;
 }
 
+static void install_method(SmokeWorld *world, uint64_t selector, uint64_t *method)
+{
+    uint64_t *method_dict = make_array(world, 2);
+    OBJ_FIELD(method_dict, 0) = selector;
+    OBJ_FIELD(method_dict, 1) = (uint64_t)method;
+    OBJ_FIELD(world->test_class, CLASS_METHOD_DICT) = (uint64_t)method_dict;
+}
+
 static uint64_t run_method(SmokeWorld *world, uint64_t *method, uint64_t receiver,
                            const uint64_t *args, uint64_t arg_count)
 {
@@ -212,6 +220,66 @@ static void test_jumps(SmokeWorld *world)
              "C interpreter: JUMP_IF_FALSE absolute target");
 }
 
+static void test_zero_arg_send(SmokeWorld *world)
+{
+    uint64_t selector = tag_smallint(1000);
+
+    uint64_t *callee_bytecodes = make_bytecodes(world, 2);
+    uint8_t *cbc = (uint8_t *)&OBJ_FIELD(callee_bytecodes, 0);
+    cbc[0] = BC_PUSH_SELF;
+    cbc[1] = BC_RETURN;
+    uint64_t *callee = make_method(world, callee_bytecodes, NULL, 0, 0);
+    install_method(world, selector, callee);
+
+    uint64_t *literals = make_array(world, 1);
+    OBJ_FIELD(literals, 0) = selector;
+    uint64_t *caller_bytecodes = make_bytecodes(world, 11);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(caller_bytecodes, 0);
+    bc[0] = BC_PUSH_SELF;
+    bc[1] = BC_SEND_MESSAGE;
+    WRITE_U32(&bc[2], 0);
+    WRITE_U32(&bc[6], 0);
+    bc[10] = BC_RETURN;
+
+    uint64_t *caller = make_method(world, caller_bytecodes, literals, 0, 0);
+    CHECK_EQ(run_method(world, caller, (uint64_t)world->receiver, NULL, 0), (uint64_t)world->receiver,
+             "C interpreter: SEND_MESSAGE 0-arg method");
+}
+
+static void test_one_arg_send(SmokeWorld *world)
+{
+    uint64_t selector = tag_smallint(1001);
+
+    uint64_t *callee_bytecodes = make_bytecodes(world, 6);
+    uint8_t *cbc = (uint8_t *)&OBJ_FIELD(callee_bytecodes, 0);
+    cbc[0] = BC_PUSH_ARG;
+    WRITE_U32(&cbc[1], 0);
+    cbc[5] = BC_RETURN;
+    uint64_t *callee = make_method(world, callee_bytecodes, NULL, 1, 0);
+    install_method(world, selector, callee);
+
+    uint64_t *literals = make_array(world, 2);
+    OBJ_FIELD(literals, 0) = selector;
+    OBJ_FIELD(literals, 1) = tag_smallint(77);
+    uint64_t *caller_bytecodes = make_bytecodes(world, 16);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(caller_bytecodes, 0);
+    uint64_t ip = 0;
+    bc[ip++] = BC_PUSH_SELF;
+    bc[ip++] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[ip], 1);
+    ip += 4;
+    bc[ip++] = BC_SEND_MESSAGE;
+    WRITE_U32(&bc[ip], 0);
+    ip += 4;
+    WRITE_U32(&bc[ip], 1);
+    ip += 4;
+    bc[ip++] = BC_RETURN;
+
+    uint64_t *caller = make_method(world, caller_bytecodes, literals, 0, 0);
+    CHECK_EQ(run_method(world, caller, (uint64_t)world->receiver, NULL, 0), tag_smallint(77),
+             "C interpreter: SEND_MESSAGE 1-arg method");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -223,6 +291,8 @@ int main(void)
     test_self_inst_var_temp_return(&world);
     test_push_arg_duplicate_return(&world);
     test_jumps(&world);
+    test_zero_arg_send(&world);
+    test_one_arg_send(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;
