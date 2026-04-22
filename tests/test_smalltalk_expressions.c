@@ -317,7 +317,6 @@ void test_smalltalk_expressions(TestContext *ctx)
 {
     char context_src[2048];
     char tokenizer_src[8192];
-    char expression_spec_test_src[2048];
     const char *object_testing_src =
         "!Object methodsFor: 'testing'!\n"
         "isNil\n"
@@ -563,8 +562,6 @@ void test_smalltalk_expressions(TestContext *ctx)
         uint64_t *object_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
         uint64_t *test_result_class = make_class_with_ivars(xunit_om, class_class, string_class,
                                                             object_class, test_result_ivars, 6);
-        uint64_t *expression_spec_test_class = make_class_with_ivars(xunit_om, class_class, string_class,
-                                                                     object_class, NULL, 0);
 
         uint64_t *symbol_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
         for (int index = 0; index < 256; index++)
@@ -591,14 +588,10 @@ void test_smalltalk_expressions(TestContext *ctx)
         smalltalk_at_put(xunit_om, array_class, association_class, "Context", (uint64_t)context_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "TestResult", (uint64_t)test_result_class);
-        smalltalk_at_put(xunit_om, array_class, association_class, "ExpressionSpecTest", (uint64_t)expression_spec_test_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "String", (uint64_t)string_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "Array", (uint64_t)array_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "Association", (uint64_t)association_class);
         smalltalk_at_put(xunit_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
-
-        ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
-                  "xUnit ExpressionSpecTest source loads");
 
         ASSERT_EQ(ctx,
                   bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, object_framework_src),
@@ -616,10 +609,20 @@ void test_smalltalk_expressions(TestContext *ctx)
                   bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, test_result_runtime_src),
                   1,
                   "xUnit TestResult methods install");
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, expression_spec_test_src),
-                  1,
-                  "xUnit ExpressionSpecTest methods install");
+        BClassBinding xunit_class_bindings[] = {
+            {"Object", object_class},
+            {"String", string_class},
+            {"Array", array_class},
+            {"Association", association_class},
+        };
+        uint64_t *expression_spec_test_class = bc_compile_and_install_class_file(
+            xunit_om, class_class, string_class, array_class, association_class,
+            xunit_class_bindings, 4, "src/smalltalk/ExpressionSpecTest.st");
+        ASSERT_EQ(ctx, expression_spec_test_class != NULL, 1,
+                  "xUnit ExpressionSpecTest.st defines class and installs methods");
+        ASSERT_EQ(ctx, class_lookup(expression_spec_test_class,
+                                    selector_oop(xunit_om, "testThisContextReceiverIsNil")) != 0,
+                  1, "xUnit ExpressionSpecTest installs testThisContextReceiverIsNil");
 
         md_append(xunit_om, class_class, smallint_class, "+",
                   (uint64_t)make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_ADD, 1));

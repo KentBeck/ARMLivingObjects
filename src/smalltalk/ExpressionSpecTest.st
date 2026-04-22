@@ -1,5 +1,7 @@
 "ExpressionSpecTest — one expression test migrated to xUnit"
 
+Object subclass: #ExpressionSpecTest instanceVariableNames: ''
+
 !ExpressionSpecTest methodsFor: 'tests'!
 testThisContextReceiverIsNil
     ^ thisContext receiver isNil
