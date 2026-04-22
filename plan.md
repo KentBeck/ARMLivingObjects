@@ -80,7 +80,7 @@ Next small steps:
   `STORE_TEMP`, `POP`, `DUPLICATE`, `RETURN_STACK_TOP`,
   `HALT`, `JUMP`, `JUMP_IF_TRUE`, and `JUMP_IF_FALSE`.
 - [x] Make the smoke target build with `INTERPRETER=c` and run only supported cases.
-- [ ] Port `SEND_MESSAGE` without primitives; verify simple unary/argument sends.
+- [x] Port `SEND_MESSAGE` without primitives; verify simple unary/argument sends.
 - [ ] Port primitive dispatch one primitive family at a time:
   SmallInteger arithmetic/comparison first, then identity/class/hash/character/string/symbol.
 - [ ] Port indexed access primitives and transaction-aware `at:` / `at:put:`.

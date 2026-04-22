@@ -1,5 +1,6 @@
 #include "vm_defs.h"
 
+#include <limits.h>
 #include <signal.h>
 #include <stdint.h>
 
@@ -51,6 +52,97 @@ static void unsupported_bytecode(uint8_t opcode)
 {
     (void)opcode;
     raise(SIGTRAP);
+}
+
+typedef enum
+{
+    PRIMITIVE_SUCCEEDED,
+    PRIMITIVE_FAILED,
+    PRIMITIVE_UNSUPPORTED
+} PrimitiveResult;
+
+static int is_smallint_value(uint64_t value)
+{
+    return (value & TAG_MASK) == TAG_SMALLINT;
+}
+
+static int fits_smallint(int64_t value)
+{
+    return value >= (INT64_MIN >> SMALLINT_SHIFT) &&
+           value <= (INT64_MAX >> SMALLINT_SHIFT);
+}
+
+static void replace_receiver_and_arg(uint64_t **sp_ptr, uint64_t result)
+{
+    uint64_t *sp = *sp_ptr + 1;
+    *sp = result;
+    *sp_ptr = sp;
+}
+
+static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, uint64_t primitive,
+                                             uint64_t arg_count)
+{
+    if (arg_count != 1)
+    {
+        return PRIMITIVE_FAILED;
+    }
+
+    uint64_t *sp = *sp_ptr;
+    uint64_t arg = sp[0];
+    uint64_t receiver = sp[1];
+
+    if (!is_smallint_value(receiver))
+    {
+        raise(SIGTRAP);
+        return PRIMITIVE_UNSUPPORTED;
+    }
+
+    if (!is_smallint_value(arg))
+    {
+        return PRIMITIVE_FAILED;
+    }
+
+    int64_t lhs = untag_smallint(receiver);
+    int64_t rhs = untag_smallint(arg);
+    int64_t value = 0;
+
+    switch (primitive)
+    {
+    case PRIM_SMALLINT_ADD:
+        if (__builtin_add_overflow(lhs, rhs, &value) || !fits_smallint(value))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        replace_receiver_and_arg(sp_ptr, tag_smallint(value));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_SMALLINT_SUB:
+        if (__builtin_sub_overflow(lhs, rhs, &value) || !fits_smallint(value))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        replace_receiver_and_arg(sp_ptr, tag_smallint(value));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_SMALLINT_MUL:
+        if (__builtin_mul_overflow(lhs, rhs, &value) || !fits_smallint(value))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        replace_receiver_and_arg(sp_ptr, tag_smallint(value));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_SMALLINT_LT:
+        replace_receiver_and_arg(sp_ptr, lhs < rhs ? TAGGED_TRUE : TAGGED_FALSE);
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_SMALLINT_EQ:
+        replace_receiver_and_arg(sp_ptr, lhs == rhs ? TAGGED_TRUE : TAGGED_FALSE);
+        return PRIMITIVE_SUCCEEDED;
+
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
 }
 
 uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
@@ -123,10 +215,25 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             uint64_t klass = oop_class(receiver, class_table);
             uint64_t method = class_lookup((uint64_t *)klass, selector);
 
-            if (method == 0 || OBJ_FIELD((uint64_t *)method, CM_PRIMITIVE) != tag_smallint(PRIM_NONE))
+            if (method == 0)
             {
                 unsupported_bytecode(opcode);
                 break;
+            }
+
+            uint64_t primitive = OBJ_FIELD((uint64_t *)method, CM_PRIMITIVE);
+            if (primitive != tag_smallint(PRIM_NONE))
+            {
+                PrimitiveResult result = try_smallint_primitive(sp_ptr, (uint64_t)untag_smallint(primitive), arg_count);
+                if (result == PRIMITIVE_SUCCEEDED)
+                {
+                    break;
+                }
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    unsupported_bytecode(opcode);
+                    break;
+                }
             }
 
             uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD((uint64_t *)method, CM_NUM_TEMPS));

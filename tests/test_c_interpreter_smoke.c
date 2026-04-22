@@ -52,6 +52,17 @@ static uint64_t *make_method(SmokeWorld *world, uint64_t *bytecodes, uint64_t *l
     return method;
 }
 
+static uint64_t *make_primitive_method(SmokeWorld *world, uint64_t primitive, uint64_t num_args)
+{
+    uint64_t *bytecodes = make_bytecodes(world, 1);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = BC_HALT;
+
+    uint64_t *method = make_method(world, bytecodes, NULL, num_args, 0);
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint((int64_t)primitive);
+    return method;
+}
+
 static void install_method(SmokeWorld *world, uint64_t selector, uint64_t *method)
 {
     uint64_t *method_dict = make_array(world, 2);
@@ -280,6 +291,66 @@ static void test_one_arg_send(SmokeWorld *world)
              "C interpreter: SEND_MESSAGE 1-arg method");
 }
 
+static uint64_t run_smallint_send(SmokeWorld *world, uint64_t receiver, uint64_t arg,
+                                  uint64_t selector)
+{
+    uint64_t *literals = make_array(world, 3);
+    OBJ_FIELD(literals, 0) = receiver;
+    OBJ_FIELD(literals, 1) = arg;
+    OBJ_FIELD(literals, 2) = selector;
+
+    uint64_t *bytecodes = make_bytecodes(world, 20);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[1], 0);
+    bc[5] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[6], 1);
+    bc[10] = BC_SEND_MESSAGE;
+    WRITE_U32(&bc[11], 2);
+    WRITE_U32(&bc[15], 1);
+    bc[19] = BC_HALT;
+
+    uint64_t *method = make_method(world, bytecodes, literals, 0, 0);
+    return run_method(world, method, (uint64_t)world->receiver, NULL, 0);
+}
+
+static void test_smallint_primitives(SmokeWorld *world)
+{
+    uint64_t sel_plus = tag_smallint(2000);
+    uint64_t sel_minus = tag_smallint(2001);
+    uint64_t sel_lt = tag_smallint(2002);
+    uint64_t sel_eq = tag_smallint(2003);
+    uint64_t sel_mul = tag_smallint(2004);
+
+    uint64_t *method_dict = make_array(world, 10);
+    OBJ_FIELD(method_dict, 0) = sel_plus;
+    OBJ_FIELD(method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_SMALLINT_ADD, 1);
+    OBJ_FIELD(method_dict, 2) = sel_minus;
+    OBJ_FIELD(method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_SMALLINT_SUB, 1);
+    OBJ_FIELD(method_dict, 4) = sel_lt;
+    OBJ_FIELD(method_dict, 5) = (uint64_t)make_primitive_method(world, PRIM_SMALLINT_LT, 1);
+    OBJ_FIELD(method_dict, 6) = sel_eq;
+    OBJ_FIELD(method_dict, 7) = (uint64_t)make_primitive_method(world, PRIM_SMALLINT_EQ, 1);
+    OBJ_FIELD(method_dict, 8) = sel_mul;
+    OBJ_FIELD(method_dict, 9) = (uint64_t)make_primitive_method(world, PRIM_SMALLINT_MUL, 1);
+
+    uint64_t *smallint_class = (uint64_t *)OBJ_FIELD(world->class_table, CLASS_TABLE_SMALLINT);
+    OBJ_FIELD(smallint_class, CLASS_METHOD_DICT) = (uint64_t)method_dict;
+
+    CHECK_EQ(run_smallint_send(world, tag_smallint(3), tag_smallint(4), sel_plus), tag_smallint(7),
+             "C interpreter: SmallInteger + primitive");
+    CHECK_EQ(run_smallint_send(world, tag_smallint(10), tag_smallint(3), sel_minus), tag_smallint(7),
+             "C interpreter: SmallInteger - primitive");
+    CHECK_EQ(run_smallint_send(world, tag_smallint(3), tag_smallint(5), sel_lt), tagged_true(),
+             "C interpreter: SmallInteger < primitive");
+    CHECK_EQ(run_smallint_send(world, tag_smallint(5), tag_smallint(3), sel_lt), tagged_false(),
+             "C interpreter: SmallInteger < false primitive");
+    CHECK_EQ(run_smallint_send(world, tag_smallint(42), tag_smallint(42), sel_eq), tagged_true(),
+             "C interpreter: SmallInteger = primitive");
+    CHECK_EQ(run_smallint_send(world, tag_smallint(6), tag_smallint(7), sel_mul), tag_smallint(42),
+             "C interpreter: SmallInteger * primitive");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -293,6 +364,7 @@ int main(void)
     test_jumps(&world);
     test_zero_arg_send(&world);
     test_one_arg_send(&world);
+    test_smallint_primitives(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;
