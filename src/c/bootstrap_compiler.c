@@ -2861,7 +2861,7 @@ uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
         }
         if (token.type == BTOK_SPECIAL && strcmp(token.text, "!") == 0)
         {
-            continue;
+            break;
         }
         if (token.type != BTOK_KEYWORD)
         {
@@ -2890,4 +2890,23 @@ uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
 
     return bc_define_class(om, class_class, string_class, array_class, association_class,
                            class_name_token.text, superclass, ivar_name_ptrs, ivar_count, format);
+}
+
+uint64_t *bc_compile_and_install_class_source(uint64_t *om, uint64_t *class_class,
+                                              uint64_t *string_class, uint64_t *array_class,
+                                              uint64_t *association_class,
+                                              const BClassBinding *classes, int class_count,
+                                              const char *source)
+{
+    uint64_t *klass = bc_define_class_from_source(om, class_class, string_class, array_class,
+                                                  association_class, classes, class_count, source);
+    if (klass == NULL)
+    {
+        return NULL;
+    }
+    if (!bc_compile_and_install_source_methods(om, class_class, classes, class_count, source))
+    {
+        return NULL;
+    }
+    return klass;
 }

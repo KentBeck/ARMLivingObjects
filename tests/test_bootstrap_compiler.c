@@ -951,6 +951,27 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, byte_object_equals_cstring(OBJ_FIELD(point_ivars, 1), "y"), 1,
                   "Point second ivar is y");
 
+        uint64_t *point_with_methods_class = bc_compile_and_install_class_source(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4,
+            "Object subclass: #PointWithMethods instanceVariableNames: 'x y'\n"
+            "!PointWithMethods methodsFor: 'accessing'!\n"
+            "x\n"
+            "    ^ x\n"
+            "!\n");
+        ASSERT_EQ(ctx, point_with_methods_class != NULL, 1,
+                  "class source defines class and installs methods");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(point_with_methods_class, CLASS_INST_SIZE)), 2,
+                  "PointWithMethods class has parsed instance variables");
+        uint64_t *point_with_methods_md =
+            (uint64_t *)OBJ_FIELD(point_with_methods_class, CLASS_METHOD_DICT);
+        ASSERT_EQ(ctx, point_with_methods_md != NULL, 1,
+                  "PointWithMethods method dictionary installed");
+        ASSERT_EQ(ctx, OBJ_SIZE(point_with_methods_md), 2,
+                  "PointWithMethods has one instance method");
+        ASSERT_EQ(ctx, class_lookup(point_with_methods_class, intern_cstring_symbol(ctx->om, "x")) != 0,
+                  1, "PointWithMethods understands x");
+
         uint64_t *token_metaclass = (uint64_t *)OBJ_CLASS(token_class);
         ASSERT_EQ(ctx, token_metaclass != NULL, 1, "Token metaclass was created");
 

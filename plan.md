@@ -36,6 +36,7 @@ LSP Server
 - [ ] Preserve arguments but not volatile non-argument temps for widowed contexts
 - [ ] Implement class builder (`Class` + method install from parsed source)
   - [x] Define classes from a restricted Smalltalk class declaration
+  - [x] Load one class declaration plus method chunks from one source
 - [ ] Implement `.st` file loader (compile/install methods into classes)
 - [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
 - [ ] Start minimal Smalltalk compiler in Smalltalk and compile with C bootstrap
