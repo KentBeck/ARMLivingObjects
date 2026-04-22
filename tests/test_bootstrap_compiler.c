@@ -907,26 +907,28 @@ void test_bootstrap_compiler(TestContext *ctx)
         smalltalk_at_put(ctx->om, array_class, association_class, "SmallInteger", (uint64_t)ctx->smallint_class);
         smalltalk_at_put(ctx->om, array_class, association_class, "Integer", (uint64_t)ctx->smallint_class);
 
-        // ReadStream and WriteStream are used by Tokenizer and CodeGenerator.
-        const char *readstream_ivars[] = {"collection", "position", "readLimit"};
-        uint64_t *readstream_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
-                                                     array_class, association_class,
-                                                     "ReadStream", NULL,
-                                                     readstream_ivars, 3, BC_CLASS_FORMAT_FIELDS);
-        const char *writestream_ivars[] = {"collection", "position"};
-        uint64_t *writestream_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
-                                                      array_class, association_class,
-                                                      "WriteStream", NULL,
-                                                      writestream_ivars, 2, BC_CLASS_FORMAT_FIELDS);
-        (void)readstream_class;
-        (void)writestream_class;
-
         BClassBinding class_bindings[] = {
             {"Object", ctx->test_class},
             {"String", ctx->string_class},
             {"Array", array_class},
             {"Association", association_class},
         };
+
+        // ReadStream and WriteStream are used by Tokenizer and CodeGenerator.
+        uint64_t *readstream_class = bc_compile_and_install_class_file(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4, "src/smalltalk/ReadStream.st");
+        ASSERT_EQ(ctx, readstream_class != NULL, 1, "ReadStream.st defines class and installs methods");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(readstream_class, CLASS_INST_SIZE)), 3,
+                  "ReadStream.st class declaration has three instance variables");
+        ASSERT_EQ(ctx, class_lookup(readstream_class, intern_cstring_symbol(ctx->om, "next")) != 0,
+                  1, "ReadStream.st installs next");
+        const char *writestream_ivars[] = {"collection", "position"};
+        uint64_t *writestream_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                                      array_class, association_class,
+                                                      "WriteStream", NULL,
+                                                      writestream_ivars, 2, BC_CLASS_FORMAT_FIELDS);
+        (void)writestream_class;
 
         uint64_t *token_class = bc_compile_and_install_class_file(
             ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
