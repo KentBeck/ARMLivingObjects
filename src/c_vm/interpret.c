@@ -11,6 +11,8 @@ extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved
                             uint64_t method, uint64_t num_args, uint64_t num_temps);
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
+extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
+extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 
 static uint32_t read_u32(uint8_t **ip)
 {
@@ -95,9 +97,21 @@ static void replace_receiver_and_arg(uint64_t **sp_ptr, uint64_t result)
     *sp_ptr = sp;
 }
 
+static void replace_receiver_and_two_args(uint64_t **sp_ptr, uint64_t result)
+{
+    uint64_t *sp = *sp_ptr + 2;
+    *sp = result;
+    *sp_ptr = sp;
+}
+
 static void replace_receiver(uint64_t **sp_ptr, uint64_t result)
 {
     **sp_ptr = result;
+}
+
+static uint64_t byte_txn_index(uint64_t index)
+{
+    return (UINT64_C(1) << 63) | index;
 }
 
 static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, uint64_t primitive,
@@ -399,11 +413,173 @@ static PrimitiveResult try_string_symbol_primitive(uint64_t **sp_ptr, uint64_t p
     }
 }
 
+static PrimitiveResult try_indexed_primitive(uint64_t **sp_ptr, uint64_t primitive,
+                                            uint64_t arg_count, uint64_t *txn_log)
+{
+    uint64_t *sp = *sp_ptr;
+    uint64_t receiver = sp[arg_count];
+
+    switch (primitive)
+    {
+    case PRIM_SIZE:
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        replace_receiver(sp_ptr, tag_smallint((int64_t)OBJ_SIZE((uint64_t *)receiver)));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_AT:
+    {
+        if (arg_count != 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        uint64_t index_oop = sp[0];
+        if (!is_smallint_value(index_oop))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        int64_t one_based_index = untag_smallint(index_oop);
+        if (one_based_index < 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        uint64_t index = (uint64_t)(one_based_index - 1);
+        uint64_t *receiver_object = (uint64_t *)receiver;
+        uint64_t format = OBJ_FORMAT(receiver_object);
+        if (format == FORMAT_FIELDS || index >= OBJ_SIZE(receiver_object))
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        uint64_t value = 0;
+        if (format == FORMAT_BYTES)
+        {
+            if (txn_log != NULL)
+            {
+                uint64_t found = 0;
+                value = txn_log_read(txn_log, receiver, byte_txn_index(index), &found);
+                if (found != 0)
+                {
+                    replace_receiver_and_arg(sp_ptr, value);
+                    return PRIMITIVE_SUCCEEDED;
+                }
+            }
+            value = tag_smallint((int64_t)((uint8_t *)&OBJ_FIELD(receiver_object, 0))[index]);
+        }
+        else if (format == FORMAT_INDEXABLE)
+        {
+            if (txn_log != NULL)
+            {
+                uint64_t found = 0;
+                value = txn_log_read(txn_log, receiver, index, &found);
+                if (found != 0)
+                {
+                    replace_receiver_and_arg(sp_ptr, value);
+                    return PRIMITIVE_SUCCEEDED;
+                }
+            }
+            value = OBJ_FIELD(receiver_object, index);
+        }
+        else
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        replace_receiver_and_arg(sp_ptr, value);
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    case PRIM_AT_PUT:
+    {
+        if (arg_count != 2)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        uint64_t index_oop = sp[1];
+        uint64_t value = sp[0];
+        if (!is_smallint_value(index_oop))
+        {
+            return PRIMITIVE_FAILED;
+        }
+        int64_t one_based_index = untag_smallint(index_oop);
+        if (one_based_index < 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        uint64_t index = (uint64_t)(one_based_index - 1);
+        uint64_t *receiver_object = (uint64_t *)receiver;
+        uint64_t format = OBJ_FORMAT(receiver_object);
+        if (format == FORMAT_FIELDS || index >= OBJ_SIZE(receiver_object))
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        if (format == FORMAT_BYTES)
+        {
+            if (txn_log != NULL)
+            {
+                txn_log_write(txn_log, receiver, byte_txn_index(index), value);
+            }
+            else
+            {
+                if (!is_smallint_value(value))
+                {
+                    return PRIMITIVE_FAILED;
+                }
+                int64_t byte_value = untag_smallint(value);
+                if (byte_value < 0 || byte_value > 255)
+                {
+                    return PRIMITIVE_FAILED;
+                }
+                ((uint8_t *)&OBJ_FIELD(receiver_object, 0))[index] = (uint8_t)byte_value;
+            }
+        }
+        else if (format == FORMAT_INDEXABLE)
+        {
+            if (txn_log != NULL)
+            {
+                txn_log_write(txn_log, receiver, index, value);
+            }
+            else
+            {
+                OBJ_FIELD(receiver_object, index) = value;
+            }
+        }
+        else
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        replace_receiver_and_two_args(sp_ptr, receiver);
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
+}
+
 uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                    uint64_t *class_table, uint64_t *om, uint64_t *txn_log)
 {
     (void)om;
-    (void)txn_log;
 
     uint8_t *bytecode_base = ip;
     uint64_t *entry_fp = *fp_ptr;
@@ -491,6 +667,10 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
                     result = try_string_symbol_primitive(sp_ptr, primitive_id, arg_count);
+                }
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    result = try_indexed_primitive(sp_ptr, primitive_id, arg_count, txn_log);
                 }
                 if (result == PRIMITIVE_SUCCEEDED)
                 {

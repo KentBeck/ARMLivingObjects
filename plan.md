@@ -81,9 +81,11 @@ Next small steps:
   `HALT`, `JUMP`, `JUMP_IF_TRUE`, and `JUMP_IF_FALSE`.
 - [x] Make the smoke target build with `INTERPRETER=c` and run only supported cases.
 - [x] Port `SEND_MESSAGE` without primitives; verify simple unary/argument sends.
-- [ ] Port primitive dispatch one primitive family at a time:
-  SmallInteger arithmetic/comparison first, then identity/class/hash/character/string/symbol.
-- [ ] Port indexed access primitives and transaction-aware `at:` / `at:put:`.
+- [x] Port non-allocating primitive families:
+  SmallInteger arithmetic/comparison, identity/class/hash, character, String equality/hash, and Symbol equality.
+- [ ] Port remaining standalone primitives:
+  `printChar`, `halt`, `perform:`, and String `asSymbol`.
+- [x] Port indexed access primitives and transaction-aware `at:` / `at:put:`.
 - [ ] Port instance-variable transaction reads/writes and write barrier behavior.
 - [ ] Port allocation primitives with GC retry/root preservation.
 - [ ] Port block activation and copied values.

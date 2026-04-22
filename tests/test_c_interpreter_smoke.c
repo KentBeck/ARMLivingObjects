@@ -88,8 +88,17 @@ static void install_method(SmokeWorld *world, uint64_t selector, uint64_t *metho
     OBJ_FIELD(world->test_class, CLASS_METHOD_DICT) = (uint64_t)method_dict;
 }
 
+static uint64_t run_method_with_txn(SmokeWorld *world, uint64_t *method, uint64_t receiver,
+                                    const uint64_t *args, uint64_t arg_count, uint64_t *txn_log);
+
 static uint64_t run_method(SmokeWorld *world, uint64_t *method, uint64_t receiver,
                            const uint64_t *args, uint64_t arg_count)
+{
+    return run_method_with_txn(world, method, receiver, args, arg_count, NULL);
+}
+
+static uint64_t run_method_with_txn(SmokeWorld *world, uint64_t *method, uint64_t receiver,
+                                    const uint64_t *args, uint64_t arg_count, uint64_t *txn_log)
 {
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(method, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)world->stack + STACK_WORDS * sizeof(uint64_t));
@@ -101,7 +110,7 @@ static uint64_t run_method(SmokeWorld *world, uint64_t *method, uint64_t receive
         stack_push(&sp, world->stack, args[index]);
     }
     activate_method(&sp, &fp, 0, (uint64_t)method, arg_count, (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS)));
-    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, txn_log);
 }
 
 static void init_world(SmokeWorld *world)
@@ -373,6 +382,55 @@ static uint64_t run_binary_send(SmokeWorld *world, uint64_t receiver, uint64_t a
     return run_method(world, method, (uint64_t)world->receiver, NULL, 0);
 }
 
+static uint64_t run_binary_send_with_txn(SmokeWorld *world, uint64_t receiver, uint64_t arg,
+                                         uint64_t selector, uint64_t *txn_log)
+{
+    uint64_t *literals = make_array(world, 3);
+    OBJ_FIELD(literals, 0) = receiver;
+    OBJ_FIELD(literals, 1) = arg;
+    OBJ_FIELD(literals, 2) = selector;
+
+    uint64_t *bytecodes = make_bytecodes(world, 20);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[1], 0);
+    bc[5] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[6], 1);
+    bc[10] = BC_SEND_MESSAGE;
+    WRITE_U32(&bc[11], 2);
+    WRITE_U32(&bc[15], 1);
+    bc[19] = BC_HALT;
+
+    uint64_t *method = make_method(world, bytecodes, literals, 0, 0);
+    return run_method_with_txn(world, method, (uint64_t)world->receiver, NULL, 0, txn_log);
+}
+
+static uint64_t run_ternary_send_with_txn(SmokeWorld *world, uint64_t receiver, uint64_t arg0,
+                                          uint64_t arg1, uint64_t selector, uint64_t *txn_log)
+{
+    uint64_t *literals = make_array(world, 4);
+    OBJ_FIELD(literals, 0) = receiver;
+    OBJ_FIELD(literals, 1) = arg0;
+    OBJ_FIELD(literals, 2) = arg1;
+    OBJ_FIELD(literals, 3) = selector;
+
+    uint64_t *bytecodes = make_bytecodes(world, 25);
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    bc[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[1], 0);
+    bc[5] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[6], 1);
+    bc[10] = BC_PUSH_LITERAL;
+    WRITE_U32(&bc[11], 2);
+    bc[15] = BC_SEND_MESSAGE;
+    WRITE_U32(&bc[16], 3);
+    WRITE_U32(&bc[20], 2);
+    bc[24] = BC_HALT;
+
+    uint64_t *method = make_method(world, bytecodes, literals, 0, 0);
+    return run_method_with_txn(world, method, (uint64_t)world->receiver, NULL, 0, txn_log);
+}
+
 static void test_smallint_primitives(SmokeWorld *world)
 {
     uint64_t sel_plus = tag_smallint(2000);
@@ -549,6 +607,77 @@ static void test_string_symbol_primitives(SmokeWorld *world)
              "C interpreter: Symbol = distinct primitive");
 }
 
+static void test_indexed_primitives(SmokeWorld *world)
+{
+    uint64_t sel_at = tag_smallint(6000);
+    uint64_t sel_at_put = tag_smallint(6001);
+    uint64_t sel_size = tag_smallint(6002);
+
+    uint64_t *array_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+    OBJ_FIELD(array_class, CLASS_INST_VARS) = tagged_nil();
+
+    uint64_t *bytes_class = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(bytes_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(bytes_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(bytes_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
+    OBJ_FIELD(bytes_class, CLASS_INST_VARS) = tagged_nil();
+
+    uint64_t *indexed_method_dict = make_array(world, 6);
+    OBJ_FIELD(indexed_method_dict, 0) = sel_at;
+    OBJ_FIELD(indexed_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_AT, 1);
+    OBJ_FIELD(indexed_method_dict, 2) = sel_at_put;
+    OBJ_FIELD(indexed_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_AT_PUT, 2);
+    OBJ_FIELD(indexed_method_dict, 4) = sel_size;
+    OBJ_FIELD(indexed_method_dict, 5) = (uint64_t)make_primitive_method(world, PRIM_SIZE, 0);
+    OBJ_FIELD(array_class, CLASS_METHOD_DICT) = (uint64_t)indexed_method_dict;
+    OBJ_FIELD(bytes_class, CLASS_METHOD_DICT) = (uint64_t)indexed_method_dict;
+
+    uint64_t *array = om_alloc(world->om, (uint64_t)array_class, FORMAT_INDEXABLE, 3);
+    OBJ_FIELD(array, 0) = tag_smallint(10);
+    OBJ_FIELD(array, 1) = tag_smallint(20);
+    OBJ_FIELD(array, 2) = tag_smallint(30);
+
+    uint64_t *bytes = make_bytes_object(world, bytes_class, "ABC");
+
+    CHECK_EQ(run_unary_send(world, (uint64_t)array, sel_size), tag_smallint(3),
+             "C interpreter: size primitive");
+    CHECK_EQ(run_binary_send(world, (uint64_t)array, tag_smallint(2), sel_at), tag_smallint(20),
+             "C interpreter: at: indexable primitive");
+    CHECK_EQ(run_binary_send(world, (uint64_t)bytes, tag_smallint(2), sel_at), tag_smallint('B'),
+             "C interpreter: at: bytes primitive");
+    CHECK_EQ(run_ternary_send_with_txn(world, (uint64_t)array, tag_smallint(2), tag_smallint(99), sel_at_put, NULL),
+             (uint64_t)array,
+             "C interpreter: at:put: indexable returns receiver");
+    CHECK_EQ(OBJ_FIELD(array, 1), tag_smallint(99),
+             "C interpreter: at:put: indexable stores value");
+    CHECK_EQ(run_ternary_send_with_txn(world, (uint64_t)bytes, tag_smallint(2), tag_smallint('Z'), sel_at_put, NULL),
+             (uint64_t)bytes,
+             "C interpreter: at:put: bytes returns receiver");
+    CHECK_EQ(((uint8_t *)&OBJ_FIELD(bytes, 0))[1], 'Z',
+             "C interpreter: at:put: bytes stores byte");
+
+    uint64_t txn_log[32] = {0};
+    CHECK_EQ(run_ternary_send_with_txn(world, (uint64_t)array, tag_smallint(1), tag_smallint(77), sel_at_put, txn_log),
+             (uint64_t)array,
+             "C interpreter: txn at:put: indexable returns receiver");
+    CHECK_EQ(OBJ_FIELD(array, 0), tag_smallint(10),
+             "C interpreter: txn at:put: indexable leaves object unchanged");
+    CHECK_EQ(run_binary_send_with_txn(world, (uint64_t)array, tag_smallint(1), sel_at, txn_log), tag_smallint(77),
+             "C interpreter: txn at: reads pending indexable value");
+
+    uint64_t byte_txn_log[32] = {0};
+    CHECK_EQ(run_ternary_send_with_txn(world, (uint64_t)bytes, tag_smallint(1), tag_smallint('Q'), sel_at_put, byte_txn_log),
+             (uint64_t)bytes,
+             "C interpreter: txn at:put: bytes returns receiver");
+    CHECK_EQ(((uint8_t *)&OBJ_FIELD(bytes, 0))[0], 'A',
+             "C interpreter: txn at:put: bytes leaves object unchanged");
+    CHECK_EQ(run_binary_send_with_txn(world, (uint64_t)bytes, tag_smallint(1), sel_at, byte_txn_log), tag_smallint('Q'),
+             "C interpreter: txn at: reads pending byte value");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -566,6 +695,7 @@ int main(void)
     test_identity_class_hash_primitives(&world);
     test_character_primitives(&world);
     test_string_symbol_primitives(&world);
+    test_indexed_primitives(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;
