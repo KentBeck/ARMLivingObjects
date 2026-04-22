@@ -921,24 +921,24 @@ void test_bootstrap_compiler(TestContext *ctx)
         (void)readstream_class;
         (void)writestream_class;
 
-        const char *token_ivars[] = {"type", "text", "value"};
-        uint64_t *token_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
-                                                array_class, association_class,
-                                                "Token", NULL, token_ivars, 3,
-                                                BC_CLASS_FORMAT_FIELDS);
-        ASSERT_EQ(ctx, token_class != NULL, 1, "bc_define_class creates Token class");
-        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(token_class, CLASS_INST_SIZE)), 3,
-                  "Token class has three instance variables");
-
-        uint64_t tally = (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
-        ASSERT_EQ(ctx, tally, 11, "Token plus runtime classes registered in Smalltalk dictionary");
-
         BClassBinding class_bindings[] = {
             {"Object", ctx->test_class},
             {"String", ctx->string_class},
             {"Array", array_class},
             {"Association", association_class},
         };
+
+        uint64_t *token_class = bc_compile_and_install_class_file(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4, "src/smalltalk/Token.st");
+        ASSERT_EQ(ctx, token_class != NULL, 1, "Token.st defines class and installs methods");
+        ASSERT_EQ(ctx, OBJ_FIELD(token_class, CLASS_SUPERCLASS), (uint64_t)ctx->test_class,
+                  "Token class has parsed superclass");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(token_class, CLASS_INST_SIZE)), 3,
+                  "Token.st class declaration has three instance variables");
+
+        uint64_t tally = (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
+        ASSERT_EQ(ctx, tally, 11, "Token plus runtime classes registered in Smalltalk dictionary");
         uint64_t *point_class = bc_define_class_from_source(
             ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
             class_bindings, 4,
@@ -994,13 +994,8 @@ void test_bootstrap_compiler(TestContext *ctx)
         uint64_t *token_metaclass = (uint64_t *)OBJ_CLASS(token_class);
         ASSERT_EQ(ctx, token_metaclass != NULL, 1, "Token metaclass was created");
 
-        char token_src[8192];
-        ASSERT_EQ(ctx, read_source_file("src/smalltalk/Token.st", token_src, sizeof(token_src)), 1,
-                  "Token.st loads");
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, token_src),
-                  1,
-                  "Token.st methods install via Smalltalk dictionary");
+        ASSERT_EQ(ctx, class_lookup(token_class, intern_cstring_symbol(ctx->om, "isIdentifier")) != 0,
+                  1, "Token.st installs isIdentifier");
         uint64_t *token_md = (uint64_t *)OBJ_FIELD(token_class, CLASS_METHOD_DICT);
         ASSERT_EQ(ctx, token_md != NULL, 1, "Token method dictionary populated");
         // Token.st has many instance-side methods (accessors, testing, comparing);
