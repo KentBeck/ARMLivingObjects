@@ -1246,7 +1246,8 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
             uint64_t *literals = (uint64_t *)OBJ_FIELD(current_method, CM_LITERALS);
             uint64_t block_method = OBJ_FIELD(literals, literal_index);
             uint64_t block_class = OBJ_FIELD(class_table, CLASS_TABLE_BLOCK);
-            uint64_t *home_context = ensure_frame_context_global(fp, om);
+            (void)ensure_frame_context_global(fp, om);
+            uint64_t *home_context = frame_has_context_local(fp) ? (uint64_t *)fp[FRAME_CONTEXT] : NULL;
             uint64_t *block = om_alloc(om, block_class, FORMAT_FIELDS, BLOCK_COPIED_BASE + copied_count);
             if (block == NULL)
             {

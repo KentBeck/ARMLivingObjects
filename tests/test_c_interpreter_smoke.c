@@ -1038,6 +1038,47 @@ static void test_block_primitives(SmokeWorld *world)
              (uint64_t)world->context_class,
              "C interpreter: PUSH_CLOSURE records home context");
 
+    static uint8_t closure_gc_a[4096] __attribute__((aligned(8)));
+    static uint8_t closure_gc_b[4096] __attribute__((aligned(8)));
+    uint64_t closure_gc_ctx[10];
+    gc_ctx_init(closure_gc_ctx, closure_gc_a, closure_gc_b, sizeof(closure_gc_a));
+
+    uint64_t *closure_gc_literals = om_alloc(closure_gc_ctx, (uint64_t)world->class_class, FORMAT_INDEXABLE, 1);
+    OBJ_FIELD(closure_gc_literals, 0) = (uint64_t)literal_body;
+    uint64_t *closure_gc_bytecodes = om_alloc(closure_gc_ctx, (uint64_t)world->class_class, FORMAT_BYTES, 6);
+    uint8_t *cgb = (uint8_t *)&OBJ_FIELD(closure_gc_bytecodes, 0);
+    cgb[0] = BC_PUSH_CLOSURE;
+    WRITE_U32(&cgb[1], 0);
+    cgb[5] = BC_HALT;
+    uint64_t *closure_gc_method = om_alloc(closure_gc_ctx, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    OBJ_FIELD(closure_gc_method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(closure_gc_method, CM_NUM_ARGS) = tag_smallint(0);
+    OBJ_FIELD(closure_gc_method, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(closure_gc_method, CM_LITERALS) = (uint64_t)closure_gc_literals;
+    OBJ_FIELD(closure_gc_method, CM_BYTECODES) = (uint64_t)closure_gc_bytecodes;
+
+    uint64_t closure_gc_remaining = closure_gc_ctx[GC_FROM_END] - closure_gc_ctx[GC_FROM_FREE];
+    if (closure_gc_remaining > 112)
+    {
+        uint64_t fill_words = (closure_gc_remaining - 112) / WORD_BYTES;
+        if (fill_words > OBJ_HEADER_WORDS)
+        {
+            (void)om_alloc(closure_gc_ctx, (uint64_t)world->class_class,
+                           FORMAT_FIELDS, fill_words - OBJ_HEADER_WORDS);
+        }
+    }
+
+    uint64_t closure_gc_block = run_method_with_om(world, closure_gc_method,
+                                                   (uint64_t)world->receiver,
+                                                   NULL, 0, closure_gc_ctx, NULL);
+    uint64_t closure_gc_home = OBJ_FIELD((uint64_t *)closure_gc_block, BLOCK_HOME_CONTEXT);
+    CHECK_EQ(closure_gc_home >= closure_gc_ctx[GC_FROM_START], 1,
+             "C interpreter: PUSH_CLOSURE GC retry reloads moved home context lower bound");
+    CHECK_EQ(closure_gc_home < closure_gc_ctx[GC_FROM_END], 1,
+             "C interpreter: PUSH_CLOSURE GC retry reloads moved home context upper bound");
+    CHECK_EQ(OBJ_CLASS((uint64_t *)closure_gc_home), (uint64_t)world->context_class,
+             "C interpreter: PUSH_CLOSURE GC retry preserves home context class");
+
     uint64_t *arg_body_bytecodes = make_bytecodes(world, 6);
     uint8_t *abb = (uint8_t *)&OBJ_FIELD(arg_body_bytecodes, 0);
     abb[0] = BC_PUSH_ARG;
