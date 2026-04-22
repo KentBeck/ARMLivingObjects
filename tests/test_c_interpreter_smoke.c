@@ -436,6 +436,53 @@ static void test_identity_class_hash_primitives(SmokeWorld *world)
     CHECK_EQ(hash1, hash2, "C interpreter: hash heap object is stable");
 }
 
+static void test_character_primitives(SmokeWorld *world)
+{
+    uint64_t sel_value = tag_smallint(4000);
+    uint64_t sel_as_character = tag_smallint(4001);
+    uint64_t sel_is_letter = tag_smallint(4002);
+    uint64_t sel_is_digit = tag_smallint(4003);
+    uint64_t sel_uppercase = tag_smallint(4004);
+    uint64_t sel_lowercase = tag_smallint(4005);
+
+    uint64_t *character_method_dict = make_array(world, 10);
+    OBJ_FIELD(character_method_dict, 0) = sel_value;
+    OBJ_FIELD(character_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_CHAR_VALUE, 0);
+    OBJ_FIELD(character_method_dict, 2) = sel_is_letter;
+    OBJ_FIELD(character_method_dict, 3) = (uint64_t)make_primitive_method(world, PRIM_CHAR_IS_LETTER, 0);
+    OBJ_FIELD(character_method_dict, 4) = sel_is_digit;
+    OBJ_FIELD(character_method_dict, 5) = (uint64_t)make_primitive_method(world, PRIM_CHAR_IS_DIGIT, 0);
+    OBJ_FIELD(character_method_dict, 6) = sel_uppercase;
+    OBJ_FIELD(character_method_dict, 7) = (uint64_t)make_primitive_method(world, PRIM_CHAR_UPPERCASE, 0);
+    OBJ_FIELD(character_method_dict, 8) = sel_lowercase;
+    OBJ_FIELD(character_method_dict, 9) = (uint64_t)make_primitive_method(world, PRIM_CHAR_LOWERCASE, 0);
+    uint64_t *character_class = (uint64_t *)OBJ_FIELD(world->class_table, CLASS_TABLE_CHARACTER);
+    OBJ_FIELD(character_class, CLASS_METHOD_DICT) = (uint64_t)character_method_dict;
+
+    uint64_t *smallint_method_dict = make_array(world, 2);
+    OBJ_FIELD(smallint_method_dict, 0) = sel_as_character;
+    OBJ_FIELD(smallint_method_dict, 1) = (uint64_t)make_primitive_method(world, PRIM_AS_CHARACTER, 0);
+    uint64_t *smallint_class = (uint64_t *)OBJ_FIELD(world->class_table, CLASS_TABLE_SMALLINT);
+    OBJ_FIELD(smallint_class, CLASS_METHOD_DICT) = (uint64_t)smallint_method_dict;
+
+    CHECK_EQ(run_unary_send(world, tag_character(65), sel_value), tag_smallint(65),
+             "C interpreter: Character value primitive");
+    CHECK_EQ(run_unary_send(world, tag_smallint(65), sel_as_character), tag_character(65),
+             "C interpreter: SmallInteger asCharacter primitive");
+    CHECK_EQ(run_unary_send(world, tag_character('A'), sel_is_letter), tagged_true(),
+             "C interpreter: Character isLetter true primitive");
+    CHECK_EQ(run_unary_send(world, tag_character('5'), sel_is_letter), tagged_false(),
+             "C interpreter: Character isLetter false primitive");
+    CHECK_EQ(run_unary_send(world, tag_character('5'), sel_is_digit), tagged_true(),
+             "C interpreter: Character isDigit true primitive");
+    CHECK_EQ(run_unary_send(world, tag_character('A'), sel_is_digit), tagged_false(),
+             "C interpreter: Character isDigit false primitive");
+    CHECK_EQ(run_unary_send(world, tag_character('a'), sel_uppercase), tag_character('A'),
+             "C interpreter: Character asUppercase primitive");
+    CHECK_EQ(run_unary_send(world, tag_character('A'), sel_lowercase), tag_character('a'),
+             "C interpreter: Character asLowercase primitive");
+}
+
 int main(void)
 {
     setbuf(stdout, NULL);
@@ -451,6 +498,7 @@ int main(void)
     test_one_arg_send(&world);
     test_smallint_primitives(&world);
     test_identity_class_hash_primitives(&world);
+    test_character_primitives(&world);
 
     printf("\n%d C interpreter smoke tests passed, %d failed\n", passes, failures);
     return failures == 0 ? 0 : 1;

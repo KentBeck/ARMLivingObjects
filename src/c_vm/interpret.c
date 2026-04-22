@@ -66,6 +66,11 @@ static int is_smallint_value(uint64_t value)
     return (value & TAG_MASK) == TAG_SMALLINT;
 }
 
+static int is_character_value(uint64_t value)
+{
+    return (value & CHAR_TAG_MASK) == CHAR_TAG_VALUE;
+}
+
 static int fits_smallint(int64_t value)
 {
     return value >= (INT64_MIN >> SMALLINT_SHIFT) &&
@@ -206,6 +211,93 @@ static PrimitiveResult try_object_primitive(uint64_t **sp_ptr, uint64_t primitiv
     }
 }
 
+static PrimitiveResult try_character_primitive(uint64_t **sp_ptr, uint64_t primitive,
+                                              uint64_t arg_count)
+{
+    if (arg_count != 0)
+    {
+        return PRIMITIVE_FAILED;
+    }
+
+    uint64_t receiver = **sp_ptr;
+    uint64_t code_point;
+
+    switch (primitive)
+    {
+    case PRIM_CHAR_VALUE:
+        if (!is_character_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        replace_receiver(sp_ptr, tag_smallint((int64_t)(receiver >> CHAR_SHIFT)));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_AS_CHARACTER:
+        if (!is_smallint_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        replace_receiver(sp_ptr, ((uint64_t)untag_smallint(receiver) << CHAR_SHIFT) | CHAR_TAG_VALUE);
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_CHAR_IS_LETTER:
+        if (!is_character_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        code_point = receiver >> CHAR_SHIFT;
+        replace_receiver(sp_ptr, ((code_point >= 'A' && code_point <= 'Z') ||
+                                  (code_point >= 'a' && code_point <= 'z'))
+                                     ? TAGGED_TRUE
+                                     : TAGGED_FALSE);
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_CHAR_IS_DIGIT:
+        if (!is_character_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        code_point = receiver >> CHAR_SHIFT;
+        replace_receiver(sp_ptr, (code_point >= '0' && code_point <= '9') ? TAGGED_TRUE : TAGGED_FALSE);
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_CHAR_UPPERCASE:
+        if (!is_character_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        code_point = receiver >> CHAR_SHIFT;
+        if (code_point >= 'a' && code_point <= 'z')
+        {
+            receiver = ((code_point - ('a' - 'A')) << CHAR_SHIFT) | CHAR_TAG_VALUE;
+        }
+        replace_receiver(sp_ptr, receiver);
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_CHAR_LOWERCASE:
+        if (!is_character_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        code_point = receiver >> CHAR_SHIFT;
+        if (code_point >= 'A' && code_point <= 'Z')
+        {
+            receiver = ((code_point + ('a' - 'A')) << CHAR_SHIFT) | CHAR_TAG_VALUE;
+        }
+        replace_receiver(sp_ptr, receiver);
+        return PRIMITIVE_SUCCEEDED;
+
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
+}
+
 uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                    uint64_t *class_table, uint64_t *om, uint64_t *txn_log)
 {
@@ -290,6 +382,10 @@ uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
                     result = try_object_primitive(sp_ptr, primitive_id, arg_count, class_table);
+                }
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    result = try_character_primitive(sp_ptr, primitive_id, arg_count);
                 }
                 if (result == PRIMITIVE_SUCCEEDED)
                 {
