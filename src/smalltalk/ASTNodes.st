@@ -1,5 +1,16 @@
 "ASTNodes — Abstract Syntax Tree node classes for Smalltalk parser"
 
+Object subclass: #ASTNode instanceVariableNames: ''
+ASTNode subclass: #LiteralNode instanceVariableNames: 'value token'
+ASTNode subclass: #LiteralArrayNode instanceVariableNames: 'elements'
+ASTNode subclass: #VariableNode instanceVariableNames: 'name'
+ASTNode subclass: #MessageNode instanceVariableNames: 'receiver selector arguments'
+ASTNode subclass: #CascadeNode instanceVariableNames: 'receiver messages'
+ASTNode subclass: #BlockNode instanceVariableNames: 'arguments temporaries statements'
+ASTNode subclass: #AssignmentNode instanceVariableNames: 'variable value'
+ASTNode subclass: #ReturnNode instanceVariableNames: 'expression'
+ASTNode subclass: #SequenceNode instanceVariableNames: 'temporaries statements'
+ASTNode subclass: #MethodNode instanceVariableNames: 'selector arguments body'
 
 !ASTNode methodsFor: 'testing'!
 isLiteral
