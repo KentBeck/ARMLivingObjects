@@ -25,7 +25,9 @@ LSP Server
 ### Next (Critical Path)
 
 - [x] Add `PUSH_CLOSURE` codegen for block literals
-- [ ] Add stack bounds checking and fail cleanly on Smalltalk stack overflow
+- [x] Add stack bounds checking for direct stack push and method activation
+- [ ] Replace ARM interpreter with C incrementally, keeping assembly tests green
+- [ ] Add focused opt-in C interpreter smoke tests and run them alongside default assembly tests
 - [ ] Introduce real heap context objects using the existing frame context slot
 - [ ] Materialize contexts lazily for block homes, `thisContext`, and debugger/exception paths
 - [ ] Change block closures to reference a home context, not only copied values
@@ -45,6 +47,49 @@ LSP Server
 - [x] Cover currently-applicable C runtime tests with expression specs where representable
 - [ ] Keep adding expression specs as capabilities land (booleans, collections, blocks, streams)
 - [x] Add loader-backed spec files so expressions can live outside C source
+
+### ARM-to-C Interpreter Migration
+
+Goal: replace the ARM assembly interpreter with vanilla C while keeping the
+default assembly-backed VM green at every step. The C interpreter remains
+opt-in with `INTERPRETER=c` until it reaches full behavioral parity.
+
+Rules:
+
+- Default `make test` must pass after every change.
+- `make INTERPRETER=c bin/test` must keep compiling after every change.
+- Add focused C-interpreter smoke tests for only the bytecodes/features the C
+  interpreter is expected to support so far; run those alongside `make test`.
+- Keep the external VM ABI stable: `interpret(sp_ptr, fp_ptr, ip, class_table, om, txn_log)`.
+- Do not change bytecode format, object layout, frame layout, or Smalltalk semantics during the migration.
+- Leave excluded assembly files in the repo until the C interpreter is default and stable.
+
+Completed:
+
+- [x] Create shared C VM definitions in `src/c_vm/vm_defs.h`.
+- [x] Replace leaf helper assembly with C:
+  `tagged`, `object`, `lookup`, `stack_ops`, `frame`, and standalone `bytecode` helpers.
+- [x] Add opt-in C interpreter skeleton behind `INTERPRETER=c`.
+- [x] Keep assembly interpreter as the default build.
+
+Next small steps:
+
+- [ ] Add `make test-c-interpreter-smoke` target.
+- [ ] Add smoke tests for current C interpreter support:
+  `PUSH_LITERAL`, `PUSH_SELF`, `PUSH_TEMP`, `PUSH_ARG`,
+  `STORE_TEMP`, `POP`, `DUPLICATE`, `RETURN_STACK_TOP`,
+  `HALT`, `JUMP`, `JUMP_IF_TRUE`, and `JUMP_IF_FALSE`.
+- [ ] Make the smoke target build with `INTERPRETER=c` and run only supported cases.
+- [ ] Port `SEND_MESSAGE` without primitives; verify simple unary/argument sends.
+- [ ] Port primitive dispatch one primitive family at a time:
+  SmallInteger arithmetic/comparison first, then identity/class/hash/character/string/symbol.
+- [ ] Port indexed access primitives and transaction-aware `at:` / `at:put:`.
+- [ ] Port instance-variable transaction reads/writes and write barrier behavior.
+- [ ] Port allocation primitives with GC retry/root preservation.
+- [ ] Port block activation and copied values.
+- [ ] Port `thisContext`, heap context materialization hooks, non-local return, and `cannotReturn:`.
+- [ ] Switch default `INTERPRETER` to `c` only after full `make test` passes with C.
+- [ ] Remove obsolete assembly helper/interpreter files after the C default has stayed green.
 
 ### 17. Primitive Infrastructure
 
