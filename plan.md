@@ -84,6 +84,21 @@ Rules:
 - Do not change bytecode format, object layout, frame layout, or Smalltalk semantics during the migration.
 - Leave excluded assembly files in the repo until the C interpreter is default and stable.
 
+Current send/allocation reality:
+
+- `BC_SEND_MESSAGE` itself does not allocate for ordinary method lookup and
+  frame activation.
+- Sends can trigger moving GC when primitive dispatch reaches `basicNew` or
+  `basicNew:` and the allocation retry path collects.
+- Sends can enter block methods through `value` / `value:`; later bytecodes in
+  that method may allocate and trigger GC.
+- Context materialization (`PUSH_CLOSURE`, `PUSH_THIS_CONTEXT`) allocates
+  Context objects, but this path must explicitly collect and retry when object
+  memory is full.
+- Stack overflow during `activate_method` currently raises `SIGTRAP`; it does
+  not yet materialize frames as Context objects, grow the stack, or trigger GC.
+  That is a future design step, not current behavior.
+
 Completed:
 
 - [x] Create shared C VM definitions in `src/c_vm/vm_defs.h`.
