@@ -9,8 +9,11 @@ TEST_BIN = $(BIN_DIR)/test
 GC_STRESS_BIN = $(BIN_DIR)/gc_stress
 
 ASM_SRCS = $(wildcard src/arm/*.s)
+ASM_SRCS := $(filter-out src/arm/tagged.s src/arm/object.s src/arm/lookup.s src/arm/stack_ops.s src/arm/frame.s src/arm/bytecode.s,$(ASM_SRCS))
 ASM_OBJS = $(patsubst src/arm/%.s,$(BIN_DIR)/%.o,$(ASM_SRCS))
-GC_STRESS_OBJS = $(BIN_DIR)/object.o $(BIN_DIR)/gc.o $(BIN_DIR)/tagged.o
+C_VM_SRCS = src/c_vm/tagged.c src/c_vm/object.c src/c_vm/lookup.c src/c_vm/stack_ops.c src/c_vm/frame.c src/c_vm/bytecode.c
+C_VM_OBJS = $(patsubst src/c_vm/%.c,$(BIN_DIR)/c_vm_%.o,$(C_VM_SRCS))
+GC_STRESS_OBJS = $(BIN_DIR)/c_vm_object.o $(BIN_DIR)/gc.o $(BIN_DIR)/c_vm_tagged.o
 
 TEST_SRCS = $(wildcard tests/*.c) src/c/bootstrap_compiler.c src/c/primitives.c
 GC_STRESS_SRCS = tools/gc_stress.c
@@ -20,14 +23,17 @@ test: $(TEST_BIN)
 
 gc-stress: $(GC_STRESS_BIN)
 
-$(TEST_BIN): $(TEST_SRCS) tests/test_defs.h $(ASM_OBJS) | $(BIN_DIR)
-	$(CC) $(CFLAGS) -o $@ $(TEST_SRCS) $(ASM_OBJS)
+$(TEST_BIN): $(TEST_SRCS) tests/test_defs.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
+	$(CC) $(CFLAGS) -o $@ $(TEST_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
 
 $(GC_STRESS_BIN): $(GC_STRESS_SRCS) tests/test_defs.h $(GC_STRESS_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(GC_STRESS_SRCS) $(GC_STRESS_OBJS)
 
 $(BIN_DIR)/%.o: src/arm/%.s | $(BIN_DIR)
 	$(AS) $(ASFLAGS) -o $@ $<
+
+$(BIN_DIR)/c_vm_%.o: src/c_vm/%.c src/c_vm/vm_defs.h | $(BIN_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
