@@ -119,5 +119,23 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, OBJ_FIELD(first_tok, 2), tag_smallint(1),
               "runtime: Tokenizer produced a Token with value 1");
 
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestCase.st") != NULL,
+              1, "runtime: TestCase.st defines class and installs methods");
+    uint64_t *test_case_class = smalltalk_world_lookup_class(&world, "TestCase");
+    ASSERT_EQ(ctx, test_case_class != NULL, 1, "runtime: TestCase in Smalltalk dict");
+    ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_case_class, CLASS_INST_SIZE)), 4,
+              "runtime: TestCase.st class declaration has four instance variables");
+    ASSERT_EQ(ctx, class_lookup(test_case_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+              1, "runtime: TestCase.st installs runOn:");
+
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestSuite.st") != NULL,
+              1, "runtime: TestSuite.st defines class and installs methods");
+    uint64_t *test_suite_class = smalltalk_world_lookup_class(&world, "TestSuite");
+    ASSERT_EQ(ctx, test_suite_class != NULL, 1, "runtime: TestSuite in Smalltalk dict");
+    ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_suite_class, CLASS_INST_SIZE)), 2,
+              "runtime: TestSuite.st class declaration has two instance variables");
+    ASSERT_EQ(ctx, class_lookup(test_suite_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+              1, "runtime: TestSuite.st installs runOn:");
+
     smalltalk_world_teardown(&world);
 }

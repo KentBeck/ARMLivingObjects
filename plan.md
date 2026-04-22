@@ -50,6 +50,7 @@ LSP Server
   - [x] Load multi-class `ASTNodes.st` as a real class-definition file
   - [x] Load `ExpressionSpecTest.st` as a real class-definition file
   - [x] Load `TestResult.st` as a real class-definition file
+  - [x] Load `TestCase.st` and `TestSuite.st` as real class-definition files
 - [ ] Bootstrap compile/install core classes (String/Array/Dictionary/Streams)
 - [ ] Start minimal Smalltalk compiler in Smalltalk and compile with C bootstrap
 - [ ] Run first self-hosting check (Smalltalk compiler recompiles itself)
