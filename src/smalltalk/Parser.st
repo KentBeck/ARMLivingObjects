@@ -1,6 +1,8 @@
 "Parser — Recursive descent parser for Smalltalk"
 "Instance variables: tokenizer"
 
+Object subclass: #Parser instanceVariableNames: 'tokenizer'
+
 !Parser class methodsFor: 'instance creation'!
 on: aString
     ^ self new initializeOn: aString

@@ -1135,19 +1135,15 @@ void test_bootstrap_compiler(TestContext *ctx)
                   1,
                   "Tokenizer.st methods install");
 
-        // Define Parser and install Parser.st.
-        const char *parser_ivars[] = {"tokenizer"};
-        uint64_t *parser_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
-                                                 array_class, association_class,
-                                                 "Parser", NULL,
-                                                 parser_ivars, 1, BC_CLASS_FORMAT_FIELDS);
-        ASSERT_EQ(ctx, parser_class != NULL, 1, "Parser class created");
-        static char parser_src[32768];
-        ASSERT_EQ(ctx, read_source_file("src/smalltalk/Parser.st", parser_src, sizeof(parser_src)), 1,
-                  "Parser.st loads");
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, parser_src),
-                  1, "Parser.st methods install");
+        // Define Parser from its class declaration and install Parser.st.
+        uint64_t *parser_class = bc_compile_and_install_class_file(
+            ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
+            class_bindings, 4, "src/smalltalk/Parser.st");
+        ASSERT_EQ(ctx, parser_class != NULL, 1, "Parser.st defines class and installs methods");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(parser_class, CLASS_INST_SIZE)), 1,
+                  "Parser.st class declaration has one instance variable");
+        ASSERT_EQ(ctx, class_lookup(parser_class, intern_cstring_symbol(ctx->om, "parseMethod")) != 0,
+                  1, "Parser.st installs parseMethod");
 
         // Define CodeGenerator and install its .st file.
         const char *codegen_ivars[] = {"bytecodes", "bytecodeCount", "literals", "literalCount",
