@@ -1288,9 +1288,10 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
             ObjPtr current_method = (ObjPtr)fp[FRAME_METHOD];
             uint64_t num_args = frame_num_args_local(fp);
             uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(current_method, CM_NUM_TEMPS));
-            if (frame_has_block_closure(fp) && fp[FRAME_CONTEXT] != 0)
+            Oop current_closure = block_closure_for_frame(fp);
+            if (current_closure != TAGGED_NIL)
             {
-                num_temps += block_copied_count(fp[FRAME_CONTEXT]);
+                num_temps += block_copied_count(current_closure);
             }
             uint64_t copied_count = num_args + num_temps;
 
@@ -1310,9 +1311,10 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 current_method = (ObjPtr)fp[FRAME_METHOD];
                 num_args = frame_num_args_local(fp);
                 num_temps = (uint64_t)untag_smallint(OBJ_FIELD(current_method, CM_NUM_TEMPS));
-                if (frame_has_block_closure(fp) && fp[FRAME_CONTEXT] != 0)
+                current_closure = block_closure_for_frame(fp);
+                if (current_closure != TAGGED_NIL)
                 {
-                    num_temps += block_copied_count(fp[FRAME_CONTEXT]);
+                    num_temps += block_copied_count(current_closure);
                 }
                 copied_count = num_args + num_temps;
 
@@ -1340,9 +1342,10 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 current_method = (ObjPtr)fp[FRAME_METHOD];
                 num_args = frame_num_args_local(fp);
                 num_temps = (uint64_t)untag_smallint(OBJ_FIELD(current_method, CM_NUM_TEMPS));
-                if (frame_has_block_closure(fp) && fp[FRAME_CONTEXT] != 0)
+                current_closure = block_closure_for_frame(fp);
+                if (current_closure != TAGGED_NIL)
                 {
-                    num_temps += block_copied_count(fp[FRAME_CONTEXT]);
+                    num_temps += block_copied_count(current_closure);
                 }
                 copied_count = num_args + num_temps;
                 literals = (ObjPtr)OBJ_FIELD(current_method, CM_LITERALS);

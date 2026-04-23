@@ -189,6 +189,21 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: False.st declaration matches existing class and installs methods");
     ASSERT_EQ(ctx, (uint64_t)false_class, (uint64_t)world.false_class,
               "runtime: False.st attaches to the existing False class");
+    {
+        uint64_t if_tf_sel = intern_cstring_symbol(world.om, "ifTrue:ifFalse:");
+        uint64_t true_if_tf = class_lookup(true_class, if_tf_sel);
+        uint64_t false_if_tf = class_lookup(false_class, if_tf_sel);
+        ASSERT_EQ(ctx, true_if_tf != 0, 1, "runtime: True understands ifTrue:ifFalse:");
+        ASSERT_EQ(ctx, false_if_tf != 0, 1, "runtime: False understands ifTrue:ifFalse:");
+        uint64_t *true_if_tf_bc = (uint64_t *)OBJ_FIELD((uint64_t *)true_if_tf, CM_BYTECODES);
+        uint64_t *false_if_tf_bc = (uint64_t *)OBJ_FIELD((uint64_t *)false_if_tf, CM_BYTECODES);
+        uint64_t true_if_tf_len = OBJ_SIZE(true_if_tf_bc);
+        uint64_t false_if_tf_len = OBJ_SIZE(false_if_tf_bc);
+        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(true_if_tf_bc, 0))[true_if_tf_len - 1], BC_RETURN,
+                  "runtime: True ifTrue:ifFalse: ends with local return");
+        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(false_if_tf_bc, 0))[false_if_tf_len - 1], BC_RETURN,
+                  "runtime: False ifTrue:ifFalse: ends with local return");
+    }
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/ReadStream.st") != NULL,
               1, "runtime: ReadStream.st defines class and installs methods");
@@ -311,6 +326,24 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Compiler.st") != NULL,
               1, "runtime: Compiler.st defines class and installs methods");
 
+    {
+        uint64_t *parser_class = smalltalk_world_lookup_class(&world, "Parser");
+        uint64_t *method_node_class = smalltalk_world_lookup_class(&world, "MethodNode");
+        uint64_t binary_method_source = (uint64_t)sw_make_string(&world, "sum ^ 1 + 2");
+        uint64_t parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,
+                                   "on:", binary_method_source);
+        ASSERT_EQ(ctx, is_object_ptr(parser), 1,
+                  "runtime: Parser on: returns parser for binary method");
+        uint64_t method_ast = sw_send0(&world, ctx, parser, NULL, "parseMethod");
+        ASSERT_EQ(ctx, is_object_ptr(method_ast), 1,
+                  "runtime: Parser parseMethod returns object for binary method");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)method_ast), (uint64_t)method_node_class,
+                  "runtime: Parser parseMethod returns MethodNode for binary method");
+        uint64_t method_args = sw_send0(&world, ctx, method_ast, NULL, "arguments");
+        ASSERT_EQ(ctx, is_object_ptr(method_args), 1,
+                  "runtime: MethodNode arguments returns array for binary method");
+    }
+
     uint64_t *compiler_class = smalltalk_world_lookup_class(&world, "Compiler");
     ASSERT_EQ(ctx, compiler_class != NULL, 1, "runtime: Compiler in Smalltalk dict");
     uint64_t method_source = (uint64_t)sw_make_string(&world, "answer ^ 1");
@@ -351,6 +384,19 @@ void test_smalltalk_runtime(TestContext *ctx)
 
     uint64_t *code_generator_class = smalltalk_world_lookup_class(&world, "CodeGenerator");
     ASSERT_EQ(ctx, code_generator_class != NULL, 1, "runtime: CodeGenerator in Smalltalk dict");
+    {
+        uint64_t direct_gen = sw_send0(&world, ctx, (uint64_t)code_generator_class,
+                                       world.class_class, "new");
+        uint64_t direct_result = sw_send2(&world, ctx, direct_gen, NULL,
+                                          "emitSendMessage:argc:",
+                                          tag_smallint(2), tag_smallint(1));
+        ASSERT_EQ(ctx, is_object_ptr(direct_result), 1,
+                  "runtime: emitSendMessage:argc: returns a generator object");
+        ASSERT_EQ(ctx, direct_result, direct_gen,
+                  "runtime: emitSendMessage:argc: returns self");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)direct_gen, 1), tag_smallint(9),
+                  "runtime: emitSendMessage:argc: appends nine bytes");
+    }
     uint64_t *parser_class = smalltalk_world_lookup_class(&world, "Parser");
     ASSERT_EQ(ctx, parser_class != NULL, 1, "runtime: Parser in Smalltalk dict");
     uint64_t loop_gen = sw_send0(&world, ctx, (uint64_t)code_generator_class,

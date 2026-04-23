@@ -427,6 +427,73 @@ void test_blocks(TestContext *ctx)
                       "Block: copied outer argument is available in block body");
         }
 
+        // Test: a nested block created inside an active block still captures
+        // copied outer values after the outer block frame materializes a
+        // context for closure creation.
+        {
+            uint64_t *inner_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+            uint8_t *iblk = (uint8_t *)&OBJ_FIELD(inner_blk_bc, 0);
+            iblk[0] = BC_PUSH_TEMP;
+            WRITE_U32(&iblk[1], 0);
+            iblk[5] = BC_RETURN;
+
+            uint64_t *inner_blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(inner_blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(inner_blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(inner_blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(inner_blk_cm, CM_LITERALS) = tagged_nil();
+            OBJ_FIELD(inner_blk_cm, CM_BYTECODES) = (uint64_t)inner_blk_bc;
+
+            uint64_t *outer_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+            uint8_t *oblk = (uint8_t *)&OBJ_FIELD(outer_blk_bc, 0);
+            oblk[0] = BC_PUSH_CLOSURE;
+            WRITE_U32(&oblk[1], 0);
+            oblk[5] = BC_SEND_MESSAGE;
+            WRITE_U32(&oblk[6], 1);
+            WRITE_U32(&oblk[10], 0);
+            oblk[14] = BC_RETURN;
+
+            uint64_t *outer_blk_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+            OBJ_FIELD(outer_blk_lits, 0) = (uint64_t)inner_blk_cm;
+            OBJ_FIELD(outer_blk_lits, 1) = sel_value;
+            uint64_t *outer_blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(outer_blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(outer_blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(outer_blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(outer_blk_cm, CM_LITERALS) = (uint64_t)outer_blk_lits;
+            OBJ_FIELD(outer_blk_cm, CM_BYTECODES) = (uint64_t)outer_blk_bc;
+
+            uint64_t *nested_caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 24);
+            uint8_t *ncb = (uint8_t *)&OBJ_FIELD(nested_caller_bc, 0);
+            ncb[0] = BC_PUSH_CLOSURE;
+            WRITE_U32(&ncb[1], 0);
+            ncb[5] = BC_SEND_MESSAGE;
+            WRITE_U32(&ncb[6], 1);
+            WRITE_U32(&ncb[10], 0);
+            ncb[14] = BC_HALT;
+
+            uint64_t *nested_caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+            OBJ_FIELD(nested_caller_lits, 0) = (uint64_t)outer_blk_cm;
+            OBJ_FIELD(nested_caller_lits, 1) = sel_value;
+            uint64_t *nested_caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(nested_caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(nested_caller_cm, CM_NUM_ARGS) = tag_smallint(1);
+            OBJ_FIELD(nested_caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(nested_caller_cm, CM_LITERALS) = (uint64_t)nested_caller_lits;
+            OBJ_FIELD(nested_caller_cm, CM_BYTECODES) = (uint64_t)nested_caller_bc;
+
+            sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+            fp = (uint64_t *)0xCAFE;
+            stack_push(&sp, stack, receiver);
+            stack_push(&sp, stack, tag_smallint(77));
+            activate_method(&sp, &fp, 0, (uint64_t)nested_caller_cm, 1, 0);
+            result = interpret(&sp, &fp,
+                               (uint8_t *)&OBJ_FIELD(nested_caller_bc, 0),
+                               class_table, om, NULL);
+            ASSERT_EQ(ctx, result, tag_smallint(77),
+                      "Block: nested block keeps copied outer argument");
+        }
+
         // Test: explicit ^ inside a block performs a non-local return to the home method.
         {
             uint64_t *nlr_blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 16);

@@ -547,6 +547,16 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("true ifTrue: [1] ifFalse: [0]. ^ self", &compiled), 1,
+                  "codegen statement after ifTrue:ifFalse:");
+        ASSERT_EQ(ctx, compiled.bytecodes[compiled.bytecode_count - 2], BC_PUSH_SELF,
+                  "statement after ifTrue:ifFalse: keeps trailing push self");
+        ASSERT_EQ(ctx, compiled.bytecodes[compiled.bytecode_count - 1], BC_RETURN,
+                  "statement after ifTrue:ifFalse: keeps trailing return");
+    }
+
+    {
         const char *source =
             "!Sample methodsFor: 'testing'!\n"
             "with: arg\n"

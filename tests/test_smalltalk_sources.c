@@ -291,6 +291,28 @@ void test_smalltalk_sources(TestContext *ctx)
               "Tokenizer.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count > 20, 1, "Tokenizer.st has many methods");
 
+    {
+        char codegen_src[32768];
+        int found_visit_message = 0;
+        ASSERT_EQ(ctx, read_file("src/smalltalk/CodeGenerator.st", codegen_src, sizeof(codegen_src)), 1,
+                  "src/smalltalk/CodeGenerator.st exists");
+        ASSERT_EQ(ctx, bc_compile_source_methods(codegen_src, methods, 64, &method_count), 1,
+                  "CodeGenerator.st compiles through chunk pipeline");
+        for (int index = 0; index < method_count; index++)
+        {
+            if (strcmp(methods[index].header.selector, "visitMessage:") == 0)
+            {
+                found_visit_message = 1;
+                ASSERT_EQ(ctx, methods[index].header.arg_count, 1,
+                          "CodeGenerator visitMessage: has one arg");
+                ASSERT_EQ(ctx, methods[index].body.temp_count, 1,
+                          "CodeGenerator visitMessage: has one temp");
+            }
+        }
+        ASSERT_EQ(ctx, found_visit_message, 1,
+                  "CodeGenerator visitMessage: compiled method found");
+    }
+
     ASSERT_EQ(ctx, read_file("src/smalltalk/ExpressionSpecTest.st", expression_spec_test_src, sizeof(expression_spec_test_src)), 1,
               "src/smalltalk/ExpressionSpecTest.st exists");
     ASSERT_EQ(ctx, strstr(expression_spec_test_src, "testThisContextReceiverIsNil") != NULL, 1,
