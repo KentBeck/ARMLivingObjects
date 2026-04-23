@@ -13,6 +13,7 @@ running on our VM, compiling itself. Then LSP server in Smalltalk.
 - Implement behavior in Smalltalk first; do not add new primitives unless required for correctness.
 - Revisit primitive additions only after profiling post-JIT to target proven performance bottlenecks.
 - Ignore chunk method categories for bootstrap correctness; later we will explore deriving categories automatically via an LLM pass.
+- When fixing a bug, go as far back as necessary to fix it in the general case rather than patching only the latest symptom.
 
 ## Dependency Chain
 
