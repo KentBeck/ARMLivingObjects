@@ -336,11 +336,10 @@ readIdentifierOrKeywordStartingWith: firstChar
     peek := stream peek.
     peek isNil
         ifTrue: [^ Token type: #identifier text: text value: nil]
-        ifFalse: [
-            (peek asCharacter value = 58)
-                ifTrue: [^ self checkKeywordOrAssignment: text]
-                ifFalse: [^ Token type: #identifier text: text value: nil]
-        ]
+        ifFalse: [0].
+    (peek asCharacter value = 58)
+        ifTrue: [^ self checkKeywordOrAssignment: text]
+        ifFalse: [^ Token type: #identifier text: text value: nil]
 !
 
 checkKeywordOrAssignment: text
@@ -348,16 +347,17 @@ checkKeywordOrAssignment: text
     stream next.
     nextPeek := stream peek.
     nextPeek isNil
-        ifTrue: [^ Token type: #keyword text: (text , ':') value: nil]
-        ifFalse: [
-            (nextPeek asCharacter value = 61)
-                ifTrue: [
-                    stream next.
-                    buffered := Token type: #special text: ':=' value: nil.
-                    ^ Token type: #identifier text: text value: nil
-                ]
-                ifFalse: [^ Token type: #keyword text: (text , ':') value: nil]
-        ]
+        ifTrue: [^ self keywordTokenFor: text]
+        ifFalse: [0].
+    (nextPeek asCharacter value = 61)
+        ifFalse: [^ self keywordTokenFor: text].
+    stream next.
+    buffered := Token type: #special text: ':=' value: nil.
+    ^ Token type: #identifier text: text value: nil
+!
+
+keywordTokenFor: text
+    ^ Token type: #keyword text: (text , ':') value: nil
 !
 
 collectIdentifierCharsStartingWith: firstChar

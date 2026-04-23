@@ -91,7 +91,11 @@ parseTemporaries
     token := tokenizer peek.
     (token isSpecialText: '|')
         ifTrue: [0]
-        ifFalse: [^ Array new: 0].
+        ifFalse: [
+            token isBinarySelector
+                ifTrue: [0]
+                ifFalse: [^ Array new: 0]
+        ].
 
     tokenizer next.
     temps := Array new: 16.
@@ -109,6 +113,12 @@ collectTemporaries: buffer at: index
         ]
         ifFalse: [0].
     (token isSpecialText: '|')
+        ifTrue: [
+            tokenizer next.
+            ^ self trimArray: buffer to: index - 1
+        ]
+        ifFalse: [0].
+    token isBinarySelector
         ifTrue: [
             tokenizer next.
             ^ self trimArray: buffer to: index - 1
@@ -167,27 +177,27 @@ parseExpressionOrAssignment
     token := tokenizer peek.
 
     token isIdentifier
-        ifTrue: [
-            tokenizer next.
-            nextToken := tokenizer peek.
-            (nextToken isSpecialText: ':=')
-                ifTrue: [
-                    tokenizer next.
-                    ^ AssignmentNode
-                        variable: (VariableNode name: token text)
-                        value: self parseExpression
-                ]
-                ifFalse: [
-                    tokenizer unread: token.
-                    ^ self parseExpression
-                ]
-        ]
+        ifTrue: [0]
         ifFalse: [^ self parseExpression]
+.
+
+    tokenizer next.
+    nextToken := tokenizer peek.
+    (nextToken isSpecialText: ':=')
+        ifFalse: [
+            tokenizer unread: token.
+            ^ self parseExpression
+        ].
+
+    tokenizer next.
+    ^ AssignmentNode
+        variable: (VariableNode name: token text)
+        value: self parseExpression
 !
 
 !Parser methodsFor: 'parsing - expressions'!
 parseKeywordExpression
-    | receiver token selectorBuffer argsBuffer |
+    | receiver token selectorBuffer argsBuffer arg |
     receiver := self parseBinaryExpression.
     receiver isNil
         ifTrue: [^ nil]
@@ -198,9 +208,17 @@ parseKeywordExpression
         ifTrue: [0]
         ifFalse: [^ receiver].
 
-    selectorBuffer := String new: 64.
-    argsBuffer := Array new: 8.
-    ^ self parseKeywordContinuation: receiver selector: selectorBuffer args: argsBuffer at: 1 selectorAt: 1
+    receiver isBlock
+        ifTrue: [0]
+        ifFalse: [
+            selectorBuffer := String new: 64.
+            argsBuffer := Array new: 8.
+            ^ self parseKeywordContinuation: receiver selector: selectorBuffer args: argsBuffer at: 1 selectorAt: 1
+        ].
+
+    tokenizer next.
+    arg := self parseBinaryExpression.
+    ^ MessageNode receiver: receiver selector: token text arguments: (Array with: arg)
 !
 
 parseKeywordContinuation: receiver selector: selBuf args: argsBuf at: argIndex selectorAt: selIndex

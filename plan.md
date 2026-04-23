@@ -265,6 +265,9 @@ Smalltalk compiler itself.
 
 - [ ] Code gen: emit JUMP, JUMP_IF_TRUE, JUMP_IF_FALSE
   - [x] Emit `JUMP` / `JUMP_IF_FALSE` for statement-form `[condition] whileTrue: [body]`
+  - [ ] Finish Smalltalk `CodeGenerator>>visitWhileTrue:` allocation-safety so the
+        body, backward jump, patch, and nil result survive allocations after the
+        first conditional branch emission.
 - [x] Code gen: emit PUSH_CLOSURE (block literal placeholder + balanced parsing)
 - [x] Code gen: compile block bodies into nested codegen block tables
 - [x] Loader: compile chunked `.st` source text into method definitions (`bc_compile_source_methods`)

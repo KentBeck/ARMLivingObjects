@@ -83,6 +83,14 @@ emitU32: value
     ^ self
 !
 
+patchU32At: index with: value
+    bytecodes at: index put: value.
+    bytecodes at: index + 1 put: 0.
+    bytecodes at: index + 2 put: 0.
+    bytecodes at: index + 3 put: 0.
+    ^ self
+!
+
 emitPushLiteral: index
     self emitByte: 0.
     self emitU32: index.
@@ -130,8 +138,27 @@ emitReturn
     ^ self
 !
 
+emitJumpTo: offset
+    self emitByte: 8.
+    self emitU32: offset.
+    ^ self
+!
+
+emitJumpIfFalsePlaceholder
+    | patchIndex |
+    self emitByte: 10.
+    patchIndex := bytecodeCount + 1.
+    self emitU32: 0.
+    ^ patchIndex
+!
+
 emitPop
     self emitByte: 11.
+    ^ self
+!
+
+emitDuplicate
+    self emitByte: 12.
     ^ self
 !
 
@@ -263,12 +290,71 @@ visitVariable: aNode
 
 visitMessage: aNode
     | selectorIndex |
-    self visitNode: aNode receiver.
-    aNode arguments size > 0
-        ifTrue: [self visitMessageArgs: aNode arguments from: 1]
-        ifFalse: [0].
-    selectorIndex := self addSelectorLiteral: aNode selector.
-    self emitSendMessage: selectorIndex argc: aNode arguments size.
+    (self isWhileTrueMessage: aNode)
+        ifTrue: [self visitWhileTrue: aNode]
+        ifFalse: [
+            self visitNode: aNode receiver.
+            aNode arguments size > 0
+                ifTrue: [self visitMessageArgs: aNode arguments from: 1]
+                ifFalse: [0].
+            selectorIndex := self addSelectorLiteral: aNode selector.
+            self emitSendMessage: selectorIndex argc: aNode arguments size
+        ].
+    ^ self
+!
+
+isWhileTrueMessage: aNode
+    (aNode selector = 'whileTrue:')
+        ifTrue: [
+            aNode receiver isBlock
+                ifTrue: [
+                    aNode arguments size = 1
+                        ifTrue: [^ (aNode arguments at: 1) isBlock]
+                        ifFalse: [^ false]
+                ]
+                ifFalse: [^ false]
+        ]
+        ifFalse: [
+            (aNode selector = 'whileTrue')
+                ifTrue: [
+                    aNode receiver isBlock
+                        ifTrue: [
+                            aNode arguments size = 1
+                                ifTrue: [^ (aNode arguments at: 1) isBlock]
+                                ifFalse: [^ false]
+                        ]
+                        ifFalse: [^ false]
+                ]
+                ifFalse: [^ false]
+        ]
+!
+
+visitWhileTrue: aNode
+    | loopStart exitPatch body |
+    loopStart := bytecodeCount.
+    self visitInlineBlock: aNode receiver.
+    exitPatch := self emitJumpIfFalsePlaceholder.
+    body := aNode arguments at: 1.
+    self visitInlineBlock: body.
+    self emitPop.
+    self emitJumpTo: loopStart.
+    self patchU32At: exitPatch with: bytecodeCount.
+    self emitPushLiteral: (self addLiteral: nil).
+    ^ self
+!
+
+visitInlineBlock: aBlock
+    aBlock statements size = 0
+        ifTrue: [self emitPushLiteral: (self addLiteral: nil)]
+        ifFalse: [
+            self visitNode: (aBlock statements at: 1).
+            aBlock statements size > 1
+                ifTrue: [
+                    self emitPop.
+                    self visitStatements: aBlock statements from: 2 last: aBlock statements size
+                ]
+                ifFalse: [0]
+        ].
     ^ self
 !
 
@@ -297,6 +383,7 @@ visitBlock: aNode
 
 visitAssignment: aNode
     self visitNode: aNode value.
+    self emitDuplicate.
     self storeVariable: aNode variable name.
     ^ self
 !

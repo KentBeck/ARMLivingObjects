@@ -4,15 +4,9 @@ Object subclass: #Compiler instanceVariableNames: ''
 
 !Compiler class methodsFor: 'compiling'!
 compileExpression: aString
-    | gen |
-    gen := CodeGenerator new.
-    gen compileExpression: aString.
-    ^ gen
+    ^ (CodeGenerator new) compileExpression: aString
 !
 
 compileMethod: aString
-    | gen |
-    gen := CodeGenerator new.
-    gen compileMethod: aString.
-    ^ gen
+    ^ (CodeGenerator new) compileMethod: aString
 !

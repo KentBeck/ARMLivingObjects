@@ -24,7 +24,63 @@ static int byte_object_equals_cstring(uint64_t value, const char *text)
            memcmp(&OBJ_FIELD(object, 0), text, len) == 0;
 }
 
+static int bytecode_contains(uint64_t *bytecodes, uint64_t count, uint8_t opcode)
+{
+    uint8_t *bytes = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    for (uint64_t index = 0; index < count; index++)
+    {
+        if (bytes[index] == opcode)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 #ifdef ALO_INTERPRETER_C
+static Oop sw_send0_capture_receiver(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
+                                     ObjPtr receiver_class, const char *selector,
+                                     Oop *updated_receiver)
+{
+    uint64_t *dc = is_object_ptr(receiver) ? (uint64_t *)OBJ_CLASS((uint64_t *)receiver) : receiver_class;
+    uint64_t sel_oop = intern_cstring_symbol(world->om, selector);
+    uint64_t method_oop = class_lookup(dc, sel_oop);
+    uint64_t *cm = (uint64_t *)method_oop;
+    uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
+    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(cm, CM_NUM_TEMPS));
+    uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+    uint64_t *fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, ctx->stack, receiver);
+    activate_method(&sp, &fp, 0, (uint64_t)cm, 0, num_temps);
+    Oop *receiver_slot = (Oop *)(fp + FRAME_RECEIVER);
+    Oop result =
+        interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+    *updated_receiver = *receiver_slot;
+    return result;
+}
+
+static Oop sw_send1_capture_receiver(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
+                                     ObjPtr receiver_class, const char *selector, Oop arg,
+                                     Oop *updated_receiver)
+{
+    uint64_t *dc = is_object_ptr(receiver) ? (uint64_t *)OBJ_CLASS((uint64_t *)receiver) : receiver_class;
+    uint64_t sel_oop = intern_cstring_symbol(world->om, selector);
+    uint64_t method_oop = class_lookup(dc, sel_oop);
+    uint64_t *cm = (uint64_t *)method_oop;
+    uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(cm, CM_BYTECODES);
+    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(cm, CM_NUM_TEMPS));
+    uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+    uint64_t *fp = (uint64_t *)0xCAFE;
+    stack_push(&sp, ctx->stack, receiver);
+    stack_push(&sp, ctx->stack, arg);
+    activate_method(&sp, &fp, 0, (uint64_t)cm, 1, num_temps);
+    Oop *receiver_slot = (Oop *)(fp + FRAME_RECEIVER);
+    Oop result =
+        interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+    *updated_receiver = *receiver_slot;
+    return result;
+}
+
 static uint64_t *materialize_codegen_method(SmalltalkWorld *world, uint64_t *generator)
 {
     int64_t bytecode_count = untag_smallint(OBJ_FIELD(generator, 1));
@@ -254,8 +310,8 @@ void test_smalltalk_runtime(TestContext *ctx)
     uint64_t *method_gen_ptr = oop_roots_ptr(&compiler_roots, method_gen_root);
     ASSERT_EQ(ctx, OBJ_SIZE(method_gen_ptr), 11,
               "runtime: method CodeGenerator has expected ivar slots");
-    ASSERT_EQ(ctx, OBJ_FIELD(method_gen_ptr, 1), tag_smallint(7),
-              "runtime: Smalltalk compiler emits seven bytes for answer ^ 1");
+    ASSERT_EQ(ctx, OBJ_FIELD(method_gen_ptr, 1), tag_smallint(6),
+              "runtime: Smalltalk compiler emits six bytes for answer ^ 1");
     ASSERT_EQ(ctx, OBJ_FIELD(method_gen_ptr, 3), tag_smallint(1),
               "runtime: Smalltalk compiler records one literal for answer ^ 1");
     uint64_t *generated_bytecodes = (uint64_t *)OBJ_FIELD(method_gen_ptr, 0);
@@ -266,8 +322,6 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: Smalltalk compiler emits push literal first");
     ASSERT_EQ(ctx, generated_bytes[5], BC_RETURN,
               "runtime: Smalltalk compiler emits return after literal");
-    ASSERT_EQ(ctx, generated_bytes[6], BC_RETURN,
-              "runtime: Smalltalk compiler currently emits trailing implicit return");
     uint64_t *generated_literals = (uint64_t *)OBJ_FIELD(method_gen_ptr, 2);
     ASSERT_EQ(ctx, is_object_ptr((uint64_t)generated_literals), 1,
               "runtime: generated method literals are stored in an array");
@@ -281,6 +335,35 @@ void test_smalltalk_runtime(TestContext *ctx)
         run_materialized_method(&world, ctx, materialized_method, tagged_nil());
     ASSERT_EQ(ctx, materialized_result, tag_smallint(1),
               "runtime: materialized Smalltalk-compiled method executes");
+
+    uint64_t *code_generator_class = smalltalk_world_lookup_class(&world, "CodeGenerator");
+    ASSERT_EQ(ctx, code_generator_class != NULL, 1, "runtime: CodeGenerator in Smalltalk dict");
+    uint64_t *parser_class = smalltalk_world_lookup_class(&world, "Parser");
+    ASSERT_EQ(ctx, parser_class != NULL, 1, "runtime: Parser in Smalltalk dict");
+    uint64_t loop_gen = sw_send0(&world, ctx, (uint64_t)code_generator_class,
+                                 world.class_class, "new");
+    ASSERT_EQ(ctx, is_object_ptr(loop_gen), 1,
+              "runtime: CodeGenerator new returns an object for whileTrue:");
+    uint64_t loop_source = (uint64_t)sw_make_string(&world, "[1 < 0] whileTrue: [1]");
+    uint64_t loop_parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,
+                                    "on:", loop_source);
+    ASSERT_EQ(ctx, is_object_ptr(loop_parser), 1, "runtime: Parser on: creates parser for whileTrue:");
+    uint64_t loop_ast = sw_send0(&world, ctx, loop_parser, NULL, "parseExpression");
+    ASSERT_EQ(ctx, is_object_ptr(loop_ast), 1, "runtime: Parser parses whileTrue: expression");
+    uint64_t moved_loop_gen = loop_gen;
+    (void)sw_send1_capture_receiver(&world, ctx, loop_gen, NULL,
+                                    "visitNode:", loop_ast, &moved_loop_gen);
+    loop_gen = moved_loop_gen;
+    (void)sw_send0_capture_receiver(&world, ctx, loop_gen, NULL,
+                                    "emitReturn", &moved_loop_gen);
+    loop_gen = moved_loop_gen;
+    ASSERT_EQ(ctx, is_object_ptr(loop_gen), 1,
+              "runtime: Smalltalk CodeGenerator compiles whileTrue: on the receiver");
+    uint64_t *loop_gen_ptr = (uint64_t *)loop_gen;
+    uint64_t loop_bytecode_count = (uint64_t)untag_smallint(OBJ_FIELD(loop_gen_ptr, 1));
+    uint64_t *loop_bytecodes = (uint64_t *)OBJ_FIELD(loop_gen_ptr, 0);
+    ASSERT_EQ(ctx, bytecode_contains(loop_bytecodes, loop_bytecode_count, BC_JUMP_IF_FALSE), 1,
+              "runtime: Smalltalk compiler emits whileTrue: false jump");
 #endif
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestCase.st") != NULL,
@@ -319,7 +402,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                   "runtime: rooted compiler result moves to GC to-space upper bound");
         ASSERT_EQ(ctx, OBJ_SIZE(moved_method_gen_ptr), 11,
                   "runtime: rooted compiler result remains a CodeGenerator after GC");
-        ASSERT_EQ(ctx, OBJ_FIELD(moved_method_gen_ptr, 1), tag_smallint(7),
+        ASSERT_EQ(ctx, OBJ_FIELD(moved_method_gen_ptr, 1), tag_smallint(6),
                   "runtime: rooted compiler result preserves bytecode count after GC");
         ASSERT_EQ(ctx, OBJ_FIELD(moved_method_gen_ptr, 3), tag_smallint(1),
                   "runtime: rooted compiler result preserves literal count after GC");
