@@ -17,7 +17,7 @@ static uint64_t selector_token_from_cstring(const char *selector)
     return tag_smallint((int64_t)(hash & 0x1FFFFFFF));
 }
 
-uint64_t cannot_return_selector_oop(void)
+Oop cannot_return_selector_oop(void)
 {
     return selector_token_from_cstring("cannotReturn:");
 }
@@ -29,7 +29,7 @@ static inline void get_byte_obj_data(uint64_t obj_ptr, uint8_t **data, uint64_t 
     *size = OBJ_SIZE(obj);
 }
 
-uint64_t lookup_cstring_symbol(const char *text)
+Oop lookup_cstring_symbol(const char *text)
 {
     if (global_symbol_table == NULL || global_symbol_class == NULL || text == NULL)
     {
@@ -62,7 +62,7 @@ uint64_t lookup_cstring_symbol(const char *text)
     return tagged_nil();
 }
 
-uint64_t intern_cstring_symbol(uint64_t *om, const char *text)
+Oop intern_cstring_symbol(Om om, const char *text)
 {
     if (global_symbol_table == NULL || global_symbol_class == NULL || text == NULL)
     {
@@ -104,7 +104,7 @@ uint64_t intern_cstring_symbol(uint64_t *om, const char *text)
 // PRIM_STRING_EQ: Compares two strings byte by byte
 // receiver: tagged object pointer to String
 // arg: tagged object pointer to String
-uint64_t prim_string_eq(uint64_t receiver, uint64_t arg) {
+Oop prim_string_eq(Oop receiver, Oop arg) {
     // Both must be object pointers
     if (!is_object_ptr(receiver) || !is_object_ptr(arg)) {
         return tagged_false(); // Or error, depending on strictness
@@ -129,7 +129,7 @@ uint64_t prim_string_eq(uint64_t receiver, uint64_t arg) {
 
 // PRIM_STRING_HASH: Calculates a hash for a string (FNV-1a)
 // receiver: tagged object pointer to String
-uint64_t prim_string_hash_fnv(uint64_t receiver) {
+Oop prim_string_hash_fnv(Oop receiver) {
     if (!is_object_ptr(receiver)) {
         return tag_smallint(0); // Or error
     }
@@ -148,7 +148,7 @@ uint64_t prim_string_hash_fnv(uint64_t receiver) {
 
 // PRIM_STRING_AS_SYMBOL: Interns a string into the global symbol table
 // receiver: tagged object pointer to String
-uint64_t prim_string_as_symbol(uint64_t receiver) {
+Oop prim_string_as_symbol(Oop receiver) {
     if (!is_object_ptr(receiver)) {
         return tagged_nil(); // Or error
     }
@@ -192,7 +192,7 @@ uint64_t prim_string_as_symbol(uint64_t receiver) {
 // PRIM_SYMBOL_EQ: Compares two symbols for identity (pointer equality)
 // receiver: tagged object pointer to Symbol
 // arg: tagged object pointer to Symbol
-uint64_t prim_symbol_eq(uint64_t receiver, uint64_t arg) {
+Oop prim_symbol_eq(Oop receiver, Oop arg) {
     // Symbols are interned, so identity equality is sufficient
     if (receiver == arg) {
         return tagged_true();
@@ -227,7 +227,7 @@ static uint64_t context_ip_for_frame(uint64_t *fp)
     return tag_smallint((int64_t)(ip - base));
 }
 
-uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_class)
+ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class)
 {
     uint64_t closure_oop = 0;
 
@@ -289,7 +289,7 @@ uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_clas
     return context;
 }
 
-uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om)
+ObjPtr ensure_frame_context_global(ObjPtr fp, Om om)
 {
     if (global_context_class == NULL)
     {

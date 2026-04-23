@@ -337,7 +337,7 @@ uint64_t *smalltalk_world_install_existing_class_file(SmalltalkWorld *world, con
     return bc_compile_and_install_existing_class_file(world->om, world->class_class, NULL, 0, path);
 }
 
-uint64_t *smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name)
+ObjPtr smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name)
 {
     uint64_t key = lookup_cstring_symbol(name);
     if (key == tagged_nil()) return NULL;
@@ -357,7 +357,7 @@ uint64_t *smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name)
     return NULL;
 }
 
-uint64_t *sw_make_string(SmalltalkWorld *world, const char *text)
+ObjPtr sw_make_string(SmalltalkWorld *world, const char *text)
 {
     uint64_t len = (uint64_t)strlen(text);
     uint64_t *s = om_alloc(world->om, (uint64_t)world->string_class, FORMAT_BYTES, len);
@@ -368,7 +368,7 @@ uint64_t *sw_make_string(SmalltalkWorld *world, const char *text)
 // For an object receiver, dispatch class is its actual class (which may be a
 // per-class metaclass when the receiver is itself a class). For tagged
 // immediates, we need the caller-provided class.
-static uint64_t *sw_dispatch_class(uint64_t receiver, uint64_t *fallback)
+static ObjPtr sw_dispatch_class(Oop receiver, ObjPtr fallback)
 {
     if (is_object_ptr(receiver))
     {
@@ -377,8 +377,8 @@ static uint64_t *sw_dispatch_class(uint64_t receiver, uint64_t *fallback)
     return fallback;
 }
 
-uint64_t sw_send0(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
-                  uint64_t *receiver_class, const char *selector)
+Oop sw_send0(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
+             ObjPtr receiver_class, const char *selector)
 {
     uint64_t *dc = sw_dispatch_class(receiver, receiver_class);
     uint64_t sel_oop = intern_cstring_symbol(world->om, selector);
@@ -393,8 +393,8 @@ uint64_t sw_send0(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
 }
 
-uint64_t sw_send1(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
-                  uint64_t *receiver_class, const char *selector, uint64_t arg)
+Oop sw_send1(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
+             ObjPtr receiver_class, const char *selector, Oop arg)
 {
     uint64_t *dc = sw_dispatch_class(receiver, receiver_class);
     uint64_t sel_oop = intern_cstring_symbol(world->om, selector);
@@ -410,9 +410,9 @@ uint64_t sw_send1(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
 }
 
-uint64_t sw_send2(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
-                  uint64_t *receiver_class, const char *selector,
-                  uint64_t arg0, uint64_t arg1)
+Oop sw_send2(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
+             ObjPtr receiver_class, const char *selector,
+             Oop arg0, Oop arg1)
 {
     uint64_t *dc = sw_dispatch_class(receiver, receiver_class);
     uint64_t sel_oop = intern_cstring_symbol(world->om, selector);

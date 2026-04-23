@@ -2509,7 +2509,7 @@ static uint64_t *bc_materialize_compiled_method(uint64_t *om, uint64_t *class_cl
     return compiled_method;
 }
 
-int bc_install_compiled_methods(uint64_t *om, uint64_t *class_class,
+int bc_install_compiled_methods(Om om, ObjPtr class_class,
                                 const BClassBinding *classes, int class_count,
                                 const BCompiledMethodDef *methods, int method_count)
 {
@@ -2569,7 +2569,7 @@ int bc_install_compiled_methods(uint64_t *om, uint64_t *class_class,
     return 1;
 }
 
-int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
+int bc_compile_and_install_source_methods(Om om, ObjPtr class_class,
                                           const BClassBinding *classes, int class_count,
                                           const char *source)
 {
@@ -2710,9 +2710,9 @@ int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
     return 1;
 }
 
-uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
-                          uint64_t *array_class, uint64_t *association_class,
-                          const char *name, uint64_t *superclass,
+ObjPtr bc_define_class(Om om, ObjPtr class_class, ObjPtr string_class,
+                          ObjPtr array_class, ObjPtr association_class,
+                          const char *name, ObjPtr superclass,
                           const char **ivar_names, int ivar_count,
                           BClassFormat format)
 {
@@ -2956,9 +2956,9 @@ static int bc_class_matches_declaration(uint64_t *klass, uint64_t *superclass,
     return 1;
 }
 
-uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
-                                      uint64_t *string_class, uint64_t *array_class,
-                                      uint64_t *association_class,
+ObjPtr bc_define_class_from_source(Om om, ObjPtr class_class,
+                                      ObjPtr string_class, ObjPtr array_class,
+                                      ObjPtr association_class,
                                       const BClassBinding *classes, int class_count,
                                       const char *source)
 {
@@ -2983,7 +2983,7 @@ uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
                            declaration.ivar_count, declaration.format);
 }
 
-uint64_t *bc_attach_class_from_source(const BClassBinding *classes, int class_count,
+ObjPtr bc_attach_class_from_source(const BClassBinding *classes, int class_count,
                                       const char *source)
 {
     BClassDeclaration declaration;
@@ -3014,9 +3014,9 @@ uint64_t *bc_attach_class_from_source(const BClassBinding *classes, int class_co
     return klass;
 }
 
-uint64_t *bc_compile_and_install_class_source(uint64_t *om, uint64_t *class_class,
-                                              uint64_t *string_class, uint64_t *array_class,
-                                              uint64_t *association_class,
+ObjPtr bc_compile_and_install_class_source(Om om, ObjPtr class_class,
+                                              ObjPtr string_class, ObjPtr array_class,
+                                              ObjPtr association_class,
                                               const BClassBinding *classes, int class_count,
                                               const char *source)
 {
@@ -3033,9 +3033,9 @@ uint64_t *bc_compile_and_install_class_source(uint64_t *om, uint64_t *class_clas
     return klass;
 }
 
-uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
-                                            uint64_t *string_class, uint64_t *array_class,
-                                            uint64_t *association_class,
+ObjPtr bc_compile_and_install_class_file(Om om, ObjPtr class_class,
+                                            ObjPtr string_class, ObjPtr array_class,
+                                            ObjPtr association_class,
                                             const BClassBinding *classes, int class_count,
                                             const char *path)
 {
@@ -3060,7 +3060,7 @@ uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
                                                association_class, classes, class_count, source);
 }
 
-uint64_t *bc_compile_and_install_existing_class_source(uint64_t *om, uint64_t *class_class,
+ObjPtr bc_compile_and_install_existing_class_source(Om om, ObjPtr class_class,
                                                        const BClassBinding *classes, int class_count,
                                                        const char *source)
 {
@@ -3076,7 +3076,7 @@ uint64_t *bc_compile_and_install_existing_class_source(uint64_t *om, uint64_t *c
     return klass;
 }
 
-uint64_t *bc_compile_and_install_existing_class_file(uint64_t *om, uint64_t *class_class,
+ObjPtr bc_compile_and_install_existing_class_file(Om om, ObjPtr class_class,
                                                      const BClassBinding *classes, int class_count,
                                                      const char *path)
 {
@@ -3100,9 +3100,9 @@ uint64_t *bc_compile_and_install_existing_class_file(uint64_t *om, uint64_t *cla
     return bc_compile_and_install_existing_class_source(om, class_class, classes, class_count, source);
 }
 
-int bc_compile_and_install_classes_source(uint64_t *om, uint64_t *class_class,
-                                          uint64_t *string_class, uint64_t *array_class,
-                                          uint64_t *association_class,
+int bc_compile_and_install_classes_source(Om om, ObjPtr class_class,
+                                          ObjPtr string_class, ObjPtr array_class,
+                                          ObjPtr association_class,
                                           const BClassBinding *classes, int class_count,
                                           const char *source)
 {
@@ -3162,9 +3162,9 @@ int bc_compile_and_install_classes_source(uint64_t *om, uint64_t *class_class,
     return bc_compile_and_install_source_methods(om, class_class, classes, class_count, source);
 }
 
-int bc_compile_and_install_classes_file(uint64_t *om, uint64_t *class_class,
-                                        uint64_t *string_class, uint64_t *array_class,
-                                        uint64_t *association_class,
+int bc_compile_and_install_classes_file(Om om, ObjPtr class_class,
+                                        ObjPtr string_class, ObjPtr array_class,
+                                        ObjPtr association_class,
                                         const BClassBinding *classes, int class_count,
                                         const char *path)
 {
