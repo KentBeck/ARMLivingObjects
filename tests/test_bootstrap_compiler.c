@@ -17,6 +17,18 @@ static uint32_t read_u32(const uint8_t *bytes, int index)
            (((uint32_t)bytes[index + 3]) << 24);
 }
 
+static int bytecode_contains(const uint8_t *bytes, int count, uint8_t opcode)
+{
+    for (int index = 0; index < count; index++)
+    {
+        if (bytes[index] == opcode)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int read_source_file(const char *path, char *buf, size_t cap)
 {
     FILE *f = fopen(path, "rb");
@@ -521,6 +533,17 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, compiled.block_count, 1, "non-local-return source compiles one block");
         ASSERT_EQ(ctx, compiled.blocks[0].bytecodes[5], BC_RETURN_NON_LOCAL,
                   "block ^ emits non-local return opcode");
+    }
+
+    {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("| i | i := 1. [i < 3] whileTrue: [i := i + 1]. ^ i", &compiled), 1,
+                  "codegen whileTrue loop");
+        ASSERT_EQ(ctx, compiled.block_count, 0, "whileTrue compiles condition and body inline");
+        ASSERT_EQ(ctx, bytecode_contains(compiled.bytecodes, compiled.bytecode_count, BC_JUMP_IF_FALSE), 1,
+                  "whileTrue emits false exit jump");
+        ASSERT_EQ(ctx, bytecode_contains(compiled.bytecodes, compiled.bytecode_count, BC_JUMP), 1,
+                  "whileTrue emits backward loop jump");
     }
 
     {

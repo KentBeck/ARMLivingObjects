@@ -11,6 +11,19 @@
 #include "primitives.h"
 #include "bootstrap_compiler.h"
 
+static int byte_object_equals_cstring(uint64_t value, const char *text)
+{
+    if (!is_object_ptr(value))
+    {
+        return 0;
+    }
+    uint64_t *object = (uint64_t *)value;
+    size_t len = strlen(text);
+    return OBJ_FORMAT(object) == FORMAT_BYTES &&
+           OBJ_SIZE(object) == (uint64_t)len &&
+           memcmp(&OBJ_FIELD(object, 0), text, len) == 0;
+}
+
 #ifdef ALO_INTERPRETER_C
 static uint64_t *materialize_codegen_method(SmalltalkWorld *world, uint64_t *generator)
 {
@@ -171,6 +184,16 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: Array.st declaration matches existing class and installs methods");
     ASSERT_EQ(ctx, (uint64_t)array_class, (uint64_t)world.array_class,
               "runtime: Array.st attaches to the existing Array class");
+    uint64_t *string_class = smalltalk_world_install_existing_class_file(&world, "src/smalltalk/String.st");
+    ASSERT_EQ(ctx, string_class != NULL, 1,
+              "runtime: String.st declaration matches existing class and installs methods");
+    ASSERT_EQ(ctx, (uint64_t)string_class, (uint64_t)world.string_class,
+              "runtime: String.st attaches to the existing String class");
+    uint64_t hello = (uint64_t)sw_make_string(&world, "ab");
+    uint64_t suffix = (uint64_t)sw_make_string(&world, "cd");
+    uint64_t combined = sw_send1(&world, ctx, hello, NULL, ",", suffix);
+    ASSERT_EQ(ctx, byte_object_equals_cstring(combined, "abcd"), 1,
+              "runtime: String.st concatenation executes with whileTrue:");
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Tokenizer.st") != NULL,
               1, "runtime: Tokenizer.st defines class and installs methods");

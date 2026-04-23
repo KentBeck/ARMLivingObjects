@@ -31,13 +31,13 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/Class.st", "Class.st corpus compile", 1},
         {"src/smalltalk/Collection.st", "Collection.st corpus compile", 0},
         {"src/smalltalk/Context.st", "Context.st corpus compile", 1},
-        {"src/smalltalk/Dictionary.st", "Dictionary.st corpus compile", 0},
+        {"src/smalltalk/Dictionary.st", "Dictionary.st corpus compile", 1},
         {"src/smalltalk/ExpressionSpecTest.st", "ExpressionSpecTest.st corpus compile", 1},
         {"src/smalltalk/False.st", "False.st corpus compile", 1},
         {"src/smalltalk/Object.st", "Object.st corpus compile", 1},
         {"src/smalltalk/ReadStream.st", "ReadStream.st corpus compile", 1},
         {"src/smalltalk/SmallInteger.st", "SmallInteger.st corpus compile", 1},
-        {"src/smalltalk/String.st", "String.st corpus compile", 0},
+        {"src/smalltalk/String.st", "String.st corpus compile", 1},
         {"src/smalltalk/Symbol.st", "Symbol.st corpus compile", 1},
         {"src/smalltalk/SystemDictionary.st", "SystemDictionary.st corpus compile", 1},
         {"src/smalltalk/TestCase.st", "TestCase.st corpus compile", 1},
@@ -127,6 +127,9 @@ void test_smalltalk_sources(TestContext *ctx)
               "String>>printString prints chars via asCharacter printChar");
     ASSERT_EQ(ctx, strstr(string_src, "= aString\n    <primitive: 25>\n    false") != NULL, 1,
               "String>>= has explicit false fallback");
+    ASSERT_EQ(ctx, bc_compile_source_methods(string_src, methods, 64, &method_count), 1,
+              "String.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 8, "String.st method count");
     ASSERT_EQ(ctx, read_file("src/smalltalk/Symbol.st", symbol_src, sizeof(symbol_src)), 1,
               "src/smalltalk/Symbol.st exists");
     ASSERT_EQ(ctx, strstr(symbol_src, "= aSymbol") != NULL, 1,

@@ -638,6 +638,8 @@ enum
     BC_CG_STORE_TEMP = 5,
     BC_CG_SEND_MESSAGE = 6,
     BC_CG_RETURN = 7,
+    BC_CG_JUMP = 8,
+    BC_CG_JUMP_IF_FALSE = 10,
     BC_CG_RETURN_NON_LOCAL = 16,
     BC_CG_PUSH_GLOBAL = 18,
     BC_CG_PUSH_CLOSURE = 14,
@@ -673,6 +675,22 @@ static void cg_emit_u32(CgState *state, uint32_t value)
     cg_emit_byte(state, (uint8_t)((value >> 24) & 0xFF));
 }
 
+static int cg_emit_jump_placeholder(CgState *state, uint8_t opcode)
+{
+    int patch_offset = state->compiled->bytecode_count + 1;
+    cg_emit_byte(state, opcode);
+    cg_emit_u32(state, 0);
+    return patch_offset;
+}
+
+static void cg_patch_u32(CgState *state, int offset, uint32_t value)
+{
+    state->compiled->bytecodes[offset] = (uint8_t)(value & 0xFF);
+    state->compiled->bytecodes[offset + 1] = (uint8_t)((value >> 8) & 0xFF);
+    state->compiled->bytecodes[offset + 2] = (uint8_t)((value >> 16) & 0xFF);
+    state->compiled->bytecodes[offset + 3] = (uint8_t)((value >> 24) & 0xFF);
+}
+
 static int cg_literal_index(CgState *state, BToken literal)
 {
     for (int index = 0; index < state->compiled->literal_count; index++)
@@ -691,6 +709,8 @@ static int cg_literal_index(CgState *state, BToken literal)
     return index;
 }
 
+static int cg_parse_binary_expression(CgState *state);
+
 static int cg_emit_selector_send(CgState *state, const char *selector, uint32_t argc)
 {
     BToken selector_token = make_token(BTOK_SELECTOR);
@@ -700,6 +720,13 @@ static int cg_emit_selector_send(CgState *state, const char *selector, uint32_t 
     cg_emit_u32(state, (uint32_t)selector_index);
     cg_emit_u32(state, argc);
     return 1;
+}
+
+static void cg_emit_push_literal_token(CgState *state, BToken token)
+{
+    int index = cg_literal_index(state, token);
+    cg_emit_byte(state, BC_CG_PUSH_LITERAL);
+    cg_emit_u32(state, (uint32_t)index);
 }
 
 static int cg_temp_index(BMethodBody *body, const char *name)
@@ -1396,6 +1423,105 @@ static int cg_parse_expression(CgState *state)
     return cg_parse_expression_continuation(state);
 }
 
+static int cg_parse_statements(CgState *state);
+
+static int cg_capture_block_source_from_open(CgState *state, char *block_source, size_t cap)
+{
+    uint64_t start = state->parser.tokenizer.index;
+    if (!cg_skip_block_literal(&state->parser))
+    {
+        return 0;
+    }
+
+    uint64_t end = state->parser.tokenizer.index;
+    if (end == 0 || end <= start)
+    {
+        return 0;
+    }
+    uint64_t close = end - 1;
+    uint64_t length = close - start;
+    if (length >= cap)
+    {
+        return 0;
+    }
+    memcpy(block_source, state->parser.tokenizer.source + start, (size_t)length);
+    block_source[length] = '\0';
+    return 1;
+}
+
+static int cg_emit_inline_expression(CgState *state, const char *source)
+{
+    BParser saved = state->parser;
+    bp_init(&state->parser, source);
+    if (!cg_parse_expression(state))
+    {
+        state->parser = saved;
+        return 0;
+    }
+    BToken eof = bp_next(&state->parser);
+    state->parser = saved;
+    return eof.type == BTOK_EOF;
+}
+
+static int cg_emit_inline_statements(CgState *state, const char *source)
+{
+    BParser saved = state->parser;
+    bp_init(&state->parser, source);
+    if (!cg_parse_statements(state))
+    {
+        state->parser = saved;
+        return 0;
+    }
+    state->parser = saved;
+    return 1;
+}
+
+static int cg_parse_while_true_statement(CgState *state)
+{
+    char condition_source[4096];
+    char body_source[4096];
+
+    if (!cg_capture_block_source_from_open(state, condition_source, sizeof(condition_source)))
+    {
+        return 0;
+    }
+
+    BToken keyword = bp_next(&state->parser);
+    if (keyword.type != BTOK_KEYWORD || strcmp(keyword.text, "whileTrue:") != 0)
+    {
+        return 0;
+    }
+
+    BToken body_open = bp_next(&state->parser);
+    if (body_open.type != BTOK_SPECIAL || strcmp(body_open.text, "[") != 0)
+    {
+        return 0;
+    }
+    if (!cg_capture_block_source_from_open(state, body_source, sizeof(body_source)))
+    {
+        return 0;
+    }
+
+    int loop_start = state->compiled->bytecode_count;
+    if (!cg_emit_inline_expression(state, condition_source))
+    {
+        return 0;
+    }
+    int exit_patch = cg_emit_jump_placeholder(state, BC_CG_JUMP_IF_FALSE);
+    if (!cg_emit_inline_statements(state, body_source))
+    {
+        return 0;
+    }
+    cg_emit_byte(state, BC_CG_JUMP);
+    cg_emit_u32(state, (uint32_t)loop_start);
+    cg_patch_u32(state, exit_patch, (uint32_t)state->compiled->bytecode_count);
+
+    BToken nil_token = make_token(BTOK_IDENTIFIER);
+    strncpy(nil_token.text, "nil", sizeof(nil_token.text) - 1);
+    cg_emit_push_literal_token(state, nil_token);
+    return 1;
+}
+
 static int cg_parse_temp_decls(CgState *state)
 {
     BToken token = bp_next(&state->parser);
@@ -1446,6 +1572,26 @@ static int cg_parse_statements(CgState *state)
 
             BToken eof = bp_next(&state->parser);
             return eof.type == BTOK_EOF;
+        }
+
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "[") == 0)
+        {
+            if (!cg_parse_while_true_statement(state))
+            {
+                return 0;
+            }
+
+            BToken separator = bp_next(&state->parser);
+            if (separator.type == BTOK_EOF)
+            {
+                return 1;
+            }
+            if (separator.type != BTOK_SPECIAL || strcmp(separator.text, ".") != 0)
+            {
+                return 0;
+            }
+            cg_emit_byte(state, BC_CG_POP);
+            continue;
         }
 
         if (token.type == BTOK_IDENTIFIER)
@@ -1571,6 +1717,15 @@ static int bc_codegen_body_with_outer_state(const char *source, BCompiledBody *c
     if (!cg_parse_statements(&state))
     {
         return 0;
+    }
+
+    if (in_block && !state.saw_return)
+    {
+        BToken nil_token = make_token(BTOK_IDENTIFIER);
+        strncpy(nil_token.text, "nil", sizeof(nil_token.text) - 1);
+        cg_emit_push_literal_token(&state, nil_token);
+        cg_emit_byte(&state, BC_CG_RETURN);
+        state.saw_return = 1;
     }
 
     compiled->temp_count = state.body.temp_count;

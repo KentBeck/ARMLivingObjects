@@ -1,5 +1,7 @@
 "String — byte-indexable sequence of characters"
 
+Object variableByteSubclass: #String instanceVariableNames: ''
+
 !String methodsFor: 'accessing'!
 size
     <primitive: 11>
