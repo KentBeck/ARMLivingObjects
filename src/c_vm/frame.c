@@ -3,18 +3,18 @@
 #include <signal.h>
 #include <stdint.h>
 
-extern uint64_t *smalltalk_stack_limit_low;
+extern Oop *smalltalk_stack_limit_low;
 
 static void trap_stack_overflow(void)
 {
     raise(SIGTRAP);
 }
 
-void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved_ip,
-                     uint64_t method, uint64_t num_args, uint64_t num_temps)
+void activate_method(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t saved_ip,
+                     Oop method, uint64_t num_args, uint64_t num_temps)
 {
-    uint64_t *sp = *sp_ptr;
-    uint64_t *caller_fp = *fp_ptr;
+    Oop *sp = *sp_ptr;
+    ObjPtr caller_fp = *fp_ptr;
     uint64_t required_words = num_temps + 6;
 
     if (sp - required_words < smalltalk_stack_limit_low)
@@ -22,11 +22,11 @@ void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved_ip,
         trap_stack_overflow();
     }
 
-    uint64_t receiver = sp[num_args];
+    Oop receiver = sp[num_args];
 
     *--sp = saved_ip;
-    *--sp = (uint64_t)caller_fp;
-    uint64_t *fp = sp;
+    *--sp = (Oop)caller_fp;
+    ObjPtr fp = sp;
 
     *--sp = method;
     *--sp = num_args << FRAME_FLAGS_NUM_ARGS_SHIFT;
@@ -42,60 +42,60 @@ void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved_ip,
     *fp_ptr = fp;
 }
 
-uint64_t frame_receiver(uint64_t *fp)
+Oop frame_receiver(ObjPtr fp)
 {
     return fp[FRAME_RECEIVER];
 }
 
-uint64_t frame_method(uint64_t *fp)
+Oop frame_method(ObjPtr fp)
 {
     return fp[FRAME_METHOD];
 }
 
-uint64_t frame_flags(uint64_t *fp)
+uint64_t frame_flags(ObjPtr fp)
 {
     return fp[FRAME_FLAGS];
 }
 
-uint64_t frame_num_args(uint64_t *fp)
+uint64_t frame_num_args(ObjPtr fp)
 {
     return (fp[FRAME_FLAGS] >> FRAME_FLAGS_NUM_ARGS_SHIFT) & 0xFF;
 }
 
-uint64_t frame_is_block(uint64_t *fp)
+uint64_t frame_is_block(ObjPtr fp)
 {
     return (fp[FRAME_FLAGS] >> FRAME_FLAGS_IS_BLOCK_SHIFT) & 0xFF;
 }
 
-uint64_t frame_has_context(uint64_t *fp)
+uint64_t frame_has_context(ObjPtr fp)
 {
     return fp[FRAME_FLAGS] & FRAME_FLAGS_HAS_CONTEXT_MASK;
 }
 
-uint64_t frame_temp(uint64_t *fp, uint64_t index)
+Oop frame_temp(ObjPtr fp, uint64_t index)
 {
     return fp[-(int64_t)(FP_TEMP_BASE_WORDS + index)];
 }
 
-uint64_t frame_arg(uint64_t *fp, uint64_t index)
+Oop frame_arg(ObjPtr fp, uint64_t index)
 {
     uint64_t num_args = frame_num_args(fp);
     return fp[FP_ARG_BASE_WORDS + (num_args - 1 - index)];
 }
 
-void frame_store_temp(uint64_t *fp, uint64_t index, uint64_t value)
+void frame_store_temp(ObjPtr fp, uint64_t index, Oop value)
 {
     fp[-(int64_t)(FP_TEMP_BASE_WORDS + index)] = value;
 }
 
-void frame_return(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t *ip_ptr, uint64_t return_value)
+void frame_return(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t *ip_ptr, Oop return_value)
 {
-    uint64_t *fp = *fp_ptr;
+    ObjPtr fp = *fp_ptr;
     uint64_t num_args = frame_num_args(fp);
-    uint64_t *new_sp = fp + FP_ARG_BASE_WORDS + num_args;
+    Oop *new_sp = fp + FP_ARG_BASE_WORDS + num_args;
 
     *new_sp = return_value;
-    *fp_ptr = (uint64_t *)fp[FRAME_SAVED_FP];
+    *fp_ptr = (ObjPtr)fp[FRAME_SAVED_FP];
     *ip_ptr = fp[FRAME_SAVED_IP];
     *sp_ptr = new_sp;
 }

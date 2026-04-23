@@ -9,8 +9,8 @@
 
 extern Oop oop_class(Oop oop, ObjPtr class_table);
 extern Oop class_lookup(ObjPtr klass, Oop selector);
-extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved_ip,
-                            uint64_t method, uint64_t num_args, uint64_t num_temps);
+extern void activate_method(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t saved_ip,
+                            Oop method, uint64_t num_args, uint64_t num_temps);
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
 extern Oop prim_string_as_symbol(Oop receiver);
@@ -21,7 +21,7 @@ extern void gc_collect(uint64_t *roots, uint64_t num_roots,
                        uint64_t from_start, uint64_t from_end);
 extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
                                        uint64_t **slot_buf, uint64_t max_slots);
-extern ObjPtr ensure_frame_context_global(uint64_t *fp, Om om);
+extern ObjPtr ensure_frame_context_global(ObjPtr fp, Om om);
 extern ObjPtr global_context_class;
 extern Oop cannot_return_selector_oop(void);
 extern void txn_log_write(Oop *log, Oop obj, uint64_t field_index, Oop value);

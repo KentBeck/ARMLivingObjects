@@ -176,8 +176,8 @@ static Oop run_method(SmalltalkWorld *world, TestContext *ctx, ObjPtr method, Oo
     ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
     uint64_t num_args = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_ARGS));
     uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
-    uint64_t *fp = (uint64_t *)0xCAFE;
+    Oop *sp = ctx->stack + STACK_WORDS;
+    ObjPtr fp = (ObjPtr)0xCAFE;
 
     stack_push(&sp, ctx->stack, receiver);
     activate_method(&sp, &fp, 0, (Oop)method, num_args, num_temps);
@@ -195,8 +195,8 @@ static Oop sw_send0_capture_receiver(SmalltalkWorld *world, TestContext *ctx, Oo
     ObjPtr method = (ObjPtr)method_oop;
     ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
     uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
-    uint64_t *fp = (uint64_t *)0xCAFE;
+    Oop *sp = ctx->stack + STACK_WORDS;
+    ObjPtr fp = (ObjPtr)0xCAFE;
 
     stack_push(&sp, ctx->stack, receiver);
     activate_method(&sp, &fp, 0, (Oop)method, 0, num_temps);
@@ -217,8 +217,8 @@ static Oop sw_send1_capture_receiver(SmalltalkWorld *world, TestContext *ctx, Oo
     ObjPtr method = (ObjPtr)method_oop;
     ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
     uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    uint64_t *sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
-    uint64_t *fp = (uint64_t *)0xCAFE;
+    Oop *sp = ctx->stack + STACK_WORDS;
+    ObjPtr fp = (ObjPtr)0xCAFE;
 
     stack_push(&sp, ctx->stack, receiver);
     stack_push(&sp, ctx->stack, arg);

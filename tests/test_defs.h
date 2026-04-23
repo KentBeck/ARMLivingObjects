@@ -7,20 +7,21 @@
 #include <signal.h>
 #include "vm_defs.h"
 
-extern void stack_push(uint64_t **sp_ptr, uint64_t *stack_base, uint64_t value);
-extern uint64_t stack_pop(uint64_t **sp_ptr);
-extern uint64_t stack_top(uint64_t **sp_ptr);
-extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved_ip, uint64_t method, uint64_t num_args, uint64_t num_temps);
-extern uint64_t frame_receiver(uint64_t *fp);
-extern uint64_t frame_method(uint64_t *fp);
-extern uint64_t frame_flags(uint64_t *fp);
-extern uint64_t frame_num_args(uint64_t *fp);
-extern uint64_t frame_is_block(uint64_t *fp);
-extern uint64_t frame_has_context(uint64_t *fp);
-extern uint64_t frame_temp(uint64_t *fp, uint64_t index);
-extern uint64_t frame_arg(uint64_t *fp, uint64_t index);
-extern void frame_store_temp(uint64_t *fp, uint64_t index, uint64_t value);
-extern void frame_return(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t *ip_ptr, uint64_t return_value);
+extern void stack_push(Oop **sp_ptr, Oop *stack_base, Oop value);
+extern Oop stack_pop(Oop **sp_ptr);
+extern Oop stack_top(Oop **sp_ptr);
+extern void activate_method(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t saved_ip,
+                            Oop method, uint64_t num_args, uint64_t num_temps);
+extern Oop frame_receiver(ObjPtr fp);
+extern Oop frame_method(ObjPtr fp);
+extern uint64_t frame_flags(ObjPtr fp);
+extern uint64_t frame_num_args(ObjPtr fp);
+extern uint64_t frame_is_block(ObjPtr fp);
+extern uint64_t frame_has_context(ObjPtr fp);
+extern Oop frame_temp(ObjPtr fp, uint64_t index);
+extern Oop frame_arg(ObjPtr fp, uint64_t index);
+extern void frame_store_temp(ObjPtr fp, uint64_t index, Oop value);
+extern void frame_return(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t *ip_ptr, Oop return_value);
 extern void bc_push_self(uint64_t **sp_ptr, uint64_t **fp_ptr);
 extern void bc_push_temp(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t index);
 extern void bc_push_inst_var(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t field_index);
