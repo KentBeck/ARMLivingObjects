@@ -52,38 +52,38 @@ static uint32_t read_u32(uint8_t **ip)
     return value;
 }
 
-static void push(uint64_t **sp_ptr, Oop value)
+static void push(Oop **sp_ptr, Oop value)
 {
-    uint64_t *sp = *sp_ptr - 1;
+    Oop *sp = *sp_ptr - 1;
     *sp = value;
     *sp_ptr = sp;
 }
 
-static Oop pop(uint64_t **sp_ptr)
+static Oop pop(Oop **sp_ptr)
 {
-    uint64_t *sp = *sp_ptr;
+    Oop *sp = *sp_ptr;
     Oop value = *sp;
     *sp_ptr = sp + 1;
     return value;
 }
 
-static uint64_t frame_num_args_local(uint64_t *fp)
+static uint64_t frame_num_args_local(ObjPtr fp)
 {
     return (fp[FRAME_FLAGS] >> FRAME_FLAGS_NUM_ARGS_SHIFT) & 0xFF;
 }
 
-static Oop frame_arg_local(uint64_t *fp, uint64_t index)
+static Oop frame_arg_local(ObjPtr fp, uint64_t index)
 {
     uint64_t num_args = frame_num_args_local(fp);
     return fp[FP_ARG_BASE_WORDS + (num_args - 1 - index)];
 }
 
-static int frame_has_block_closure(uint64_t *fp)
+static int frame_has_block_closure(ObjPtr fp)
 {
     return (fp[FRAME_FLAGS] & FRAME_FLAGS_BLOCK_CLOSURE_MASK) != 0;
 }
 
-static int frame_has_context_local(uint64_t *fp)
+static int frame_has_context_local(ObjPtr fp)
 {
     return (fp[FRAME_FLAGS] & FRAME_FLAGS_HAS_CONTEXT_MASK) != 0;
 }
@@ -127,21 +127,21 @@ static int fits_smallint(int64_t value)
            value <= (INT64_MAX >> SMALLINT_SHIFT);
 }
 
-static void replace_receiver_and_arg(uint64_t **sp_ptr, Oop result)
+static void replace_receiver_and_arg(Oop **sp_ptr, Oop result)
 {
-    uint64_t *sp = *sp_ptr + 1;
+    Oop *sp = *sp_ptr + 1;
     *sp = result;
     *sp_ptr = sp;
 }
 
-static void replace_receiver_and_two_args(uint64_t **sp_ptr, Oop result)
+static void replace_receiver_and_two_args(Oop **sp_ptr, Oop result)
 {
-    uint64_t *sp = *sp_ptr + 2;
+    Oop *sp = *sp_ptr + 2;
     *sp = result;
     *sp_ptr = sp;
 }
 
-static void replace_receiver(uint64_t **sp_ptr, Oop result)
+static void replace_receiver(Oop **sp_ptr, Oop result)
 {
     **sp_ptr = result;
 }
@@ -218,7 +218,7 @@ static int has_gc_context_layout(Om om)
            to_free <= to_end;
 }
 
-static int collect_and_retry_allocation(uint64_t **sp_ptr, uint64_t **fp_ptr,
+static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
                                         uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
                                         ObjPtr *class_table_ptr, Om om)
 {
@@ -286,7 +286,7 @@ static int collect_and_retry_allocation(uint64_t **sp_ptr, uint64_t **fp_ptr,
     return 1;
 }
 
-static ObjPtr ensure_frame_context_with_retry(uint64_t **sp_ptr, uint64_t **fp_ptr,
+static ObjPtr ensure_frame_context_with_retry(Oop **sp_ptr, ObjPtr *fp_ptr,
                                               uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
                                               ObjPtr *class_table_ptr, Om om)
 {
@@ -306,13 +306,13 @@ static ObjPtr ensure_frame_context_with_retry(uint64_t **sp_ptr, uint64_t **fp_p
 
 static uint8_t cannot_return_after_bytecodes[] = {BC_RETURN_STACK_TOP};
 
-static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, Oop primitive,
+static PrimitiveResult try_allocation_primitive(Oop **sp_ptr, Oop primitive,
                                                 uint64_t arg_count, Om om,
-                                                uint64_t **fp_ptr, uint8_t **ip_ptr,
+                                                ObjPtr *fp_ptr, uint8_t **ip_ptr,
                                                 uint8_t **bytecode_base_ptr,
                                                 ObjPtr *class_table_ptr)
 {
-    uint64_t *sp = *sp_ptr;
+    Oop *sp = *sp_ptr;
     Oop receiver = sp[arg_count];
 
     switch (primitive)
@@ -357,7 +357,7 @@ static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, Oop primitive
             }
         }
         initialize_word_fields(object, (uint64_t)size);
-        replace_receiver(sp_ptr, (uint64_t)object);
+        replace_receiver(sp_ptr, (Oop)object);
         return PRIMITIVE_SUCCEEDED;
     }
 
@@ -415,7 +415,7 @@ static PrimitiveResult try_allocation_primitive(uint64_t **sp_ptr, Oop primitive
         {
             initialize_word_fields(object, (uint64_t)size);
         }
-        replace_receiver_and_arg(sp_ptr, (uint64_t)object);
+        replace_receiver_and_arg(sp_ptr, (Oop)object);
         return PRIMITIVE_SUCCEEDED;
     }
 
@@ -429,7 +429,7 @@ static uint64_t block_copied_count(Oop block)
     return OBJ_SIZE((ObjPtr)block) - BLOCK_COPIED_BASE;
 }
 
-static Oop block_closure_for_frame(uint64_t *fp)
+static Oop block_closure_for_frame(ObjPtr fp)
 {
     if (frame_has_context_local(fp))
     {
@@ -442,7 +442,7 @@ static Oop block_closure_for_frame(uint64_t *fp)
     return TAGGED_NIL;
 }
 
-static Oop block_home_context_for_frame(uint64_t *fp)
+static Oop block_home_context_for_frame(ObjPtr fp)
 {
     if (frame_has_context_local(fp))
     {
@@ -455,14 +455,14 @@ static Oop block_home_context_for_frame(uint64_t *fp)
     return TAGGED_NIL;
 }
 
-static void mark_block_frame(uint64_t *fp, Oop block)
+static void mark_block_frame(ObjPtr fp, Oop block)
 {
     fp[FRAME_FLAGS] |= (UINT64_C(1) << FRAME_FLAGS_IS_BLOCK_SHIFT) |
                        FRAME_FLAGS_BLOCK_CLOSURE_MASK;
     fp[FRAME_CONTEXT] = block;
 }
 
-static void populate_block_copied_values(uint64_t *fp, Oop block, uint64_t copied_count)
+static void populate_block_copied_values(ObjPtr fp, Oop block, uint64_t copied_count)
 {
     ObjPtr block_object = (ObjPtr)block;
     for (uint64_t index = 0; index < copied_count; index++)
@@ -471,7 +471,7 @@ static void populate_block_copied_values(uint64_t *fp, Oop block, uint64_t copie
     }
 }
 
-static PrimitiveResult try_block_primitive(uint64_t **sp_ptr, uint64_t **fp_ptr,
+static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                                           uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
                                           Oop primitive, uint64_t arg_count,
                                           ObjPtr class_table)
@@ -491,7 +491,7 @@ static PrimitiveResult try_block_primitive(uint64_t **sp_ptr, uint64_t **fp_ptr,
         return PRIMITIVE_FAILED;
     }
 
-    uint64_t *sp = *sp_ptr;
+    Oop *sp = *sp_ptr;
     Oop block = sp[arg_count];
     if (!is_object_value(block) ||
         OBJ_CLASS((ObjPtr)block) != OBJ_FIELD(class_table, CLASS_TABLE_BLOCK))
@@ -528,7 +528,7 @@ static PrimitiveResult try_block_primitive(uint64_t **sp_ptr, uint64_t **fp_ptr,
     return PRIMITIVE_SUCCEEDED;
 }
 
-static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, Oop primitive,
+static PrimitiveResult try_smallint_primitive(Oop **sp_ptr, Oop primitive,
                                              uint64_t arg_count)
 {
     switch (primitive)
@@ -548,7 +548,7 @@ static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, Oop primitive,
         return PRIMITIVE_FAILED;
     }
 
-    uint64_t *sp = *sp_ptr;
+    Oop *sp = *sp_ptr;
     Oop arg = sp[0];
     Oop receiver = sp[1];
 
@@ -606,10 +606,10 @@ static PrimitiveResult try_smallint_primitive(uint64_t **sp_ptr, Oop primitive,
     }
 }
 
-static PrimitiveResult try_object_primitive(uint64_t **sp_ptr, Oop primitive,
+static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
                                            uint64_t arg_count, ObjPtr class_table)
 {
-    uint64_t *sp = *sp_ptr;
+    Oop *sp = *sp_ptr;
     Oop receiver = sp[arg_count];
 
     switch (primitive)
@@ -650,7 +650,7 @@ static PrimitiveResult try_object_primitive(uint64_t **sp_ptr, Oop primitive,
     }
 }
 
-static PrimitiveResult try_character_primitive(uint64_t **sp_ptr, Oop primitive,
+static PrimitiveResult try_character_primitive(Oop **sp_ptr, Oop primitive,
                                               uint64_t arg_count)
 {
     switch (primitive)
@@ -765,10 +765,10 @@ static PrimitiveResult try_character_primitive(uint64_t **sp_ptr, Oop primitive,
     }
 }
 
-static PrimitiveResult try_string_symbol_primitive(uint64_t **sp_ptr, Oop primitive,
+static PrimitiveResult try_string_symbol_primitive(Oop **sp_ptr, Oop primitive,
                                                   uint64_t arg_count)
 {
-    uint64_t *sp = *sp_ptr;
+    Oop *sp = *sp_ptr;
     Oop receiver = sp[arg_count];
 
     switch (primitive)
@@ -864,10 +864,10 @@ static PrimitiveResult try_string_symbol_primitive(uint64_t **sp_ptr, Oop primit
     }
 }
 
-static PrimitiveResult try_indexed_primitive(uint64_t **sp_ptr, Oop primitive,
+static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, Oop primitive,
                                             uint64_t arg_count, Oop *txn_log)
 {
-    uint64_t *sp = *sp_ptr;
+    Oop *sp = *sp_ptr;
     Oop receiver = sp[arg_count];
 
     switch (primitive)
@@ -1031,7 +1031,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
               ObjPtr class_table, Om om, Oop *txn_log)
 {
     uint8_t *bytecode_base = ip;
-    uint64_t *entry_fp = *fp_ptr;
+    ObjPtr entry_fp = (ObjPtr)*fp_ptr;
 
     for (;;)
     {
@@ -1216,10 +1216,10 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
         case BC_RETURN_STACK_TOP:
         {
             Oop return_value = **sp_ptr;
-            uint64_t *fp = *fp_ptr;
+            ObjPtr fp = (ObjPtr)*fp_ptr;
             uint64_t num_args = frame_num_args_local(fp);
-            uint64_t *new_sp = fp + FP_ARG_BASE_WORDS + num_args;
-            uint64_t *caller_fp = (uint64_t *)fp[FRAME_SAVED_FP];
+            Oop *new_sp = fp + FP_ARG_BASE_WORDS + num_args;
+            ObjPtr caller_fp = (ObjPtr)fp[FRAME_SAVED_FP];
             uint8_t *caller_ip = (uint8_t *)fp[FRAME_SAVED_IP];
 
             *new_sp = return_value;
@@ -1232,7 +1232,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
             }
 
             ip = caller_ip;
-            if (caller_fp != 0 && caller_fp != (uint64_t *)0xCAFE)
+            if (caller_fp != 0 && caller_fp != (ObjPtr)0xCAFE)
             {
                 ObjPtr caller_method = (ObjPtr)caller_fp[FRAME_METHOD];
                 ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(caller_method, CM_BYTECODES);
@@ -1284,7 +1284,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
         case BC_PUSH_CLOSURE:
         {
             uint32_t literal_index = read_u32(&ip);
-            uint64_t *fp = *fp_ptr;
+            ObjPtr fp = (ObjPtr)*fp_ptr;
             ObjPtr current_method = (ObjPtr)fp[FRAME_METHOD];
             uint64_t num_args = frame_num_args_local(fp);
             uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(current_method, CM_NUM_TEMPS));
@@ -1357,7 +1357,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 }
             }
 
-            OBJ_FIELD(block, BLOCK_HOME_CONTEXT) = home_context == NULL ? TAGGED_NIL : (uint64_t)home_context;
+            OBJ_FIELD(block, BLOCK_HOME_CONTEXT) = home_context == NULL ? TAGGED_NIL : (Oop)home_context;
             OBJ_FIELD(block, BLOCK_HOME_RECEIVER) = fp[FRAME_RECEIVER];
             OBJ_FIELD(block, BLOCK_CM) = block_method;
 
@@ -1374,7 +1374,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 copied_index++;
             }
 
-            push(sp_ptr, (uint64_t)block);
+            push(sp_ptr, (Oop)block);
             break;
         }
 
@@ -1393,25 +1393,25 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 unsupported_bytecode(opcode);
                 break;
             }
-            push(sp_ptr, (uint64_t)context);
+            push(sp_ptr, (Oop)context);
             break;
         }
 
         case BC_RETURN_NON_LOCAL:
         {
             Oop return_value = **sp_ptr;
-            uint64_t *current_fp = *fp_ptr;
+            ObjPtr current_fp = (ObjPtr)*fp_ptr;
             Oop home_context = block_home_context_for_frame(current_fp);
             Oop closure = block_closure_for_frame(current_fp);
-            uint64_t *home_fp = current_fp;
+            ObjPtr home_fp = current_fp;
 
-            while (home_fp != NULL && home_fp != (uint64_t *)0xCAFE)
+            while (home_fp != NULL && home_fp != (ObjPtr)0xCAFE)
             {
                 if (frame_has_context_local(home_fp) && home_fp[FRAME_CONTEXT] == home_context)
                 {
                     uint64_t num_args = frame_num_args_local(home_fp);
-                    uint64_t *new_sp = home_fp + FP_ARG_BASE_WORDS + num_args;
-                    uint64_t *caller_fp = (uint64_t *)home_fp[FRAME_SAVED_FP];
+                    Oop *new_sp = home_fp + FP_ARG_BASE_WORDS + num_args;
+                    ObjPtr caller_fp = (ObjPtr)home_fp[FRAME_SAVED_FP];
                     uint8_t *caller_ip = (uint8_t *)home_fp[FRAME_SAVED_IP];
 
                     *new_sp = return_value;
@@ -1424,7 +1424,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                     }
 
                     ip = caller_ip;
-                    if (caller_fp != NULL && caller_fp != (uint64_t *)0xCAFE)
+                    if (caller_fp != NULL && caller_fp != (ObjPtr)0xCAFE)
                     {
                         ObjPtr caller_method = (ObjPtr)caller_fp[FRAME_METHOD];
                         ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(caller_method, CM_BYTECODES);
@@ -1432,10 +1432,10 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                     }
                     break;
                 }
-                home_fp = (uint64_t *)home_fp[FRAME_SAVED_FP];
+                home_fp = (ObjPtr)home_fp[FRAME_SAVED_FP];
             }
 
-            if (home_fp != NULL && home_fp != (uint64_t *)0xCAFE)
+            if (home_fp != NULL && home_fp != (ObjPtr)0xCAFE)
             {
                 break;
             }
@@ -1454,7 +1454,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 break;
             }
 
-            uint64_t *sp = *sp_ptr;
+            Oop *sp = *sp_ptr;
             sp -= 1;
             sp[0] = return_value;
             sp[1] = closure;
