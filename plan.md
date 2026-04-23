@@ -33,7 +33,7 @@ LSP Server
 - [x] Change block closures to reference a home context, not only copied values
 - [x] Implement non-local block return using home contexts
 - [x] Implement `cannotReturn:` when a non-local return targets a dead home
-- [ ] Preserve arguments but not volatile non-argument temps for widowed contexts
+- [x] Preserve arguments but not volatile non-argument temps for widowed contexts
 - [ ] Implement class builder (`Class` + method install from parsed source)
   - [x] Define classes from a restricted Smalltalk class declaration
   - [x] Load one class declaration plus method chunks from one source

@@ -248,13 +248,7 @@ ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class)
 
     uint64_t num_args = (fp[FRAME_FLAGS] >> 8) & 0xFF;
     uint64_t *method = (uint64_t *)fp[FRAME_METHOD];
-    uint64_t num_temps = 0;
-    if (method != NULL && is_object_ptr((uint64_t)method))
-    {
-        num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    }
-
-    uint64_t field_count = CONTEXT_VAR_BASE + num_args + num_temps;
+    uint64_t field_count = CONTEXT_VAR_BASE + num_args;
     uint64_t *context = om_alloc(om, context_class, FORMAT_FIELDS, field_count);
     if (context == NULL)
     {
@@ -272,15 +266,11 @@ ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class)
     OBJ_FIELD(context, CONTEXT_CLOSURE) = closure_oop == 0 ? tagged_nil() : closure_oop;
     OBJ_FIELD(context, CONTEXT_FLAGS) = tag_smallint((int64_t)fp[FRAME_FLAGS]);
     OBJ_FIELD(context, CONTEXT_NUM_ARGS) = tag_smallint((int64_t)num_args);
-    OBJ_FIELD(context, CONTEXT_NUM_TEMPS) = tag_smallint((int64_t)num_temps);
+    OBJ_FIELD(context, CONTEXT_NUM_TEMPS) = tag_smallint(0);
 
     for (uint64_t i = 0; i < num_args; i++)
     {
         OBJ_FIELD(context, CONTEXT_VAR_BASE + i) = frame_arg(fp, i);
-    }
-    for (uint64_t i = 0; i < num_temps; i++)
-    {
-        OBJ_FIELD(context, CONTEXT_VAR_BASE + num_args + i) = frame_temp(fp, i);
     }
 
     fp[FRAME_CONTEXT] = (uint64_t)context;
