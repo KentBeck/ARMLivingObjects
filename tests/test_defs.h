@@ -117,6 +117,34 @@ static inline void gc_ctx_swap(uint64_t *gc_ctx)
     gc_ctx[GC_FROM_START] = gc_ctx[GC_TO_START];
     gc_ctx[GC_TO_START] = tmp;
 }
+
+typedef struct
+{
+    uint64_t roots[16];
+    uint64_t count;
+} OopRootSet;
+
+static inline uint64_t oop_roots_add(OopRootSet *set, uint64_t oop)
+{
+    uint64_t index = set->count;
+    if (index < (uint64_t)(sizeof(set->roots) / sizeof(set->roots[0])))
+    {
+        set->roots[index] = oop;
+        set->count++;
+    }
+    return index;
+}
+
+static inline uint64_t oop_roots_get(const OopRootSet *set, uint64_t index)
+{
+    return set->roots[index];
+}
+
+static inline uint64_t *oop_roots_ptr(const OopRootSet *set, uint64_t index)
+{
+    return (uint64_t *)set->roots[index];
+}
+
 extern uint64_t *oop_class(uint64_t oop, uint64_t *class_table) LO_NO_ALLOC;
 extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector) LO_NO_ALLOC;
 extern uint64_t class_lookup(uint64_t *klass, uint64_t selector) LO_NO_ALLOC;

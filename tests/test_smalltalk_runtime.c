@@ -202,6 +202,10 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: Tokenizer produced a Token with value 1");
 
 #ifdef ALO_INTERPRETER_C
+    OopRootSet compiler_roots = {0};
+    uint64_t method_gen_root = 0;
+    int have_method_gen_root = 0;
+
     ASSERT_EQ(ctx,
               bc_compile_and_install_classes_file(world.om, world.class_class,
                                                   world.string_class, world.array_class,
@@ -222,7 +226,9 @@ void test_smalltalk_runtime(TestContext *ctx)
                                    "compileMethod:", method_source);
     ASSERT_EQ(ctx, is_object_ptr(method_gen), 1,
               "runtime: Compiler compileMethod: returns a CodeGenerator object");
-    uint64_t *method_gen_ptr = (uint64_t *)method_gen;
+    method_gen_root = oop_roots_add(&compiler_roots, method_gen);
+    have_method_gen_root = 1;
+    uint64_t *method_gen_ptr = oop_roots_ptr(&compiler_roots, method_gen_root);
     ASSERT_EQ(ctx, OBJ_SIZE(method_gen_ptr), 11,
               "runtime: method CodeGenerator has expected ivar slots");
     ASSERT_EQ(ctx, OBJ_FIELD(method_gen_ptr, 1), tag_smallint(7),
@@ -271,6 +277,37 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: TestSuite.st class declaration has two instance variables");
     ASSERT_EQ(ctx, class_lookup(test_suite_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
               1, "runtime: TestSuite.st installs runOn:");
+
+#ifdef ALO_INTERPRETER_C
+    if (have_method_gen_root)
+    {
+        static uint8_t compiler_gc_buf[32 * 1024 * 1024] __attribute__((aligned(8)));
+        uint64_t to_space[2];
+        om_init(compiler_gc_buf, sizeof(compiler_gc_buf), to_space);
+
+        gc_collect(compiler_roots.roots, compiler_roots.count, world.om, to_space,
+                   (uint64_t)world_buf, (uint64_t)(world_buf + sizeof(world_buf)));
+
+        uint64_t moved_method_gen = oop_roots_get(&compiler_roots, method_gen_root);
+        uint64_t *moved_method_gen_ptr = (uint64_t *)moved_method_gen;
+        ASSERT_EQ(ctx, moved_method_gen >= (uint64_t)compiler_gc_buf, 1,
+                  "runtime: rooted compiler result moves to GC to-space lower bound");
+        ASSERT_EQ(ctx, moved_method_gen < (uint64_t)(compiler_gc_buf + sizeof(compiler_gc_buf)), 1,
+                  "runtime: rooted compiler result moves to GC to-space upper bound");
+        ASSERT_EQ(ctx, OBJ_SIZE(moved_method_gen_ptr), 11,
+                  "runtime: rooted compiler result remains a CodeGenerator after GC");
+        ASSERT_EQ(ctx, OBJ_FIELD(moved_method_gen_ptr, 1), tag_smallint(7),
+                  "runtime: rooted compiler result preserves bytecode count after GC");
+        ASSERT_EQ(ctx, OBJ_FIELD(moved_method_gen_ptr, 3), tag_smallint(1),
+                  "runtime: rooted compiler result preserves literal count after GC");
+        uint64_t *moved_bytecodes = (uint64_t *)OBJ_FIELD(moved_method_gen_ptr, 0);
+        ASSERT_EQ(ctx, is_object_ptr((uint64_t)moved_bytecodes), 1,
+                  "runtime: rooted compiler result preserves bytecodes object after GC");
+        uint8_t *moved_bytes = (uint8_t *)&OBJ_FIELD(moved_bytecodes, 0);
+        ASSERT_EQ(ctx, moved_bytes[0], BC_PUSH_LITERAL,
+                  "runtime: rooted compiler result preserves bytecodes after GC");
+    }
+#endif
 
     smalltalk_world_teardown(&world);
 }
