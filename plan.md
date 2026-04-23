@@ -288,6 +288,8 @@ Source files compiled by the C bootstrap compiler into heap objects.
 - [ ] UndefinedObject (nil: `isNil`, `ifNil:ifNotNil:`)
 - [ ] Boolean, True, False (`ifTrue:ifFalse:`, `and:`, `or:`, `not`)
 - [ ] SmallInteger (`+`, `-`, `*`, `/`, `<`, `>`, `=`, `to:do:`, `to:by:do:`, `printString`)
+- [ ] Arbitrary-precision integers (`LargePositiveInteger` / `LargeNegativeInteger`) with promotion out of `SmallInteger`
+- [ ] Fraction with normalized numerator/denominator arithmetic and comparison
 - [ ] Character (`isLetter`, `isDigit`, `value`, `asString`)
 - [ ] String (`size`, `at:`, `,`, `=`, `hash`, `asSymbol`, `printString`)
 - [ ] Symbol (interned String, `=` is `==`)
