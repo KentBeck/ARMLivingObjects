@@ -7,15 +7,15 @@
 #include <string.h>
 #include <unistd.h>
 
-extern uint64_t oop_class(uint64_t oop, uint64_t *class_table);
-extern uint64_t class_lookup(uint64_t *klass, uint64_t selector);
+extern Oop oop_class(Oop oop, ObjPtr class_table);
+extern Oop class_lookup(ObjPtr klass, Oop selector);
 extern void activate_method(uint64_t **sp_ptr, uint64_t **fp_ptr, uint64_t saved_ip,
                             uint64_t method, uint64_t num_args, uint64_t num_temps);
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
-extern uint64_t prim_string_as_symbol(uint64_t receiver);
-extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size);
-extern uint64_t gc_is_registered_context(uint64_t *om);
+extern Oop prim_string_as_symbol(Oop receiver);
+extern ObjPtr om_alloc(Om free_ptr_var, Oop class_ptr, uint64_t format, uint64_t size);
+extern Oop gc_is_registered_context(Om om);
 extern void gc_collect(uint64_t *roots, uint64_t num_roots,
                        uint64_t *from_space, uint64_t *to_space,
                        uint64_t from_start, uint64_t from_end);
@@ -1027,8 +1027,8 @@ static PrimitiveResult try_indexed_primitive(uint64_t **sp_ptr, uint64_t primiti
     }
 }
 
-uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip,
-                   uint64_t *class_table, uint64_t *om, uint64_t *txn_log)
+Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
+              ObjPtr class_table, Om om, Oop *txn_log)
 {
     uint8_t *bytecode_base = ip;
     uint64_t *entry_fp = *fp_ptr;

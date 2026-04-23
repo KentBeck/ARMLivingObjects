@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+typedef uint64_t Oop;     // Tagged VM value: object pointer, SmallInt, Character, nil/true/false.
+typedef uint64_t *ObjPtr; // Raw pointer into object memory; unsafe across moving GC.
+typedef uint64_t *Om;     // Object-memory allocator or semispace GC context.
+
 // Object-memory allocation contract markers.
 //
 // LO_NO_ALLOC: does not allocate in Living Objects object memory.

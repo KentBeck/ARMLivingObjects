@@ -119,14 +119,14 @@ int bc_compile_source_methods(const char *source,
 typedef struct
 {
     const char *class_name;
-    uint64_t *klass;
+    ObjPtr klass;
 } BClassBinding;
 
-int bc_install_compiled_methods(uint64_t *om, uint64_t *class_class,
+int bc_install_compiled_methods(Om om, ObjPtr class_class,
                                 const BClassBinding *classes, int class_count,
                                 const BCompiledMethodDef *methods, int method_count) LO_ALLOCATES;
 
-int bc_compile_and_install_source_methods(uint64_t *om, uint64_t *class_class,
+int bc_compile_and_install_source_methods(Om om, ObjPtr class_class,
                                           const BClassBinding *classes, int class_count,
                                           const char *source) LO_ALLOCATES;
 
@@ -137,50 +137,50 @@ typedef enum
     BC_CLASS_FORMAT_BYTES = 2
 } BClassFormat;
 
-uint64_t *bc_define_class(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
-                          uint64_t *array_class, uint64_t *association_class,
-                          const char *name, uint64_t *superclass,
+ObjPtr bc_define_class(Om om, ObjPtr class_class, ObjPtr string_class,
+                          ObjPtr array_class, ObjPtr association_class,
+                          const char *name, ObjPtr superclass,
                           const char **ivar_names, int ivar_count,
                           BClassFormat format) LO_ALLOCATES;
 
-uint64_t *bc_define_class_from_source(uint64_t *om, uint64_t *class_class,
-                                      uint64_t *string_class, uint64_t *array_class,
-                                      uint64_t *association_class,
+ObjPtr bc_define_class_from_source(Om om, ObjPtr class_class,
+                                      ObjPtr string_class, ObjPtr array_class,
+                                      ObjPtr association_class,
                                       const BClassBinding *classes, int class_count,
                                       const char *source) LO_ALLOCATES;
 
-uint64_t *bc_compile_and_install_class_source(uint64_t *om, uint64_t *class_class,
-                                              uint64_t *string_class, uint64_t *array_class,
-                                              uint64_t *association_class,
+ObjPtr bc_compile_and_install_class_source(Om om, ObjPtr class_class,
+                                              ObjPtr string_class, ObjPtr array_class,
+                                              ObjPtr association_class,
                                               const BClassBinding *classes, int class_count,
                                               const char *source) LO_ALLOCATES;
 
-uint64_t *bc_compile_and_install_class_file(uint64_t *om, uint64_t *class_class,
-                                            uint64_t *string_class, uint64_t *array_class,
-                                            uint64_t *association_class,
+ObjPtr bc_compile_and_install_class_file(Om om, ObjPtr class_class,
+                                            ObjPtr string_class, ObjPtr array_class,
+                                            ObjPtr association_class,
                                             const BClassBinding *classes, int class_count,
                                             const char *path) LO_ALLOCATES;
 
-uint64_t *bc_attach_class_from_source(const BClassBinding *classes, int class_count,
+ObjPtr bc_attach_class_from_source(const BClassBinding *classes, int class_count,
                                       const char *source) LO_NO_ALLOC;
 
-uint64_t *bc_compile_and_install_existing_class_source(uint64_t *om, uint64_t *class_class,
+ObjPtr bc_compile_and_install_existing_class_source(Om om, ObjPtr class_class,
                                                        const BClassBinding *classes, int class_count,
                                                        const char *source) LO_ALLOCATES;
 
-uint64_t *bc_compile_and_install_existing_class_file(uint64_t *om, uint64_t *class_class,
+ObjPtr bc_compile_and_install_existing_class_file(Om om, ObjPtr class_class,
                                                      const BClassBinding *classes, int class_count,
                                                      const char *path) LO_ALLOCATES;
 
-int bc_compile_and_install_classes_source(uint64_t *om, uint64_t *class_class,
-                                          uint64_t *string_class, uint64_t *array_class,
-                                          uint64_t *association_class,
+int bc_compile_and_install_classes_source(Om om, ObjPtr class_class,
+                                          ObjPtr string_class, ObjPtr array_class,
+                                          ObjPtr association_class,
                                           const BClassBinding *classes, int class_count,
                                           const char *source) LO_ALLOCATES;
 
-int bc_compile_and_install_classes_file(uint64_t *om, uint64_t *class_class,
-                                        uint64_t *string_class, uint64_t *array_class,
-                                        uint64_t *association_class,
+int bc_compile_and_install_classes_file(Om om, ObjPtr class_class,
+                                        ObjPtr string_class, ObjPtr array_class,
+                                        ObjPtr association_class,
                                         const BClassBinding *classes, int class_count,
                                         const char *path) LO_ALLOCATES;
 

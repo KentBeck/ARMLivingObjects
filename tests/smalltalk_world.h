@@ -85,19 +85,19 @@ uint64_t *smalltalk_world_install_existing_class_file(SmalltalkWorld *world, con
 
 // Look up a class by name, walking the Smalltalk dictionary. Safe across GC
 // since it re-fetches the live pointer each time.
-uint64_t *smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name) LO_NO_ALLOC;
+ObjPtr smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name) LO_NO_ALLOC;
 
 // Send a unary message to a receiver of a known class. Walks the class
 // hierarchy for method lookup and runs the interpreter.
-uint64_t sw_send0(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
-                  uint64_t *receiver_class, const char *selector) LO_MAY_GC;
-uint64_t sw_send1(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
-                  uint64_t *receiver_class, const char *selector, uint64_t arg) LO_MAY_GC;
-uint64_t sw_send2(SmalltalkWorld *world, TestContext *ctx, uint64_t receiver,
-                  uint64_t *receiver_class, const char *selector,
-                  uint64_t arg0, uint64_t arg1) LO_MAY_GC;
+Oop sw_send0(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
+             ObjPtr receiver_class, const char *selector) LO_MAY_GC;
+Oop sw_send1(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
+             ObjPtr receiver_class, const char *selector, Oop arg) LO_MAY_GC;
+Oop sw_send2(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
+             ObjPtr receiver_class, const char *selector,
+             Oop arg0, Oop arg1) LO_MAY_GC;
 
 // Make a byte String in the world's OM.
-uint64_t *sw_make_string(SmalltalkWorld *world, const char *text) LO_ALLOCATES;
+ObjPtr sw_make_string(SmalltalkWorld *world, const char *text) LO_ALLOCATES;
 
 #endif

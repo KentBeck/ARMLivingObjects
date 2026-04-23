@@ -49,21 +49,21 @@ extern uint64_t smallint_add(uint64_t a, uint64_t b);
 extern uint64_t smallint_sub(uint64_t a, uint64_t b);
 extern uint64_t smallint_less_than(uint64_t a, uint64_t b);
 extern uint64_t smallint_equal(uint64_t a, uint64_t b);
-extern uint64_t prim_string_eq(uint64_t receiver, uint64_t arg) LO_NO_ALLOC;
-extern uint64_t prim_string_hash_fnv(uint64_t receiver) LO_NO_ALLOC;
-extern uint64_t prim_string_as_symbol(uint64_t receiver) LO_NO_ALLOC;
-extern uint64_t prim_symbol_eq(uint64_t receiver, uint64_t arg) LO_NO_ALLOC;
-extern uint64_t *ensure_frame_context(uint64_t *fp, uint64_t *om, uint64_t context_class) LO_ALLOCATES;
-extern uint64_t *ensure_frame_context_global(uint64_t *fp, uint64_t *om) LO_ALLOCATES;
-extern uint64_t cannot_return_selector_oop(void) LO_NO_ALLOC;
+extern Oop prim_string_eq(Oop receiver, Oop arg) LO_NO_ALLOC;
+extern Oop prim_string_hash_fnv(Oop receiver) LO_NO_ALLOC;
+extern Oop prim_string_as_symbol(Oop receiver) LO_NO_ALLOC;
+extern Oop prim_symbol_eq(Oop receiver, Oop arg) LO_NO_ALLOC;
+extern ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class) LO_ALLOCATES;
+extern ObjPtr ensure_frame_context_global(ObjPtr fp, Om om) LO_ALLOCATES;
+extern Oop cannot_return_selector_oop(void) LO_NO_ALLOC;
 extern uint64_t *global_symbol_table; // Declare global symbol table
 extern uint64_t *global_symbol_class;
 extern uint64_t *global_context_class;
 extern uint64_t *global_smalltalk_dictionary;
-extern void om_init(void *buffer, uint64_t size_bytes, uint64_t *free_ptr_var) LO_NO_ALLOC;
-extern uint64_t *om_alloc(uint64_t *free_ptr_var, uint64_t class_ptr, uint64_t format, uint64_t size) LO_ALLOCATES;
-extern void gc_register_context(uint64_t *gc_ctx) LO_NO_ALLOC;
-extern uint64_t gc_is_registered_context(uint64_t *om) LO_NO_ALLOC;
+extern void om_init(void *buffer, uint64_t size_bytes, Om free_ptr_var) LO_NO_ALLOC;
+extern ObjPtr om_alloc(Om free_ptr_var, Oop class_ptr, uint64_t format, uint64_t size) LO_ALLOCATES;
+extern void gc_register_context(Om gc_ctx) LO_NO_ALLOC;
+extern Oop gc_is_registered_context(Om om) LO_NO_ALLOC;
 
 // GC context for the interpreter: two semi-spaces
 // Layout (all uint64_t):
@@ -120,11 +120,11 @@ static inline void gc_ctx_swap(uint64_t *gc_ctx)
 
 typedef struct
 {
-    uint64_t roots[16];
+    Oop roots[16];
     uint64_t count;
 } OopRootSet;
 
-static inline uint64_t oop_roots_add(OopRootSet *set, uint64_t oop)
+static inline uint64_t oop_roots_add(OopRootSet *set, Oop oop)
 {
     uint64_t index = set->count;
     if (index < (uint64_t)(sizeof(set->roots) / sizeof(set->roots[0])))
@@ -135,20 +135,20 @@ static inline uint64_t oop_roots_add(OopRootSet *set, uint64_t oop)
     return index;
 }
 
-static inline uint64_t oop_roots_get(const OopRootSet *set, uint64_t index)
+static inline Oop oop_roots_get(const OopRootSet *set, uint64_t index)
 {
     return set->roots[index];
 }
 
-static inline uint64_t *oop_roots_ptr(const OopRootSet *set, uint64_t index)
+static inline ObjPtr oop_roots_ptr(const OopRootSet *set, uint64_t index)
 {
-    return (uint64_t *)set->roots[index];
+    return (ObjPtr)set->roots[index];
 }
 
-extern uint64_t *oop_class(uint64_t oop, uint64_t *class_table) LO_NO_ALLOC;
-extern uint64_t md_lookup(uint64_t *method_dict, uint64_t selector) LO_NO_ALLOC;
-extern uint64_t class_lookup(uint64_t *klass, uint64_t selector) LO_NO_ALLOC;
-extern uint64_t interpret(uint64_t **sp_ptr, uint64_t **fp_ptr, uint8_t *ip, uint64_t *class_table, uint64_t *om, uint64_t *txn_log) LO_MAY_GC;
+extern Oop oop_class(Oop oop, ObjPtr class_table) LO_NO_ALLOC;
+extern Oop md_lookup(ObjPtr method_dict, Oop selector) LO_NO_ALLOC;
+extern Oop class_lookup(ObjPtr klass, Oop selector) LO_NO_ALLOC;
+extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table, Om om, Oop *txn_log) LO_MAY_GC;
 
 // Transaction log functions
 // Log layout: [0] = count, then triples at [1+i*3], [2+i*3], [3+i*3]

@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-uint64_t oop_class(uint64_t oop, uint64_t *class_table)
+Oop oop_class(Oop oop, ObjPtr class_table)
 {
     if ((oop & TAG_MASK) == TAG_OBJECT)
     {
@@ -38,7 +38,7 @@ uint64_t oop_class(uint64_t oop, uint64_t *class_table)
     return 0;
 }
 
-uint64_t md_lookup(uint64_t *method_dict, uint64_t selector)
+Oop md_lookup(ObjPtr method_dict, Oop selector)
 {
     uint64_t size = OBJ_SIZE(method_dict);
 
@@ -53,7 +53,7 @@ uint64_t md_lookup(uint64_t *method_dict, uint64_t selector)
     return 0;
 }
 
-uint64_t class_lookup(uint64_t *klass, uint64_t selector)
+Oop class_lookup(ObjPtr klass, Oop selector)
 {
     while (klass != NULL && (uint64_t)klass != TAGGED_NIL)
     {
