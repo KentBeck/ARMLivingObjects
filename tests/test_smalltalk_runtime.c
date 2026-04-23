@@ -280,6 +280,19 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, OBJ_FIELD(first_tok, 2), tag_smallint(1),
               "runtime: Tokenizer produced a Token with value 1");
 
+    uint64_t src15 = (uint64_t)sw_make_string(&world, "15");
+    uint64_t tokenizer15 = sw_send1(&world, ctx, (uint64_t)tokenizer_class, world.class_class, "on:", src15);
+    ASSERT_EQ(ctx, is_object_ptr(tokenizer15), 1, "runtime: Tokenizer on: '15' returns an object");
+    uint64_t tok15_oop = sw_send0(&world, ctx, tokenizer15, NULL, "next");
+    ASSERT_EQ(ctx, is_object_ptr(tok15_oop), 1, "runtime: Tokenizer next returns a multi-digit Token");
+    uint64_t *tok15 = (uint64_t *)tok15_oop;
+    ASSERT_EQ(ctx, OBJ_FIELD(tok15, 0), integer_sym,
+              "runtime: Tokenizer produced #integer for multi-digit input");
+    ASSERT_EQ(ctx, OBJ_FIELD(tok15, 2), tag_smallint(15),
+              "runtime: Tokenizer produced a Token with value 15");
+    ASSERT_EQ(ctx, byte_object_equals_cstring(OBJ_FIELD(tok15, 1), "15"), 1,
+              "runtime: Tokenizer preserved multi-digit token text");
+
 #ifdef ALO_INTERPRETER_C
     OopRootSet compiler_roots = {0};
     uint64_t method_gen_root = 0;

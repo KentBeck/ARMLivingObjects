@@ -168,35 +168,24 @@ isSeparator: aValue
 !
 
 readIntegerStartingWith: firstChar
-    | value text |
+    | buffer value |
+    buffer := String new: 32.
+    buffer at: 1 put: firstChar value.
     value := firstChar value - 48.
-    text := self collectDigitsFrom: value text: (String new: 1) at: 1 firstChar: firstChar.
-    ^ Token type: #integer text: (text at: 1) value: (text at: 2)
+    ^ self readIntegerDigitsInto: buffer at: 1 value: value
 !
 
-collectDigitsFrom: value text: str at: index firstChar: first
-    | peek newStr newValue |
-    newStr := str.
-    index = 1
-        ifTrue: [
-            newStr := String new: 16.
-            newStr at: 1 put: first value
-        ]
-        ifFalse: [0].
+readIntegerDigitsInto: buffer at: index value: value
+    | peek newValue nextIndex |
     peek := stream peek.
-    peek isNil
-        ifTrue: [^ Array with: (self trimString: newStr to: index) with: value]
-        ifFalse: [0].
+    peek isNil ifTrue: [^ Token type: #integer text: (self trimString: buffer to: index) value: value].
     peek := peek asCharacter.
-    peek isDigit
-        ifTrue: [
-            stream next.
-            newStr at: (index + 1) put: peek value.
-            newValue := (value * 10) + (peek value - 48).
-            ^ self collectDigitsFrom: newValue text: newStr at: index + 1 firstChar: first
-        ]
-        ifFalse: [0].
-    ^ Array with: (self trimString: newStr to: index) with: value
+    peek isDigit ifFalse: [^ Token type: #integer text: (self trimString: buffer to: index) value: value].
+    stream next.
+    nextIndex := index + 1.
+    buffer at: nextIndex put: peek value.
+    newValue := (value * 10) + (peek value - 48).
+    ^ self readIntegerDigitsInto: buffer at: nextIndex value: newValue
 !
 
 trimString: str to: len
