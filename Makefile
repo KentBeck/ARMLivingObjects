@@ -8,6 +8,7 @@ BIN_DIR = bin
 TEST_BIN = $(BIN_DIR)/test
 GC_STRESS_BIN = $(BIN_DIR)/gc_stress
 C_INTERPRETER_SMOKE_BIN = $(BIN_DIR)/c_interpreter_smoke
+SMALLTALK_EXPR_BIN = $(BIN_DIR)/smalltalk_expr
 INTERPRETER ?= c
 ifeq ($(INTERPRETER),c)
 CFLAGS += -DALO_INTERPRETER_C
@@ -30,6 +31,7 @@ GC_STRESS_OBJS = $(BIN_DIR)/c_vm_object.o $(BIN_DIR)/gc.o $(BIN_DIR)/c_vm_tagged
 TEST_SRCS = $(filter-out tests/test_c_interpreter_smoke.c,$(wildcard tests/*.c)) src/c/bootstrap_compiler.c src/c/primitives.c
 C_INTERPRETER_SMOKE_SRCS = tests/test_c_interpreter_smoke.c src/c/primitives.c
 GC_STRESS_SRCS = tools/gc_stress.c
+SMALLTALK_EXPR_SRCS = tools/smalltalk_expr.c tests/smalltalk_world.c src/c/bootstrap_compiler.c src/c/primitives.c
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)
@@ -50,11 +52,25 @@ test-c-interpreter-smoke:
 
 gc-stress: $(GC_STRESS_BIN)
 
+smalltalk-expr: $(SMALLTALK_EXPR_BIN)
+
+test-smalltalk-expr: $(SMALLTALK_EXPR_BIN)
+	@output="$$(./$(SMALLTALK_EXPR_BIN) "1 + 2" "3 < 4" "3 = 4")"; \
+	expected="$$(printf '3\ntrue\nfalse')"; \
+	if [ "$$output" != "$$expected" ]; then \
+		printf 'unexpected smalltalk_expr output:\n%s\n' "$$output"; \
+		exit 1; \
+	fi; \
+	printf '%s\n' "$$output"
+
 $(TEST_BIN): $(TEST_SRCS) tests/test_defs.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(TEST_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
 
 $(GC_STRESS_BIN): $(GC_STRESS_SRCS) tests/test_defs.h $(GC_STRESS_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(GC_STRESS_SRCS) $(GC_STRESS_OBJS)
+
+$(SMALLTALK_EXPR_BIN): $(SMALLTALK_EXPR_SRCS) tests/test_defs.h tests/smalltalk_world.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
+	$(CC) $(CFLAGS) -o $@ $(SMALLTALK_EXPR_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
 
 $(C_INTERPRETER_SMOKE_BIN): $(C_INTERPRETER_SMOKE_SRCS) tests/test_defs.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(C_INTERPRETER_SMOKE_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
@@ -72,4 +88,4 @@ clean:
 	rm -rf $(BIN_DIR)
 	rm -f *.o test test_new
 
-.PHONY: clean gc-stress test-c test-asm test-both-interpreters test-c-interpreter-smoke
+.PHONY: clean gc-stress smalltalk-expr test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr
