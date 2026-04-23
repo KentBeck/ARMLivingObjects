@@ -16,11 +16,11 @@ extern int64_t untag_smallint(uint64_t tagged);
 extern Oop prim_string_as_symbol(Oop receiver);
 extern ObjPtr om_alloc(Om free_ptr_var, Oop class_ptr, uint64_t format, uint64_t size);
 extern Oop gc_is_registered_context(Om om);
-extern void gc_collect(uint64_t *roots, uint64_t num_roots,
-                       uint64_t *from_space, uint64_t *to_space,
+extern void gc_collect(Oop *roots, uint64_t num_roots,
+                       Om from_space, Om to_space,
                        uint64_t from_start, uint64_t from_end);
-extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
-                                       uint64_t **slot_buf, uint64_t max_slots);
+extern uint64_t gc_collect_stack_slots(Oop *sp, ObjPtr fp,
+                                       Oop **slot_buf, uint64_t max_slots);
 extern ObjPtr ensure_frame_context_global(ObjPtr fp, Om om);
 extern ObjPtr global_context_class;
 extern Oop cannot_return_selector_oop(void);

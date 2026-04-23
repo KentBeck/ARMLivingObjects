@@ -34,7 +34,7 @@ typedef enum
 typedef struct
 {
     StressValueKind kind;
-    uint64_t raw;
+    Oop raw;
     uint32_t object_id;
 } StressValue;
 
@@ -44,7 +44,7 @@ typedef struct
     StressClassKind class_kind;
     uint64_t format;
     uint64_t size;
-    uint64_t *ptr;
+    ObjPtr ptr;
     uint64_t seen_epoch;
     StressValue fields[MAX_OBJECT_SLOTS];
     uint8_t bytes[MAX_OBJECT_SLOTS];
@@ -73,15 +73,15 @@ typedef struct
     uint8_t *space_a;
     uint8_t *space_b;
     uint64_t gc_ctx[10];
-    uint64_t root_values[SYS_ROOT_COUNT + DEFAULT_ROOT_SLOTS];
+    Oop root_values[SYS_ROOT_COUNT + DEFAULT_ROOT_SLOTS];
     StressValue root_model[DEFAULT_ROOT_SLOTS];
     StressObject objects[DEFAULT_MAX_OBJECTS];
     uint32_t object_count;
     uint64_t verify_epoch;
-    uint64_t *class_class;
-    uint64_t *field_class;
-    uint64_t *indexable_class;
-    uint64_t *byte_class;
+    ObjPtr class_class;
+    ObjPtr field_class;
+    ObjPtr indexable_class;
+    ObjPtr byte_class;
 } StressState;
 
 static void stress_log(StressState *st, const char *fmt, ...)
@@ -162,7 +162,7 @@ static uint64_t rng_range(StressState *st, uint64_t n)
     return rng_next(st) % n;
 }
 
-static StressValue make_raw_value(uint64_t raw)
+static StressValue make_raw_value(Oop raw)
 {
     StressValue v;
     v.kind = VALUE_RAW;
@@ -180,7 +180,7 @@ static StressValue make_object_value(uint32_t object_id)
     return v;
 }
 
-static uint64_t *class_ptr_for_kind(StressState *st, StressClassKind kind)
+static ObjPtr class_ptr_for_kind(StressState *st, StressClassKind kind)
 {
     switch (kind)
     {
@@ -211,7 +211,7 @@ static StressObject *object_by_id(StressState *st, uint32_t object_id)
     return &st->objects[object_id - 1];
 }
 
-static uint64_t *resolve_live_object_ptr(StressState *st, uint32_t object_id)
+static ObjPtr resolve_live_object_ptr(StressState *st, uint32_t object_id)
 {
     StressObject *obj = object_by_id(st, object_id);
     if (obj == NULL)
@@ -223,10 +223,10 @@ static uint64_t *resolve_live_object_ptr(StressState *st, uint32_t object_id)
     {
         if (st->root_model[i].kind == VALUE_OBJECT && st->root_model[i].object_id == object_id)
         {
-            uint64_t value = st->root_values[SYS_ROOT_COUNT + i];
+            Oop value = st->root_values[SYS_ROOT_COUNT + i];
             if (is_object_ptr(value))
             {
-                obj->ptr = (uint64_t *)value;
+                obj->ptr = (ObjPtr)value;
                 return obj->ptr;
             }
         }
@@ -235,13 +235,13 @@ static uint64_t *resolve_live_object_ptr(StressState *st, uint32_t object_id)
     return obj->ptr;
 }
 
-static uint64_t actual_value_for_model(StressState *st, StressValue value)
+static Oop actual_value_for_model(StressState *st, StressValue value)
 {
     if (value.kind == VALUE_RAW)
     {
         return value.raw;
     }
-    uint64_t *ptr = resolve_live_object_ptr(st, value.object_id);
+    ObjPtr ptr = resolve_live_object_ptr(st, value.object_id);
     if (ptr == NULL)
     {
         fatalf(st, "object id %u has no live pointer", value.object_id);
@@ -298,15 +298,15 @@ static void perform_gc(StressState *st, const char *reason)
                &st->gc_ctx[GC_FROM_FREE], &st->gc_ctx[GC_TO_FREE],
                st->gc_ctx[GC_FROM_START], st->gc_ctx[GC_FROM_END]);
     gc_ctx_swap(st->gc_ctx);
-    st->class_class = (uint64_t *)st->root_values[sys_root_index_for_kind(CLASS_KIND_CLASS)];
-    st->field_class = (uint64_t *)st->root_values[sys_root_index_for_kind(CLASS_KIND_FIELDS)];
-    st->indexable_class = (uint64_t *)st->root_values[sys_root_index_for_kind(CLASS_KIND_INDEXABLE)];
-    st->byte_class = (uint64_t *)st->root_values[sys_root_index_for_kind(CLASS_KIND_BYTES)];
+    st->class_class = (ObjPtr)st->root_values[sys_root_index_for_kind(CLASS_KIND_CLASS)];
+    st->field_class = (ObjPtr)st->root_values[sys_root_index_for_kind(CLASS_KIND_FIELDS)];
+    st->indexable_class = (ObjPtr)st->root_values[sys_root_index_for_kind(CLASS_KIND_INDEXABLE)];
+    st->byte_class = (ObjPtr)st->root_values[sys_root_index_for_kind(CLASS_KIND_BYTES)];
 }
 
-static void verify_value(StressState *st, StressValue expected, uint64_t actual);
+static void verify_value(StressState *st, StressValue expected, Oop actual);
 
-static void verify_object(StressState *st, uint32_t object_id, uint64_t actual)
+static void verify_object(StressState *st, uint32_t object_id, Oop actual)
 {
     StressObject *obj = object_by_id(st, object_id);
     if (obj == NULL)
@@ -318,7 +318,7 @@ static void verify_object(StressState *st, uint32_t object_id, uint64_t actual)
         fatalf(st, "object id %u expected heap object but got 0x%016" PRIx64, object_id, actual);
     }
 
-    uint64_t *ptr = (uint64_t *)actual;
+    ObjPtr ptr = (ObjPtr)actual;
     if (obj->seen_epoch == st->verify_epoch)
     {
         if (obj->ptr != ptr)
@@ -369,7 +369,7 @@ static void verify_object(StressState *st, uint32_t object_id, uint64_t actual)
     }
 }
 
-static void verify_value(StressState *st, StressValue expected, uint64_t actual)
+static void verify_value(StressState *st, StressValue expected, Oop actual)
 {
     if (expected.kind == VALUE_RAW)
     {
@@ -404,10 +404,10 @@ static void relieve_pressure(StressState *st)
     stress_log(st, "step=%" PRIu64 " drop-root slot=%u", st->cfg.run_index, slot);
 }
 
-static uint64_t *alloc_with_gc(StressState *st, StressClassKind class_kind, uint64_t format, uint64_t size)
+static ObjPtr alloc_with_gc(StressState *st, StressClassKind class_kind, uint64_t format, uint64_t size)
 {
-    uint64_t *obj = om_alloc(&st->gc_ctx[GC_FROM_FREE],
-                             (uint64_t)class_ptr_for_kind(st, class_kind),
+    ObjPtr obj = om_alloc(&st->gc_ctx[GC_FROM_FREE],
+                             (Oop)class_ptr_for_kind(st, class_kind),
                              format, size);
     if (obj != NULL)
     {
@@ -417,7 +417,7 @@ static uint64_t *alloc_with_gc(StressState *st, StressClassKind class_kind, uint
     perform_gc(st, "oom");
     verify_roots(st);
     obj = om_alloc(&st->gc_ctx[GC_FROM_FREE],
-                   (uint64_t)class_ptr_for_kind(st, class_kind),
+                   (Oop)class_ptr_for_kind(st, class_kind),
                    format, size);
     if (obj != NULL)
     {
@@ -428,7 +428,7 @@ static uint64_t *alloc_with_gc(StressState *st, StressClassKind class_kind, uint
     perform_gc(st, "relief");
     verify_roots(st);
     obj = om_alloc(&st->gc_ctx[GC_FROM_FREE],
-                   (uint64_t)class_ptr_for_kind(st, class_kind),
+                   (Oop)class_ptr_for_kind(st, class_kind),
                    format, size);
     if (obj != NULL)
     {
@@ -442,29 +442,29 @@ static uint64_t *alloc_with_gc(StressState *st, StressClassKind class_kind, uint
 static void bootstrap_classes(StressState *st)
 {
     st->class_class = alloc_with_gc(st, CLASS_KIND_CLASS, FORMAT_FIELDS, 4);
-    st->root_values[sys_root_index_for_kind(CLASS_KIND_CLASS)] = (uint64_t)st->class_class;
-    OBJ_CLASS(st->class_class) = (uint64_t)st->class_class;
+    st->root_values[sys_root_index_for_kind(CLASS_KIND_CLASS)] = (Oop)st->class_class;
+    OBJ_CLASS(st->class_class) = (Oop)st->class_class;
     OBJ_FIELD(st->class_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(st->class_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(st->class_class, CLASS_INST_SIZE) = tag_smallint(4);
     OBJ_FIELD(st->class_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
     st->field_class = alloc_with_gc(st, CLASS_KIND_CLASS, FORMAT_FIELDS, 4);
-    st->root_values[sys_root_index_for_kind(CLASS_KIND_FIELDS)] = (uint64_t)st->field_class;
+    st->root_values[sys_root_index_for_kind(CLASS_KIND_FIELDS)] = (Oop)st->field_class;
     OBJ_FIELD(st->field_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(st->field_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(st->field_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(st->field_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
     st->indexable_class = alloc_with_gc(st, CLASS_KIND_CLASS, FORMAT_FIELDS, 4);
-    st->root_values[sys_root_index_for_kind(CLASS_KIND_INDEXABLE)] = (uint64_t)st->indexable_class;
+    st->root_values[sys_root_index_for_kind(CLASS_KIND_INDEXABLE)] = (Oop)st->indexable_class;
     OBJ_FIELD(st->indexable_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(st->indexable_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(st->indexable_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(st->indexable_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
 
     st->byte_class = alloc_with_gc(st, CLASS_KIND_CLASS, FORMAT_FIELDS, 4);
-    st->root_values[sys_root_index_for_kind(CLASS_KIND_BYTES)] = (uint64_t)st->byte_class;
+    st->root_values[sys_root_index_for_kind(CLASS_KIND_BYTES)] = (Oop)st->byte_class;
     OBJ_FIELD(st->byte_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(st->byte_class, CLASS_METHOD_DICT) = tagged_nil();
     OBJ_FIELD(st->byte_class, CLASS_INST_SIZE) = tag_smallint(0);
@@ -485,7 +485,7 @@ static void op_allocate(StressState *st)
                                      ? CLASS_KIND_FIELDS
                                      : (format == FORMAT_INDEXABLE ? CLASS_KIND_INDEXABLE : CLASS_KIND_BYTES);
     uint32_t slot = (uint32_t)rng_range(st, st->cfg.root_slots);
-    uint64_t *obj = alloc_with_gc(st, class_kind, format, size);
+    ObjPtr obj = alloc_with_gc(st, class_kind, format, size);
 
     StressObject *record = &st->objects[st->object_count];
     memset(record, 0, sizeof(*record));
@@ -502,7 +502,7 @@ static void op_allocate(StressState *st)
     st->object_count++;
 
     st->root_model[slot] = make_object_value(record->id);
-    st->root_values[SYS_ROOT_COUNT + slot] = (uint64_t)obj;
+    st->root_values[SYS_ROOT_COUNT + slot] = (Oop)obj;
     stress_log(st,
                "step=%" PRIu64 " alloc slot=%u id=%u ptr=%p format=%" PRIu64 " size=%" PRIu64 " live_format=%" PRIu64,
                st->cfg.run_index, slot, record->id, (void *)obj, format, size, OBJ_FORMAT(obj));
@@ -517,7 +517,7 @@ static void op_store_word(StressState *st)
         return;
     }
     StressObject *obj = object_by_id(st, root.object_id);
-    uint64_t *live_ptr = resolve_live_object_ptr(st, root.object_id);
+    ObjPtr live_ptr = resolve_live_object_ptr(st, root.object_id);
     if (obj == NULL || live_ptr == NULL || obj->format == FORMAT_BYTES || obj->size == 0)
     {
         return;
@@ -543,7 +543,7 @@ static void op_store_byte(StressState *st)
         return;
     }
     StressObject *obj = object_by_id(st, root.object_id);
-    uint64_t *live_ptr = resolve_live_object_ptr(st, root.object_id);
+    ObjPtr live_ptr = resolve_live_object_ptr(st, root.object_id);
     if (obj == NULL || live_ptr == NULL || obj->format != FORMAT_BYTES || obj->size == 0)
     {
         return;

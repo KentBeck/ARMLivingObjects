@@ -163,29 +163,29 @@ extern void txn_abort(uint64_t *log);
 // gc_copy_object(obj, to_space) -> new_obj
 //   Copy obj to to_space[0] (bump pointer), leave forwarding ptr in old obj.
 //   Returns pointer to the new copy. Advances to_space[0].
-extern uint64_t *gc_copy_object(uint64_t *obj, uint64_t *to_space) LO_MAY_GC;
+extern ObjPtr gc_copy_object(ObjPtr obj, Om to_space) LO_MAY_GC;
 // gc_is_forwarded(obj) -> 1 if obj[0] has forwarding tag, 0 otherwise
-extern uint64_t gc_is_forwarded(uint64_t *obj) LO_NO_ALLOC;
+extern uint64_t gc_is_forwarded(ObjPtr obj) LO_NO_ALLOC;
 // gc_forwarding_ptr(obj) -> the forwarding address (clears tag)
-extern uint64_t *gc_forwarding_ptr(uint64_t *obj) LO_NO_ALLOC;
+extern ObjPtr gc_forwarding_ptr(ObjPtr obj) LO_NO_ALLOC;
 // gc_collect(roots, num_roots, from_space, to_space, from_start, from_end)
 //   Cheney's algorithm: copy roots, then scan to-space updating pointers.
 //   roots = array of tagged values (only object ptrs with tag 00 are followed)
 //   from_start/from_end = address range of from-space (to identify pointers into it)
-extern void gc_collect(uint64_t *roots, uint64_t num_roots,
-                       uint64_t *from_space, uint64_t *to_space,
+extern void gc_collect(Oop *roots, uint64_t num_roots,
+                       Om from_space, Om to_space,
                        uint64_t from_start, uint64_t from_end) LO_MAY_GC;
-extern uint64_t gc_collect_stack_slots(uint64_t *sp, uint64_t *fp,
-                                       uint64_t **slot_buf, uint64_t max_slots) LO_NO_ALLOC;
+extern uint64_t gc_collect_stack_slots(Oop *sp, ObjPtr fp,
+                                       Oop **slot_buf, uint64_t max_slots) LO_NO_ALLOC;
 
 // gc_update_stack(fp, from_start, from_end)
 //   Walk stack frames, update any pointer in from-space range to its forwarding address.
-extern void gc_update_stack(uint64_t *fp, uint64_t from_start, uint64_t from_end) LO_MAY_GC;
+extern void gc_update_stack(ObjPtr fp, uint64_t from_start, uint64_t from_end) LO_MAY_GC;
 
 // gc_scan_stack(fp, root_buf, max_roots) -> num_roots_found
 //   Walk stack frames from fp, collecting object pointers (receiver, method, temps)
 //   into root_buf. Stops at sentinel FP (0xCAFE or 0).
-extern uint64_t gc_scan_stack(uint64_t *fp, uint64_t *root_buf, uint64_t max_roots) LO_NO_ALLOC;
+extern uint64_t gc_scan_stack(ObjPtr fp, Oop *root_buf, uint64_t max_roots) LO_NO_ALLOC;
 
 // Persistence: pointer <-> offset conversion
 // image_pointers_to_offsets(buf, size, heap_base)

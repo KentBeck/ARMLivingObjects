@@ -2,24 +2,25 @@
 
 void test_gc(TestContext *ctx)
 {
-    uint64_t *om = ctx->om;
-    uint64_t *class_class = ctx->class_class;
+    Om om = ctx->om;
+    ObjPtr class_class = ctx->class_class;
     (void)om;
 
     // --- gc_copy_object: copy a single object to to-space ---
     {
         // Allocate a to-space buffer
         static uint8_t to_buf[4096] __attribute__((aligned(8)));
-        uint64_t to_space[2];
+        uint64_t to_space_words[2];
+        Om to_space = to_space_words;
         om_init(to_buf, 4096, to_space);
 
         // Create an object with 2 fields in the main heap
-        uint64_t *obj = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 2);
+        ObjPtr obj = om_alloc(om, (Oop)class_class, FORMAT_FIELDS, 2);
         OBJ_FIELD(obj, 0) = tag_smallint(42);
         OBJ_FIELD(obj, 1) = tag_smallint(99);
 
         // Copy it
-        uint64_t *copy = gc_copy_object(obj, to_space);
+        ObjPtr copy = gc_copy_object(obj, to_space);
 
         // New copy has same header and fields
         ASSERT_EQ(ctx, OBJ_CLASS(copy), (uint64_t)class_class,
@@ -43,14 +44,15 @@ void test_gc(TestContext *ctx)
     // --- gc_copy_object: copying a forwarded object returns existing copy ---
     {
         static uint8_t to_buf2[4096] __attribute__((aligned(8)));
-        uint64_t to_space2[2];
+        uint64_t to_space2_words[2];
+        Om to_space2 = to_space2_words;
         om_init(to_buf2, 4096, to_space2);
 
-        uint64_t *obj2 = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ObjPtr obj2 = om_alloc(om, (Oop)class_class, FORMAT_FIELDS, 1);
         OBJ_FIELD(obj2, 0) = tag_smallint(7);
 
-        uint64_t *copy1 = gc_copy_object(obj2, to_space2);
-        uint64_t *copy2 = gc_copy_object(obj2, to_space2);
+        ObjPtr copy1 = gc_copy_object(obj2, to_space2);
+        ObjPtr copy2 = gc_copy_object(obj2, to_space2);
 
         // Second copy returns same pointer (doesn't copy again)
         ASSERT_EQ(ctx, (uint64_t)copy1, (uint64_t)copy2,
@@ -62,35 +64,36 @@ void test_gc(TestContext *ctx)
         // Set up a small from-space and to-space
         static uint8_t from_buf[8192] __attribute__((aligned(8)));
         static uint8_t to_buf3[8192] __attribute__((aligned(8)));
-        uint64_t from[2], to[2];
+        uint64_t from_words[2], to_words[2];
+        Om from = from_words, to = to_words;
         om_init(from_buf, 8192, from);
         om_init(to_buf3, 8192, to);
 
         // Allocate in from-space: A -> B, and unreferenced C
-        uint64_t *objB = om_alloc(from, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ObjPtr objB = om_alloc(from, (Oop)class_class, FORMAT_FIELDS, 1);
         OBJ_FIELD(objB, 0) = tag_smallint(77);
 
-        uint64_t *objA = om_alloc(from, (uint64_t)class_class, FORMAT_FIELDS, 1);
-        OBJ_FIELD(objA, 0) = (uint64_t)objB; // A points to B
+        ObjPtr objA = om_alloc(from, (Oop)class_class, FORMAT_FIELDS, 1);
+        OBJ_FIELD(objA, 0) = (Oop)objB; // A points to B
 
-        uint64_t *objC = om_alloc(from, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ObjPtr objC = om_alloc(from, (Oop)class_class, FORMAT_FIELDS, 1);
         OBJ_FIELD(objC, 0) = tag_smallint(55);
         (void)objC;
 
         // Roots: just objA
-        uint64_t roots[1];
-        roots[0] = (uint64_t)objA;
+        Oop roots[1];
+        roots[0] = (Oop)objA;
 
         gc_collect(roots, 1, from, to,
                    (uint64_t)from_buf, (uint64_t)(from_buf + 8192));
 
         // roots[0] should now point to the copy of A in to-space
-        uint64_t *newA = (uint64_t *)roots[0];
+        ObjPtr newA = (ObjPtr)roots[0];
         ASSERT_EQ(ctx, OBJ_FORMAT(newA), FORMAT_FIELDS,
                   "gc_collect: A format preserved");
 
         // newA's field 0 should point to the copy of B (not old B)
-        uint64_t *newB = (uint64_t *)OBJ_FIELD(newA, 0);
+        ObjPtr newB = (ObjPtr)OBJ_FIELD(newA, 0);
         ASSERT_EQ(ctx, OBJ_FIELD(newB, 0), tag_smallint(77),
                   "gc_collect: B field preserved");
 
@@ -103,37 +106,38 @@ void test_gc(TestContext *ctx)
 
     // --- gc_scan_roots: walk stack frames, collect object pointers ---
     {
-        uint64_t *om = ctx->om;
-        uint64_t *class_class = ctx->class_class;
-        uint64_t *stack = ctx->stack;
-        uint64_t *sp, *fp;
+        Om om = ctx->om;
+        ObjPtr class_class = ctx->class_class;
+        Oop *stack = ctx->stack;
+        Oop *sp;
+        ObjPtr fp;
 
         // Create two objects
-        uint64_t *objX = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ObjPtr objX = om_alloc(om, (Oop)class_class, FORMAT_FIELDS, 1);
         OBJ_FIELD(objX, 0) = tag_smallint(1);
-        uint64_t *objY = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ObjPtr objY = om_alloc(om, (Oop)class_class, FORMAT_FIELDS, 1);
         OBJ_FIELD(objY, 0) = tag_smallint(2);
 
         // Method with 0 args, 1 temp
-        uint64_t *tcm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-        uint64_t *tbc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 2);
+        ObjPtr tcm = om_alloc(om, (Oop)class_class, FORMAT_FIELDS, 5);
+        ObjPtr tbc = om_alloc(om, (Oop)class_class, FORMAT_BYTES, 2);
         ((uint8_t *)&OBJ_FIELD(tbc, 0))[0] = BC_HALT;
         OBJ_FIELD(tcm, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(tcm, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(tcm, CM_NUM_TEMPS) = tag_smallint(1);
         OBJ_FIELD(tcm, CM_LITERALS) = tagged_nil();
-        OBJ_FIELD(tcm, CM_BYTECODES) = (uint64_t)tbc;
+        OBJ_FIELD(tcm, CM_BYTECODES) = (Oop)tbc;
 
         // Build a stack frame: receiver=objX, temp0=objY
-        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
-        fp = (uint64_t *)0xCAFE;
-        stack_push(&sp, stack, (uint64_t)objX); // receiver
-        activate_method(&sp, &fp, 0, (uint64_t)tcm, 0, 1);
+        sp = stack + STACK_WORDS;
+        fp = (ObjPtr)0xCAFE;
+        stack_push(&sp, stack, (Oop)objX); // receiver
+        activate_method(&sp, &fp, 0, (Oop)tcm, 0, 1);
         // Store objY into temp 0
-        frame_store_temp(fp, 0, (uint64_t)objY);
+        frame_store_temp(fp, 0, (Oop)objY);
 
         // Scan roots from stack
-        uint64_t root_buf[32];
+        Oop root_buf[32];
         uint64_t num_found = gc_scan_stack(fp, root_buf, 32);
 
         // Should find: receiver (objX), temp0 (objY), method (tcm)
@@ -145,9 +149,9 @@ void test_gc(TestContext *ctx)
         int found_x = 0, found_y = 0;
         for (uint64_t i = 0; i < num_found; i++)
         {
-            if (root_buf[i] == (uint64_t)objX)
+            if (root_buf[i] == (Oop)objX)
                 found_x = 1;
-            if (root_buf[i] == (uint64_t)objY)
+            if (root_buf[i] == (Oop)objY)
                 found_y = 1;
         }
         ASSERT_EQ(ctx, found_x, 1, "gc_scan_stack: found objX");
@@ -1567,36 +1571,36 @@ void test_gc(TestContext *ctx)
 
     // --- gc_collect_stack_slots skips immediate-only eval slots ---
     {
-        uint64_t *cc = ctx->class_class;
-        uint64_t *receiver = om_alloc(ctx->om, (uint64_t)cc, FORMAT_FIELDS, 0);
-        uint64_t *deep_obj = om_alloc(ctx->om, (uint64_t)cc, FORMAT_FIELDS, 1);
+        ObjPtr cc = ctx->class_class;
+        ObjPtr receiver = om_alloc(ctx->om, (Oop)cc, FORMAT_FIELDS, 0);
+        ObjPtr deep_obj = om_alloc(ctx->om, (Oop)cc, FORMAT_FIELDS, 1);
         OBJ_FIELD(deep_obj, 0) = tag_smallint(77);
 
-        uint64_t *bytecodes = om_alloc(ctx->om, (uint64_t)cc, FORMAT_BYTES, 1);
-        uint64_t *method = om_alloc(ctx->om, (uint64_t)cc, FORMAT_FIELDS, 5);
+        ObjPtr bytecodes = om_alloc(ctx->om, (Oop)cc, FORMAT_BYTES, 1);
+        ObjPtr method = om_alloc(ctx->om, (Oop)cc, FORMAT_FIELDS, 5);
         OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(0);
         OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint(0);
         OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(0);
         OBJ_FIELD(method, CM_LITERALS) = tagged_nil();
-        OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+        OBJ_FIELD(method, CM_BYTECODES) = (Oop)bytecodes;
 
-        uint64_t *stack = ctx->stack;
-        uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
-        uint64_t *fp = (uint64_t *)0xCAFE;
-        stack_push(&sp, stack, (uint64_t)receiver);
-        activate_method(&sp, &fp, 0, (uint64_t)method, 0, 0);
+        Oop *stack = ctx->stack;
+        Oop *sp = stack + STACK_WORDS;
+        ObjPtr fp = (ObjPtr)0xCAFE;
+        stack_push(&sp, stack, (Oop)receiver);
+        activate_method(&sp, &fp, 0, (Oop)method, 0, 0);
 
-        stack_push(&sp, stack, (uint64_t)deep_obj);
-        uint64_t **deep_slot = (uint64_t **)sp;
+        stack_push(&sp, stack, (Oop)deep_obj);
+        Oop **deep_slot = (Oop **)sp;
         for (int i = 0; i < 70; i++)
             stack_push(&sp, stack, tag_smallint(i));
 
-        uint64_t *slot_buf[63];
+        Oop *slot_buf[63];
         uint64_t count = gc_collect_stack_slots(sp, fp, slot_buf, 63);
         uint64_t found_deep_slot = 0;
         for (uint64_t i = 0; i < count; i++)
         {
-            if (slot_buf[i] == (uint64_t *)deep_slot)
+            if (slot_buf[i] == (Oop *)deep_slot)
             {
                 found_deep_slot = 1;
                 break;
