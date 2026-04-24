@@ -1,4 +1,6 @@
 #include "test_defs.h"
+#include "bootstrap_compiler.h"
+#include "primitives.h"
 
 void test_blocks(TestContext *ctx)
 {
@@ -236,6 +238,496 @@ void test_blocks(TestContext *ctx)
                                class_table, om, NULL);
             ASSERT_EQ(ctx, result, tag_smallint(41),
                       "Block: copied temp keeps creation-time value");
+        }
+
+        // Direct interpreter repro for the failing visitMessage send path:
+        // a fake `false ifTrue:ifFalse:` activates a block that references a
+        // copied outer temp (`aNode`) and then grows the send sequence until it fails.
+        {
+            uint64_t sel_value_exact = intern_cstring_symbol(om, "value");
+            uint64_t sel_receiver = intern_cstring_symbol(om, "receiver");
+            uint64_t sel_arguments = intern_cstring_symbol(om, "arguments");
+            uint64_t sel_selector = intern_cstring_symbol(om, "selector");
+            uint64_t sel_size = intern_cstring_symbol(om, "size");
+            uint64_t sel_visitNode = intern_cstring_symbol(om, "visitNode:");
+            uint64_t sel_visitMessageArgsFrom = intern_cstring_symbol(om, "visitMessageArgs:from:");
+            uint64_t sel_addSelectorLiteral = intern_cstring_symbol(om, "addSelectorLiteral:");
+            uint64_t sel_emitSendMessageArgc = intern_cstring_symbol(om, "emitSendMessage:argc:");
+            uint64_t sel_ifTrueIfFalse = intern_cstring_symbol(om, "ifTrue:ifFalse:");
+
+            uint64_t *ret_self_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+            uint8_t *rsb = (uint8_t *)&OBJ_FIELD(ret_self_bc, 0);
+            rsb[0] = BC_PUSH_SELF;
+            rsb[1] = BC_RETURN;
+
+            uint64_t *ret_self_1_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(ret_self_1_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(ret_self_1_cm, CM_NUM_ARGS) = tag_smallint(1);
+            OBJ_FIELD(ret_self_1_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(ret_self_1_cm, CM_LITERALS) = tagged_nil();
+            OBJ_FIELD(ret_self_1_cm, CM_BYTECODES) = (uint64_t)ret_self_bc;
+
+            uint64_t *ret_self_2_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(ret_self_2_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(ret_self_2_cm, CM_NUM_ARGS) = tag_smallint(2);
+            OBJ_FIELD(ret_self_2_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(ret_self_2_cm, CM_LITERALS) = tagged_nil();
+            OBJ_FIELD(ret_self_2_cm, CM_BYTECODES) = (uint64_t)ret_self_bc;
+
+            uint64_t *ret_lit_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+            uint8_t *rlb = (uint8_t *)&OBJ_FIELD(ret_lit_bc, 0);
+            rlb[0] = BC_PUSH_LITERAL;
+            WRITE_U32(&rlb[1], 0);
+            rlb[5] = BC_RETURN;
+
+            uint64_t *ret_one_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(ret_one_lits, 0) = tag_smallint(1);
+            uint64_t *ret_one_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(ret_one_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(ret_one_cm, CM_NUM_ARGS) = tag_smallint(1);
+            OBJ_FIELD(ret_one_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(ret_one_cm, CM_LITERALS) = (uint64_t)ret_one_lits;
+            OBJ_FIELD(ret_one_cm, CM_BYTECODES) = (uint64_t)ret_lit_bc;
+
+            uint64_t *ret_zero_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(ret_zero_lits, 0) = tag_smallint(0);
+            uint64_t *ret_zero_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(ret_zero_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(ret_zero_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(ret_zero_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(ret_zero_cm, CM_LITERALS) = (uint64_t)ret_zero_lits;
+            OBJ_FIELD(ret_zero_cm, CM_BYTECODES) = (uint64_t)ret_lit_bc;
+
+            uint64_t *args_size_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(args_size_lits, 0) = tag_smallint(1);
+            uint64_t *args_size_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(args_size_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(args_size_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(args_size_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(args_size_cm, CM_LITERALS) = (uint64_t)args_size_lits;
+            OBJ_FIELD(args_size_cm, CM_BYTECODES) = (uint64_t)ret_lit_bc;
+
+            uint64_t *args_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+            OBJ_FIELD(args_md, 0) = sel_size;
+            OBJ_FIELD(args_md, 1) = (uint64_t)args_size_cm;
+            uint64_t *args_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+            OBJ_FIELD(args_class, CLASS_SUPERCLASS) = tagged_nil();
+            OBJ_FIELD(args_class, CLASS_METHOD_DICT) = (uint64_t)args_md;
+            OBJ_FIELD(args_class, CLASS_INST_SIZE) = tag_smallint(0);
+            OBJ_FIELD(args_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+            uint64_t *args_obj = om_alloc(om, (uint64_t)args_class, FORMAT_FIELDS, 0);
+
+            uint64_t *node_receiver_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(node_receiver_lits, 0) = tag_smallint(41);
+            uint64_t *node_receiver_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(node_receiver_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(node_receiver_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(node_receiver_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(node_receiver_cm, CM_LITERALS) = (uint64_t)node_receiver_lits;
+            OBJ_FIELD(node_receiver_cm, CM_BYTECODES) = (uint64_t)ret_lit_bc;
+
+            uint64_t *node_arguments_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(node_arguments_lits, 0) = (uint64_t)args_obj;
+            uint64_t *node_arguments_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(node_arguments_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(node_arguments_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(node_arguments_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(node_arguments_cm, CM_LITERALS) = (uint64_t)node_arguments_lits;
+            OBJ_FIELD(node_arguments_cm, CM_BYTECODES) = (uint64_t)ret_lit_bc;
+
+            uint64_t *node_selector_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(node_selector_lits, 0) = tag_smallint(99);
+            uint64_t *node_selector_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(node_selector_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(node_selector_cm, CM_NUM_ARGS) = tag_smallint(0);
+            OBJ_FIELD(node_selector_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(node_selector_cm, CM_LITERALS) = (uint64_t)node_selector_lits;
+            OBJ_FIELD(node_selector_cm, CM_BYTECODES) = (uint64_t)ret_lit_bc;
+
+            uint64_t *node_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
+            OBJ_FIELD(node_md, 0) = sel_receiver;
+            OBJ_FIELD(node_md, 1) = (uint64_t)node_receiver_cm;
+            OBJ_FIELD(node_md, 2) = sel_arguments;
+            OBJ_FIELD(node_md, 3) = (uint64_t)node_arguments_cm;
+            OBJ_FIELD(node_md, 4) = sel_selector;
+            OBJ_FIELD(node_md, 5) = (uint64_t)node_selector_cm;
+            uint64_t *node_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+            OBJ_FIELD(node_class, CLASS_SUPERCLASS) = tagged_nil();
+            OBJ_FIELD(node_class, CLASS_METHOD_DICT) = (uint64_t)node_md;
+            OBJ_FIELD(node_class, CLASS_INST_SIZE) = tag_smallint(0);
+            OBJ_FIELD(node_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+            uint64_t *node_obj = om_alloc(om, (uint64_t)node_class, FORMAT_FIELDS, 0);
+
+            uint64_t *gen_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 8);
+            OBJ_FIELD(gen_md, 0) = sel_visitNode;
+            OBJ_FIELD(gen_md, 1) = (uint64_t)ret_self_1_cm;
+            OBJ_FIELD(gen_md, 2) = sel_visitMessageArgsFrom;
+            OBJ_FIELD(gen_md, 3) = (uint64_t)ret_self_2_cm;
+            OBJ_FIELD(gen_md, 4) = sel_addSelectorLiteral;
+            OBJ_FIELD(gen_md, 5) = (uint64_t)ret_one_cm;
+            OBJ_FIELD(gen_md, 6) = sel_emitSendMessageArgc;
+            OBJ_FIELD(gen_md, 7) = (uint64_t)ret_self_2_cm;
+            uint64_t *gen_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+            OBJ_FIELD(gen_class, CLASS_SUPERCLASS) = tagged_nil();
+            OBJ_FIELD(gen_class, CLASS_METHOD_DICT) = (uint64_t)gen_md;
+            OBJ_FIELD(gen_class, CLASS_INST_SIZE) = tag_smallint(0);
+            OBJ_FIELD(gen_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+            uint64_t *gen_obj = om_alloc(om, (uint64_t)gen_class, FORMAT_FIELDS, 0);
+
+            uint64_t *if_false_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 15);
+            uint8_t *ifb = (uint8_t *)&OBJ_FIELD(if_false_bc, 0);
+            ifb[0] = BC_PUSH_ARG;
+            WRITE_U32(&ifb[1], 1);
+            ifb[5] = BC_SEND_MESSAGE;
+            WRITE_U32(&ifb[6], 0);
+            WRITE_U32(&ifb[10], 0);
+            ifb[14] = BC_RETURN;
+
+            uint64_t *if_false_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+            OBJ_FIELD(if_false_lits, 0) = sel_value_exact;
+            uint64_t *if_false_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+            OBJ_FIELD(if_false_cm, CM_PRIMITIVE) = tag_smallint(0);
+            OBJ_FIELD(if_false_cm, CM_NUM_ARGS) = tag_smallint(2);
+            OBJ_FIELD(if_false_cm, CM_NUM_TEMPS) = tag_smallint(0);
+            OBJ_FIELD(if_false_cm, CM_LITERALS) = (uint64_t)if_false_lits;
+            OBJ_FIELD(if_false_cm, CM_BYTECODES) = (uint64_t)if_false_bc;
+
+            uint64_t *false_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+            OBJ_FIELD(false_md, 0) = sel_ifTrueIfFalse;
+            OBJ_FIELD(false_md, 1) = (uint64_t)if_false_cm;
+            uint64_t *false_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+            OBJ_FIELD(false_class, CLASS_SUPERCLASS) = tagged_nil();
+            OBJ_FIELD(false_class, CLASS_METHOD_DICT) = (uint64_t)false_md;
+            OBJ_FIELD(false_class, CLASS_INST_SIZE) = tag_smallint(0);
+            OBJ_FIELD(false_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+            uint64_t *false_obj = om_alloc(om, (uint64_t)false_class, FORMAT_FIELDS, 0);
+
+            {
+                uint64_t *block_md_exact = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
+                OBJ_FIELD(block_md_exact, 0) = sel_value;
+                OBJ_FIELD(block_md_exact, 1) = (uint64_t)value_cm;
+                OBJ_FIELD(block_md_exact, 2) = sel_value_exact;
+                OBJ_FIELD(block_md_exact, 3) = (uint64_t)value_cm;
+                OBJ_FIELD(block_md_exact, 4) = sel_cannot_return;
+                OBJ_FIELD(block_md_exact, 5) = (uint64_t)cannot_return_cm;
+                OBJ_FIELD(block_class, CLASS_METHOD_DICT) = (uint64_t)block_md_exact;
+            }
+
+            {
+                uint64_t *blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 25);
+                uint8_t *bb = (uint8_t *)&OBJ_FIELD(blk_bc, 0);
+                bb[0] = BC_PUSH_SELF;
+                bb[1] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[2], 0);
+                bb[6] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[7], 0);
+                WRITE_U32(&bb[11], 0);
+                bb[15] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[16], 1);
+                WRITE_U32(&bb[20], 1);
+                bb[24] = BC_RETURN;
+
+                uint64_t *blk_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+                OBJ_FIELD(blk_lits, 0) = sel_receiver;
+                OBJ_FIELD(blk_lits, 1) = sel_visitNode;
+                uint64_t *blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+                OBJ_FIELD(blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+                OBJ_FIELD(blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+                OBJ_FIELD(blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+                OBJ_FIELD(blk_cm, CM_LITERALS) = (uint64_t)blk_lits;
+                OBJ_FIELD(blk_cm, CM_BYTECODES) = (uint64_t)blk_bc;
+
+                uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 37);
+                uint8_t *cb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+                cb[0] = BC_PUSH_LITERAL;
+                WRITE_U32(&cb[1], 0);
+                cb[5] = BC_STORE_TEMP;
+                WRITE_U32(&cb[6], 0);
+                cb[10] = BC_PUSH_LITERAL;
+                WRITE_U32(&cb[11], 1);
+                cb[15] = BC_PUSH_CLOSURE;
+                WRITE_U32(&cb[16], 2);
+                cb[20] = BC_PUSH_CLOSURE;
+                WRITE_U32(&cb[21], 3);
+                cb[25] = BC_SEND_MESSAGE;
+                WRITE_U32(&cb[26], 4);
+                WRITE_U32(&cb[30], 2);
+                cb[34] = BC_POP;
+                cb[35] = BC_PUSH_SELF;
+                cb[36] = BC_RETURN;
+
+                uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 5);
+                OBJ_FIELD(caller_lits, 0) = (uint64_t)node_obj;
+                OBJ_FIELD(caller_lits, 1) = (uint64_t)false_obj;
+                OBJ_FIELD(caller_lits, 2) = (uint64_t)ret_zero_cm;
+                OBJ_FIELD(caller_lits, 3) = (uint64_t)blk_cm;
+                OBJ_FIELD(caller_lits, 4) = sel_ifTrueIfFalse;
+                uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+                OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+                OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+                OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(1);
+                OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+                OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+                sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+                fp = (uint64_t *)0xCAFE;
+                stack_push(&sp, stack, (uint64_t)gen_obj);
+                activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 1);
+                result = interpret(&sp, &fp,
+                                   (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                                   class_table, om, NULL);
+                ASSERT_EQ(ctx, result, (uint64_t)gen_obj,
+                          "Dispatch repro: ifFalse block with visit receiver returns self");
+            }
+
+            {
+                uint64_t *blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 94);
+                uint8_t *bb = (uint8_t *)&OBJ_FIELD(blk_bc, 0);
+                bb[0] = BC_PUSH_SELF;
+                bb[1] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[2], 0);
+                bb[6] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[7], 0);
+                WRITE_U32(&bb[11], 0);
+                bb[15] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[16], 1);
+                WRITE_U32(&bb[20], 1);
+                bb[24] = BC_POP;
+                bb[25] = BC_PUSH_SELF;
+                bb[26] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[27], 0);
+                bb[31] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[32], 2);
+                WRITE_U32(&bb[36], 0);
+                bb[40] = BC_PUSH_LITERAL;
+                WRITE_U32(&bb[41], 1);
+                bb[45] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[46], 3);
+                WRITE_U32(&bb[50], 2);
+                bb[54] = BC_POP;
+                bb[55] = BC_PUSH_SELF;
+                bb[56] = BC_PUSH_LITERAL;
+                WRITE_U32(&bb[57], 1);
+                bb[61] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[62], 0);
+                bb[66] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[67], 2);
+                WRITE_U32(&bb[71], 0);
+                bb[75] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[76], 4);
+                WRITE_U32(&bb[80], 0);
+                bb[84] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[85], 5);
+                WRITE_U32(&bb[89], 2);
+                bb[93] = BC_RETURN;
+
+                uint64_t *blk_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
+                OBJ_FIELD(blk_lits, 0) = sel_receiver;
+                OBJ_FIELD(blk_lits, 1) = sel_visitNode;
+                OBJ_FIELD(blk_lits, 2) = sel_arguments;
+                OBJ_FIELD(blk_lits, 3) = sel_visitMessageArgsFrom;
+                OBJ_FIELD(blk_lits, 4) = sel_size;
+                OBJ_FIELD(blk_lits, 5) = sel_emitSendMessageArgc;
+                uint64_t *blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+                OBJ_FIELD(blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+                OBJ_FIELD(blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+                OBJ_FIELD(blk_cm, CM_NUM_TEMPS) = tag_smallint(0);
+                OBJ_FIELD(blk_cm, CM_LITERALS) = (uint64_t)blk_lits;
+                OBJ_FIELD(blk_cm, CM_BYTECODES) = (uint64_t)blk_bc;
+
+                uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 37);
+                uint8_t *cb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+                cb[0] = BC_PUSH_LITERAL;
+                WRITE_U32(&cb[1], 0);
+                cb[5] = BC_STORE_TEMP;
+                WRITE_U32(&cb[6], 0);
+                cb[10] = BC_PUSH_LITERAL;
+                WRITE_U32(&cb[11], 1);
+                cb[15] = BC_PUSH_CLOSURE;
+                WRITE_U32(&cb[16], 2);
+                cb[20] = BC_PUSH_CLOSURE;
+                WRITE_U32(&cb[21], 3);
+                cb[25] = BC_SEND_MESSAGE;
+                WRITE_U32(&cb[26], 4);
+                WRITE_U32(&cb[30], 2);
+                cb[34] = BC_POP;
+                cb[35] = BC_PUSH_SELF;
+                cb[36] = BC_RETURN;
+
+                uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 5);
+                OBJ_FIELD(caller_lits, 0) = (uint64_t)node_obj;
+                OBJ_FIELD(caller_lits, 1) = (uint64_t)false_obj;
+                OBJ_FIELD(caller_lits, 2) = (uint64_t)ret_zero_cm;
+                OBJ_FIELD(caller_lits, 3) = (uint64_t)blk_cm;
+                OBJ_FIELD(caller_lits, 4) = sel_ifTrueIfFalse;
+                uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+                OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+                OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+                OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(1);
+                OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+                OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+                sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+                fp = (uint64_t *)0xCAFE;
+                stack_push(&sp, stack, (uint64_t)gen_obj);
+                activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 1);
+                result = interpret(&sp, &fp,
+                                   (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                                   class_table, om, NULL);
+                ASSERT_EQ(ctx, result, (uint64_t)gen_obj,
+                          "Dispatch repro: ifFalse block through emitSendMessage returns self");
+            }
+
+            {
+                uint64_t *blk_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 123);
+                uint8_t *bb = (uint8_t *)&OBJ_FIELD(blk_bc, 0);
+                bb[0] = BC_PUSH_SELF;
+                bb[1] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[2], 0);
+                bb[6] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[7], 0);
+                WRITE_U32(&bb[11], 0);
+                bb[15] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[16], 1);
+                WRITE_U32(&bb[20], 1);
+                bb[24] = BC_POP;
+                bb[25] = BC_PUSH_SELF;
+                bb[26] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[27], 0);
+                bb[31] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[32], 2);
+                WRITE_U32(&bb[36], 0);
+                bb[40] = BC_PUSH_LITERAL;
+                WRITE_U32(&bb[41], 1);
+                bb[45] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[46], 3);
+                WRITE_U32(&bb[50], 2);
+                bb[54] = BC_POP;
+                bb[55] = BC_PUSH_SELF;
+                bb[56] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[57], 0);
+                bb[61] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[62], 4);
+                WRITE_U32(&bb[66], 0);
+                bb[70] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[71], 5);
+                WRITE_U32(&bb[75], 1);
+                bb[79] = BC_STORE_TEMP;
+                WRITE_U32(&bb[80], 1);
+                bb[84] = BC_PUSH_SELF;
+                bb[85] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[86], 1);
+                bb[90] = BC_PUSH_TEMP;
+                WRITE_U32(&bb[91], 0);
+                bb[95] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[96], 2);
+                WRITE_U32(&bb[100], 0);
+                bb[104] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[105], 6);
+                WRITE_U32(&bb[109], 0);
+                bb[113] = BC_SEND_MESSAGE;
+                WRITE_U32(&bb[114], 7);
+                WRITE_U32(&bb[118], 2);
+                bb[122] = BC_RETURN;
+
+                uint64_t *blk_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 8);
+                OBJ_FIELD(blk_lits, 0) = sel_receiver;
+                OBJ_FIELD(blk_lits, 1) = sel_visitNode;
+                OBJ_FIELD(blk_lits, 2) = sel_arguments;
+                OBJ_FIELD(blk_lits, 3) = sel_visitMessageArgsFrom;
+                OBJ_FIELD(blk_lits, 4) = sel_selector;
+                OBJ_FIELD(blk_lits, 5) = sel_addSelectorLiteral;
+                OBJ_FIELD(blk_lits, 6) = sel_size;
+                OBJ_FIELD(blk_lits, 7) = sel_emitSendMessageArgc;
+                uint64_t *blk_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+                OBJ_FIELD(blk_cm, CM_PRIMITIVE) = tag_smallint(0);
+                OBJ_FIELD(blk_cm, CM_NUM_ARGS) = tag_smallint(0);
+                OBJ_FIELD(blk_cm, CM_NUM_TEMPS) = tag_smallint(1);
+                OBJ_FIELD(blk_cm, CM_LITERALS) = (uint64_t)blk_lits;
+                OBJ_FIELD(blk_cm, CM_BYTECODES) = (uint64_t)blk_bc;
+
+                uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 37);
+                uint8_t *cb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+                cb[0] = BC_PUSH_LITERAL;
+                WRITE_U32(&cb[1], 0);
+                cb[5] = BC_STORE_TEMP;
+                WRITE_U32(&cb[6], 0);
+                cb[10] = BC_PUSH_LITERAL;
+                WRITE_U32(&cb[11], 1);
+                cb[15] = BC_PUSH_CLOSURE;
+                WRITE_U32(&cb[16], 2);
+                cb[20] = BC_PUSH_CLOSURE;
+                WRITE_U32(&cb[21], 3);
+                cb[25] = BC_SEND_MESSAGE;
+                WRITE_U32(&cb[26], 4);
+                WRITE_U32(&cb[30], 2);
+                cb[34] = BC_POP;
+                cb[35] = BC_PUSH_SELF;
+                cb[36] = BC_RETURN;
+
+                uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 5);
+                OBJ_FIELD(caller_lits, 0) = (uint64_t)node_obj;
+                OBJ_FIELD(caller_lits, 1) = (uint64_t)false_obj;
+                OBJ_FIELD(caller_lits, 2) = (uint64_t)ret_zero_cm;
+                OBJ_FIELD(caller_lits, 3) = (uint64_t)blk_cm;
+                OBJ_FIELD(caller_lits, 4) = sel_ifTrueIfFalse;
+                uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+                OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+                OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+                OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(1);
+                OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+                OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+                sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+                fp = (uint64_t *)0xCAFE;
+                stack_push(&sp, stack, (uint64_t)gen_obj);
+                activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 1);
+                result = interpret(&sp, &fp,
+                                   (uint8_t *)&OBJ_FIELD(caller_bc, 0),
+                                   class_table, om, NULL);
+                ASSERT_EQ(ctx, result, (uint64_t)gen_obj,
+                          "Dispatch repro: ifFalse block with selector temp returns self");
+            }
+
+            {
+                const char *probe_source =
+                    "!CodeGenerator methodsFor: 'testing'!\n"
+                    "probeIfFalseFullVisitMessageThenSelf: aNode\n"
+                    "    | selectorIndex |\n"
+                    "    false ifTrue: [0] ifFalse: [\n"
+                    "        self visitNode: aNode receiver.\n"
+                    "        self visitMessageArgs: aNode arguments from: 1.\n"
+                    "        selectorIndex := self addSelectorLiteral: aNode selector.\n"
+                    "        self emitSendMessage: selectorIndex argc: aNode arguments size\n"
+                    "    ].\n"
+                    "    ^ self\n"
+                    "!\n";
+                BClassBinding bindings[] = {
+                    {"CodeGenerator", (ObjPtr)gen_class},
+                };
+                OBJ_FIELD(class_table, CLASS_TABLE_FALSE) = (uint64_t)false_class;
+
+                ASSERT_EQ(ctx,
+                          bc_compile_and_install_source_methods(om, class_class, bindings, 1, probe_source),
+                          1, "Dispatch repro: install exact bootstrap probe method");
+
+                uint64_t probe_selector =
+                    intern_cstring_symbol(om, "probeIfFalseFullVisitMessageThenSelf:");
+                uint64_t *probe_cm = (uint64_t *)class_lookup((ObjPtr)gen_class, probe_selector);
+                uint64_t *probe_bc = (uint64_t *)OBJ_FIELD(probe_cm, CM_BYTECODES);
+
+                sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+                fp = (uint64_t *)0xCAFE;
+                stack_push(&sp, stack, (uint64_t)gen_obj);
+                stack_push(&sp, stack, (uint64_t)node_obj);
+                activate_method(&sp, &fp, 0, (uint64_t)probe_cm, 1,
+                                (uint64_t)untag_smallint(OBJ_FIELD(probe_cm, CM_NUM_TEMPS)));
+                result = interpret(&sp, &fp,
+                                   (uint8_t *)&OBJ_FIELD(probe_bc, 0),
+                                   class_table, om, NULL);
+                ASSERT_EQ(ctx, result, (uint64_t)gen_obj,
+                          "Dispatch repro: exact bootstrap probe method returns self");
+            }
         }
 
         // Test: a returned block still sees its copied outer value after home returns.

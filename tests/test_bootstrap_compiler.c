@@ -557,6 +557,16 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
+        BCompiledBody compiled;
+        ASSERT_EQ(ctx, bc_codegen_method_body("| selectorIndex | true ifTrue: [1]. selectorIndex := 1. ^ self", &compiled), 1,
+                  "codegen statement after ifTrue: with assignment");
+        ASSERT_EQ(ctx, compiled.bytecodes[compiled.bytecode_count - 2], BC_PUSH_SELF,
+                  "statement after ifTrue: with assignment keeps trailing push self");
+        ASSERT_EQ(ctx, compiled.bytecodes[compiled.bytecode_count - 1], BC_RETURN,
+                  "statement after ifTrue: with assignment keeps trailing return");
+    }
+
+    {
         const char *source =
             "!Sample methodsFor: 'testing'!\n"
             "with: arg\n"
@@ -1183,6 +1193,28 @@ void test_bootstrap_compiler(TestContext *ctx)
             ASSERT_EQ(ctx,
                       bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, t2),
                       1, "parserOn install");
+        }
+        {
+            const char *t3 =
+                "!Parser methodsFor: 'debug'!\n"
+                "reproPseudoVariableBranch: token\n"
+                "    | result |\n"
+                "    result := nil.\n"
+                "    result isNil\n"
+                "        ifTrue: [\n"
+                "            token isIdentifier\n"
+                "                ifTrue: [\n"
+                "                    tokenizer next.\n"
+                "                    result := VariableNode name: token text\n"
+                "                ]\n"
+                "                ifFalse: [0]\n"
+                "        ]\n"
+                "        ifFalse: [0].\n"
+                "    ^ result\n"
+                "!\n";
+            ASSERT_EQ(ctx,
+                      bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, t3),
+                      1, "parser pseudo-variable branch install");
         }
 
         // Compiler class + install.

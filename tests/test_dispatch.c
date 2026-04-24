@@ -801,6 +801,156 @@ void test_dispatch(TestContext *ctx)
                   "SEND 1-arg: self withArg: 777 returns self");
     }
 
+    // Test: send a 2-arg message and continue executing caller bytecodes.
+    {
+        // Method #with:and: just returns self.
+        uint64_t *two_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+        uint8_t *twob = (uint8_t *)&OBJ_FIELD(two_bc, 0);
+        twob[0] = BC_PUSH_SELF;
+        twob[1] = BC_RETURN;
+
+        uint64_t *two_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(two_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(two_cm, CM_NUM_ARGS) = tag_smallint(2);
+        OBJ_FIELD(two_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(two_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(two_cm, CM_BYTECODES) = (uint64_t)two_bc;
+
+        uint64_t sel_with_and = tag_smallint(31);
+        uint64_t *two_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
+        OBJ_FIELD(two_md, 0) = sel_with_and;
+        OBJ_FIELD(two_md, 1) = (uint64_t)two_cm;
+
+        uint64_t *two_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(two_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(two_class, CLASS_METHOD_DICT) = (uint64_t)two_md;
+        OBJ_FIELD(two_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(two_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *two_obj = om_alloc(om, (uint64_t)two_class, FORMAT_FIELDS, 0);
+
+        // Caller: push self, push arg1, push arg2, send 2-arg message, pop result, push self, return.
+        uint64_t *c4_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 32);
+        uint8_t *c4b = (uint8_t *)&OBJ_FIELD(c4_bc, 0);
+        c4b[0] = BC_PUSH_SELF;
+        c4b[1] = BC_PUSH_LITERAL;
+        WRITE_U32(&c4b[2], 0);
+        c4b[6] = BC_PUSH_LITERAL;
+        WRITE_U32(&c4b[7], 1);
+        c4b[11] = BC_SEND_MESSAGE;
+        WRITE_U32(&c4b[12], 2);
+        WRITE_U32(&c4b[16], 2);
+        c4b[20] = BC_POP;
+        c4b[21] = BC_PUSH_SELF;
+        c4b[22] = BC_RETURN;
+
+        uint64_t *c4_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(c4_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(c4_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(c4_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        uint64_t *_lits_13 = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(_lits_13, 0) = tag_smallint(111);
+        OBJ_FIELD(_lits_13, 1) = tag_smallint(222);
+        OBJ_FIELD(_lits_13, 2) = sel_with_and;
+        OBJ_FIELD(c4_cm, CM_LITERALS) = (uint64_t)_lits_13;
+        OBJ_FIELD(c4_cm, CM_BYTECODES) = (uint64_t)c4_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)two_obj);
+        activate_method(&sp, &fp, 0, (uint64_t)c4_cm, 0, 0);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(c4_bc, 0), class_table, om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)two_obj,
+                  "SEND 2-arg: caller resumes correctly after POP/PUSH_SELF/RETURN");
+    }
+
+    // Test: send a 2-arg message after STORE_TEMP/PUSH_TEMP and continue.
+    {
+        uint64_t sel_zero = tag_smallint(32);
+        uint64_t *zero_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+        uint8_t *zerob = (uint8_t *)&OBJ_FIELD(zero_bc, 0);
+        zerob[0] = BC_PUSH_SELF;
+        zerob[1] = BC_RETURN;
+
+        uint64_t *zero_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(zero_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(zero_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(zero_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(zero_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(zero_cm, CM_BYTECODES) = (uint64_t)zero_bc;
+
+        uint64_t sel_with_and = tag_smallint(33);
+        uint64_t *two_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 8);
+        uint8_t *twob = (uint8_t *)&OBJ_FIELD(two_bc, 0);
+        twob[0] = BC_PUSH_SELF;
+        twob[1] = BC_RETURN;
+
+        uint64_t *two_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(two_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(two_cm, CM_NUM_ARGS) = tag_smallint(2);
+        OBJ_FIELD(two_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(two_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(two_cm, CM_BYTECODES) = (uint64_t)two_bc;
+
+        uint64_t *md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(md, 0) = sel_zero;
+        OBJ_FIELD(md, 1) = (uint64_t)zero_cm;
+        OBJ_FIELD(md, 2) = sel_with_and;
+        OBJ_FIELD(md, 3) = (uint64_t)two_cm;
+
+        uint64_t *klass = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+        OBJ_FIELD(klass, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(klass, CLASS_METHOD_DICT) = (uint64_t)md;
+        OBJ_FIELD(klass, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(klass, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+        uint64_t *obj = om_alloc(om, (uint64_t)klass, FORMAT_FIELDS, 0);
+
+        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 44);
+        uint8_t *cb = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+        cb[0] = BC_PUSH_SELF;
+        cb[1] = BC_SEND_MESSAGE;
+        WRITE_U32(&cb[2], 0);
+        WRITE_U32(&cb[6], 0);
+        cb[10] = BC_POP;
+        cb[11] = BC_PUSH_LITERAL;
+        WRITE_U32(&cb[12], 1);
+        cb[16] = BC_STORE_TEMP;
+        WRITE_U32(&cb[17], 0);
+        cb[21] = BC_PUSH_SELF;
+        cb[22] = BC_PUSH_TEMP;
+        WRITE_U32(&cb[23], 0);
+        cb[27] = BC_PUSH_LITERAL;
+        WRITE_U32(&cb[28], 1);
+        cb[32] = BC_SEND_MESSAGE;
+        WRITE_U32(&cb[33], 2);
+        WRITE_U32(&cb[37], 2);
+        cb[41] = BC_POP;
+        cb[42] = BC_PUSH_SELF;
+        cb[43] = BC_RETURN;
+
+        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(1);
+        uint64_t *caller_lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 3);
+        OBJ_FIELD(caller_lits, 0) = sel_zero;
+        OBJ_FIELD(caller_lits, 1) = tag_smallint(1);
+        OBJ_FIELD(caller_lits, 2) = sel_with_and;
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, stack, (uint64_t)obj);
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 1);
+        result = interpret(&sp, &fp,
+                           (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)obj,
+                  "SEND 2-arg after STORE_TEMP/PUSH_TEMP: caller resumes correctly");
+    }
+
     // Test: send to superclass — method found in superclass
     {
         // Parent class has method #greet that returns literal 0 (= 999)
