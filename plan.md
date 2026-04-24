@@ -64,6 +64,51 @@ LSP Server
 - [ ] Run first self-hosting check (Smalltalk compiler recompiles itself)
 - [ ] Keep `OrderedCollection` deferred unless compiler ergonomics demand it
 
+### Current Debugging Boundary
+
+`Compiler compileExpression: '1 + 2'` still fails in the real Smalltalk compiler path.
+
+What has been ruled out:
+
+- The raw C interpreter bytecode helpers are not the bug.
+- Hand-written C bytecode repros for the `visitMessage:` send sequence pass.
+- Hand-written block activation / copied-temp / return / send sequences pass.
+- An exact bootstrap-compiled outer probe method shaped like
+  `probeIfFalseFullVisitMessageThenSelf:` also passes in a minimal fake world
+  once the fake method dictionaries use real interned symbol selectors.
+
+What this means:
+
+- The failure is narrower than "message send bytecodes are broken".
+- The remaining bug depends on the interaction of the real `CodeGenerator`
+  helper methods and their state changes:
+  `visitNode:`, `visitMessageArgs:from:`, `addSelectorLiteral:`,
+  and `emitSendMessage:argc:`.
+- The likely classes of bug are:
+  - allocation safety / stale references across helper sends
+  - mutated `CodeGenerator` state becoming inconsistent after one helper send
+  - a mismatch between the real helper methods and the assumptions in the CLI
+    equivalence/materialization path
+
+Concrete breadcrumbs from the last debugging pass:
+
+- `tests/test_blocks.c` now contains the useful C-level binary search:
+  - manual `ifTrue:ifFalse:` block body with only `visitNode:`
+  - manual extension through `visitMessageArgs:from:` and `emitSendMessage:argc:`
+  - manual version with `selectorIndex` temp store/load
+  - exact bootstrap-compiled `probeIfFalseFullVisitMessageThenSelf:`
+- All of those pass in C.
+- The old failing broad runtime probes in `tests/test_smalltalk_runtime.c` were
+  removed so the tree stays green while debugging resumes.
+
+Recommended next step:
+
+- Add a focused runtime test around a real `CodeGenerator` instance that checks
+  its bytecode/literal/temp state after each helper send in the failing path,
+  with roots made explicit across any helper that may allocate.
+- Do not start by reworking the interpreter or bytecode helpers; that part has
+  already been narrowed out.
+
 ### Expression-Driven Development
 
 - [x] Add executable expression specs (`expression -> expected result`) in C test harness

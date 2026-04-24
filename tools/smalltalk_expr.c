@@ -249,6 +249,10 @@ static ObjPtr materialize_smalltalk_codegen_method(SmalltalkWorld *world, ObjPtr
     int64_t arg_count = untag_smallint(OBJ_FIELD(generator, 7));
     if (bytecode_count < 0 || literal_count < 0 || temp_count < 0 || arg_count < 0)
     {
+        fprintf(stderr,
+                "materialize failed: negative counts bytecodes=%lld literals=%lld temps=%lld args=%lld\n",
+                (long long)bytecode_count, (long long)literal_count,
+                (long long)temp_count, (long long)arg_count);
         return NULL;
     }
 
@@ -286,6 +290,8 @@ static ObjPtr materialize_smalltalk_codegen_method(SmalltalkWorld *world, ObjPtr
                                                                     code_generator_class);
                 if (!is_object_ptr(literal))
                 {
+                    fprintf(stderr, "materialize failed: nested code generator literal at %lld\n",
+                            (long long)index);
                     return NULL;
                 }
             }
@@ -339,6 +345,23 @@ static ObjPtr materialize_c_compiled_method(SmalltalkWorld *world, const BCompil
                 case BTOK_SELECTOR:
                     value = intern_cstring_symbol(world->om, literal.text);
                     break;
+                case BTOK_IDENTIFIER:
+                    if (strcmp(literal.text, "nil") == 0)
+                    {
+                        value = tagged_nil();
+                        break;
+                    }
+                    if (strcmp(literal.text, "true") == 0)
+                    {
+                        value = tagged_true();
+                        break;
+                    }
+                    if (strcmp(literal.text, "false") == 0)
+                    {
+                        value = tagged_false();
+                        break;
+                    }
+                    return NULL;
                 default:
                     return NULL;
             }
@@ -717,72 +740,35 @@ static ObjPtr compile_c_expression_method(SmalltalkWorld *world, ObjPtr receiver
 static ObjPtr compile_smalltalk_expression_method(SmalltalkWorld *world, TestContext *ctx,
                                                   const char *expression, int index)
 {
+    ObjPtr compiler_class = lookup_class_or_null(world, "Compiler");
     ObjPtr parser_class = lookup_class_or_null(world, "Parser");
     ObjPtr code_generator_class = lookup_class_or_null(world, "CodeGenerator");
-    if (parser_class == NULL || code_generator_class == NULL)
+    if (compiler_class == NULL || parser_class == NULL || code_generator_class == NULL)
     {
         return NULL;
     }
 
-    (void)intern_cstring_symbol(world->om, "on:");
-    (void)intern_cstring_symbol(world->om, "parseMethod");
-    (void)intern_cstring_symbol(world->om, "new");
-    (void)intern_cstring_symbol(world->om, "arguments");
-    (void)intern_cstring_symbol(world->om, "body");
-    (void)intern_cstring_symbol(world->om, "arguments:");
-    (void)intern_cstring_symbol(world->om, "visitSequence:");
-    (void)intern_cstring_symbol(world->om, "emitReturn");
-
-    char selector[32];
-    snprintf(selector, sizeof(selector), "expr%d", index);
-    char *source = build_raw_method_source(selector, expression);
-    if (source == NULL)
-    {
-        return NULL;
-    }
-    Oop source_string = (Oop)sw_make_string(world, source);
-    free(source);
-    Oop parser = sw_send1(world, ctx, (Oop)parser_class, world->class_class,
-                          "on:", source_string);
-    if (!is_object_ptr(parser))
-    {
-        return NULL;
-    }
-    Oop method_ast = sw_send0(world, ctx, parser, NULL, "parseMethod");
-    if (!is_object_ptr(method_ast))
-    {
-        return NULL;
-    }
-    Oop arguments = sw_send0(world, ctx, method_ast, NULL, "arguments");
-    Oop body = sw_send0(world, ctx, method_ast, NULL, "body");
-    if (!is_object_ptr(arguments) || !is_object_ptr(body))
-    {
-        return NULL;
-    }
-    Oop generator = sw_send0(world, ctx, (Oop)code_generator_class, world->class_class, "new");
+    (void)index;
+    (void)intern_cstring_symbol(world->om, "compileExpression:");
+    Oop source_string = (Oop)sw_make_string(world, expression);
+    Oop generator = sw_send1(world, ctx, (Oop)compiler_class, world->class_class,
+                             "compileExpression:", source_string);
     if (!is_object_ptr(generator))
     {
-        return NULL;
-    }
-    Oop moved_generator = generator;
-    (void)sw_send1_capture_receiver(world, ctx, generator, NULL, "arguments:",
-                                    arguments, &moved_generator);
-    generator = moved_generator;
-    if (!is_object_ptr(generator))
-    {
-        return NULL;
-    }
-    (void)sw_send1_capture_receiver(world, ctx, generator, NULL, "visitSequence:",
-                                    body, &moved_generator);
-    generator = moved_generator;
-    if (!is_object_ptr(generator))
-    {
-        return NULL;
-    }
-    (void)sw_send0_capture_receiver(world, ctx, generator, NULL, "emitReturn", &moved_generator);
-    generator = moved_generator;
-    if (!is_object_ptr(generator))
-    {
+        fprintf(stderr, "compileExpression raw result for '%s': 0x%llx\n",
+                expression, (unsigned long long)generator);
+        if (strcmp(expression, "1 + 2") == 0)
+        {
+            Oop parser = sw_send1(world, ctx, (Oop)parser_class, world->class_class, "on:", source_string);
+            Oop expr = sw_send0(world, ctx, parser, NULL, "parseExpression");
+            Oop probe_generator = sw_send0(world, ctx, (Oop)code_generator_class, world->class_class, "new");
+            Oop while_result = sw_send1(world, ctx, probe_generator, NULL, "isWhileTrueMessage:", expr);
+            Oop visit_result = sw_send1(world, ctx, probe_generator, NULL, "visitNode:", expr);
+            fprintf(stderr, "isWhileTrueMessage raw result for '%s': 0x%llx\n",
+                    expression, (unsigned long long)while_result);
+            fprintf(stderr, "visitNode raw result for '%s': 0x%llx\n",
+                    expression, (unsigned long long)visit_result);
+        }
         return NULL;
     }
     return materialize_smalltalk_codegen_method(world, (ObjPtr)generator, code_generator_class);

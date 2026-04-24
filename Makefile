@@ -55,8 +55,8 @@ gc-stress: $(GC_STRESS_BIN)
 smalltalk-expr: $(SMALLTALK_EXPR_BIN)
 
 test-smalltalk-expr: $(SMALLTALK_EXPR_BIN)
-	@output="$$(./$(SMALLTALK_EXPR_BIN) "1" "#foo")"; \
-	expected="$$(printf '1\n#foo')"; \
+	@output="$$(./$(SMALLTALK_EXPR_BIN) "nil" "true" "false" "1" "#foo")"; \
+	expected="$$(printf 'nil\ntrue\nfalse\n1\n#foo')"; \
 	if [ "$$output" != "$$expected" ]; then \
 		printf 'unexpected smalltalk_expr output:\n%s\n' "$$output"; \
 		exit 1; \
