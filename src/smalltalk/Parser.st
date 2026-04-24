@@ -143,7 +143,7 @@ collectStatements: buffer at: index
         ifFalse: [0].
 
     stmt := self parseStatement.
-    stmt isNil
+    stmt == nil
         ifTrue: [^ self trimArray: buffer to: index - 1]
         ifFalse: [0].
 
@@ -199,7 +199,7 @@ parseExpressionOrAssignment
 parseKeywordExpression
     | receiver token selectorBuffer argsBuffer arg |
     receiver := self parseBinaryExpression.
-    receiver isNil
+    receiver == nil
         ifTrue: [^ nil]
         ifFalse: [0].
 
@@ -229,7 +229,7 @@ parseKeywordContinuation: receiver selector: selBuf args: argsBuf at: argIndex s
             tokenizer next.
             newSelIndex := self appendString: token text to: selBuf at: selIndex.
             arg := self parseBinaryExpression.
-            arg isNil
+            arg == nil
                 ifTrue: [^ nil]
                 ifFalse: [0].
             argsBuf at: argIndex put: arg.
@@ -245,7 +245,7 @@ parseKeywordContinuation: receiver selector: selBuf args: argsBuf at: argIndex s
 parseBinaryExpression
     | receiver |
     receiver := self parseUnaryExpression.
-    receiver isNil
+    receiver == nil
         ifTrue: [^ nil]
         ifFalse: [0].
     ^ self parseBinaryContinuation: receiver
@@ -258,7 +258,7 @@ parseBinaryContinuation: receiver
         ifTrue: [
             tokenizer next.
             arg := self parseUnaryExpression.
-            arg isNil
+            arg == nil
                 ifTrue: [^ nil]
                 ifFalse: [0].
             ^ self parseBinaryContinuation: (MessageNode receiver: receiver selector: token text arguments: (Array with: arg))
@@ -269,7 +269,7 @@ parseBinaryContinuation: receiver
 parseUnaryExpression
     | receiver |
     receiver := self parsePrimary.
-    receiver isNil
+    receiver == nil
         ifTrue: [^ nil]
         ifFalse: [0].
     ^ self parseUnaryContinuation: receiver
@@ -325,7 +325,7 @@ parsePrimaryLiteral: token
     token isCharacter
         ifTrue: [
             tokenizer next.
-            ^ LiteralNode value: token value token: token
+            ^ LiteralNode value: token value asCharacter token: token
         ]
         ifFalse: [0].
 
@@ -509,7 +509,7 @@ collectLiteralArrayToken: token into: buffer at: index
     token isCharacter
         ifTrue: [
             tokenizer next.
-            buffer at: index put: (LiteralNode value: token value token: token).
+            buffer at: index put: (LiteralNode value: token value asCharacter token: token).
             ^ self collectLiteralArrayElements: buffer at: index + 1
         ]
         ifFalse: [0].
