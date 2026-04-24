@@ -38,6 +38,8 @@ static int bytecode_contains(uint64_t *bytecodes, uint64_t count, uint8_t opcode
 }
 
 #ifdef ALO_INTERPRETER_C
+static SmalltalkWorld *trap_world = NULL;
+
 static Oop sw_send0_capture_receiver(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
                                      ObjPtr receiver_class, const char *selector,
                                      Oop *updated_receiver)
@@ -141,6 +143,235 @@ static uint64_t run_materialized_method(SmalltalkWorld *world, TestContext *ctx,
     stack_push(&sp, ctx->stack, receiver);
     activate_method(&sp, &fp, 0, (Oop)method, num_args, num_temps);
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+}
+
+static void trap_codegen_add_literal_nil(TestContext *ctx)
+{
+    ObjPtr code_generator_class = smalltalk_world_lookup_class(trap_world, "CodeGenerator");
+    Oop generator = sw_send0(trap_world, ctx, (Oop)code_generator_class,
+                             trap_world->class_class, "new");
+    (void)sw_send1(trap_world, ctx, generator, NULL, "addLiteral:", tagged_nil());
+}
+
+static void trap_codegen_resolve_nil(TestContext *ctx)
+{
+    ObjPtr code_generator_class = smalltalk_world_lookup_class(trap_world, "CodeGenerator");
+    Oop generator = sw_send0(trap_world, ctx, (Oop)code_generator_class,
+                             trap_world->class_class, "new");
+    Oop nil_name = (Oop)sw_make_string(trap_world, "nil");
+    (void)sw_send1(trap_world, ctx, generator, NULL, "resolveVariable:", nil_name);
+}
+
+static void trap_compiler_compile_nil(TestContext *ctx)
+{
+    ObjPtr compiler_class = smalltalk_world_lookup_class(trap_world, "Compiler");
+    Oop nil_source = (Oop)sw_make_string(trap_world, "nil");
+    (void)sw_send1(trap_world, ctx, (Oop)compiler_class, trap_world->class_class,
+                   "compileExpression:", nil_source);
+}
+
+static uint64_t *materialize_c_compiled_method(SmalltalkWorld *world, const BCompiledMethodDef *method_def)
+{
+    uint64_t *literals = NULL;
+    if (method_def->body.literal_count > 0)
+    {
+        literals = om_alloc(world->om, (uint64_t)world->class_class,
+                            FORMAT_INDEXABLE, (uint64_t)method_def->body.literal_count);
+        if (literals == NULL)
+        {
+            return NULL;
+        }
+        for (int index = 0; index < method_def->body.literal_count; index++)
+        {
+            BToken literal = method_def->body.literals[index];
+            uint64_t value = tagged_nil();
+            switch (literal.type)
+            {
+                case BTOK_INTEGER:
+                    value = tag_smallint(literal.int_value);
+                    break;
+                case BTOK_CHARACTER:
+                    value = tag_character((uint64_t)literal.int_value);
+                    break;
+                case BTOK_STRING:
+                    value = (uint64_t)sw_make_string(world, literal.text);
+                    break;
+                case BTOK_SYMBOL:
+                case BTOK_SELECTOR:
+                    value = intern_cstring_symbol(world->om, literal.text);
+                    break;
+                case BTOK_IDENTIFIER:
+                    if (strcmp(literal.text, "nil") == 0)
+                    {
+                        value = tagged_nil();
+                        break;
+                    }
+                    if (strcmp(literal.text, "true") == 0)
+                    {
+                        value = tagged_true();
+                        break;
+                    }
+                    if (strcmp(literal.text, "false") == 0)
+                    {
+                        value = tagged_false();
+                        break;
+                    }
+                    return NULL;
+                default:
+                    return NULL;
+            }
+            OBJ_FIELD(literals, index) = value;
+        }
+    }
+
+    uint64_t *bytecodes = om_alloc(world->om, (uint64_t)world->class_class,
+                                   FORMAT_BYTES,
+                                   (uint64_t)(method_def->body.bytecode_count > 0
+                                                  ? method_def->body.bytecode_count
+                                                  : 1));
+    if (bytecodes == NULL)
+    {
+        return NULL;
+    }
+    if (method_def->body.bytecode_count > 0)
+    {
+        memcpy(&OBJ_FIELD(bytecodes, 0), method_def->body.bytecodes,
+               (size_t)method_def->body.bytecode_count);
+    }
+    else
+    {
+        ((uint8_t *)&OBJ_FIELD(bytecodes, 0))[0] = 0;
+    }
+
+    uint64_t *method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    if (method == NULL)
+    {
+        return NULL;
+    }
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(method_def->primitive_index >= 0
+                                                       ? method_def->primitive_index
+                                                       : PRIM_NONE);
+    OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint(method_def->header.arg_count);
+    OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(method_def->body.temp_count);
+    OBJ_FIELD(method, CM_LITERALS) = literals != NULL ? (uint64_t)literals : tagged_nil();
+    OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+    return method;
+}
+
+static int oop_structurally_equal(SmalltalkWorld *world, uint64_t left, uint64_t right, int depth);
+
+static int array_literals_equal(SmalltalkWorld *world, uint64_t *left, uint64_t *right, int depth)
+{
+    if (left == NULL || right == NULL)
+    {
+        return left == right;
+    }
+    if (OBJ_SIZE(left) != OBJ_SIZE(right))
+    {
+        return 0;
+    }
+    for (uint64_t index = 0; index < OBJ_SIZE(left); index++)
+    {
+        if (!oop_structurally_equal(world, OBJ_FIELD(left, index), OBJ_FIELD(right, index), depth + 1))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int method_structurally_equal(SmalltalkWorld *world, uint64_t *left, uint64_t *right, int depth)
+{
+    if (OBJ_FIELD(left, CM_PRIMITIVE) != OBJ_FIELD(right, CM_PRIMITIVE) ||
+        OBJ_FIELD(left, CM_NUM_ARGS) != OBJ_FIELD(right, CM_NUM_ARGS) ||
+        OBJ_FIELD(left, CM_NUM_TEMPS) != OBJ_FIELD(right, CM_NUM_TEMPS))
+    {
+        return 0;
+    }
+
+    uint64_t *left_bytecodes = (uint64_t *)OBJ_FIELD(left, CM_BYTECODES);
+    uint64_t *right_bytecodes = (uint64_t *)OBJ_FIELD(right, CM_BYTECODES);
+    if (OBJ_SIZE(left_bytecodes) != OBJ_SIZE(right_bytecodes) ||
+        memcmp(&OBJ_FIELD(left_bytecodes, 0), &OBJ_FIELD(right_bytecodes, 0),
+               (size_t)OBJ_SIZE(left_bytecodes)) != 0)
+    {
+        return 0;
+    }
+
+    uint64_t left_literals_oop = OBJ_FIELD(left, CM_LITERALS);
+    uint64_t right_literals_oop = OBJ_FIELD(right, CM_LITERALS);
+    if (left_literals_oop == tagged_nil() || right_literals_oop == tagged_nil())
+    {
+        return left_literals_oop == right_literals_oop;
+    }
+    return array_literals_equal(world, (uint64_t *)left_literals_oop, (uint64_t *)right_literals_oop, depth + 1);
+}
+
+static int oop_structurally_equal(SmalltalkWorld *world, uint64_t left, uint64_t right, int depth)
+{
+    if (left == right)
+    {
+        return 1;
+    }
+    if (depth > 8)
+    {
+        return 0;
+    }
+    if (!is_object_ptr(left) || !is_object_ptr(right))
+    {
+        return 0;
+    }
+
+    uint64_t *left_obj = (uint64_t *)left;
+    uint64_t *right_obj = (uint64_t *)right;
+    if (OBJ_CLASS(left_obj) == (uint64_t)world->class_class && OBJ_SIZE(left_obj) == 5 &&
+        OBJ_CLASS(right_obj) == (uint64_t)world->class_class && OBJ_SIZE(right_obj) == 5)
+    {
+        return method_structurally_equal(world, left_obj, right_obj, depth + 1);
+    }
+    if (OBJ_CLASS(left_obj) != OBJ_CLASS(right_obj) ||
+        OBJ_FORMAT(left_obj) != OBJ_FORMAT(right_obj) ||
+        OBJ_SIZE(left_obj) != OBJ_SIZE(right_obj))
+    {
+        return 0;
+    }
+    if (OBJ_FORMAT(left_obj) == FORMAT_BYTES)
+    {
+        return memcmp(&OBJ_FIELD(left_obj, 0), &OBJ_FIELD(right_obj, 0),
+                      (size_t)OBJ_SIZE(left_obj)) == 0;
+    }
+    if (OBJ_FORMAT(left_obj) == FORMAT_INDEXABLE)
+    {
+        return array_literals_equal(world, left_obj, right_obj, depth + 1);
+    }
+    for (uint64_t index = 0; index < OBJ_SIZE(left_obj); index++)
+    {
+        if (!oop_structurally_equal(world, OBJ_FIELD(left_obj, index),
+                                    OBJ_FIELD(right_obj, index), depth + 1))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static uint64_t *compile_c_expression_method(SmalltalkWorld *world, const char *selector, const char *expression)
+{
+    char source[512];
+    snprintf(source, sizeof(source),
+             "!ExprValidation methodsFor: 'tests'!\n"
+             "%s\n"
+             "    ^ %s\n"
+             "!\n",
+             selector, expression);
+
+    BCompiledMethodDef methods[1];
+    int method_count = 0;
+    if (!bc_compile_source_methods(source, methods, 1, &method_count) || method_count != 1)
+    {
+        return NULL;
+    }
+    return materialize_c_compiled_method(world, &methods[0]);
 }
 #endif
 
@@ -382,8 +613,72 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, materialized_result, tag_smallint(1),
               "runtime: materialized Smalltalk-compiled method executes");
 
+    {
+        struct
+        {
+            const char *expression;
+            int expected_kind;
+            uint64_t expected;
+            const char *expected_text;
+        } expression_specs[] = {
+            {"nil", 0, tagged_nil(), NULL},
+            {"true", 0, tagged_true(), NULL},
+            {"false", 0, tagged_false(), NULL},
+            {"1", 0, tag_smallint(1), NULL},
+            {"15", 0, tag_smallint(15), NULL},
+            {"#foo", 0, intern_cstring_symbol(world.om, "foo"), NULL},
+            {"'hi'", 1, 0, "hi"},
+            {"$A", 0, tag_character('A'), NULL},
+        };
+
+        for (uint64_t index = 0; index < sizeof(expression_specs) / sizeof(expression_specs[0]); index++)
+        {
+            uint64_t expr_source = (uint64_t)sw_make_string(&world, expression_specs[index].expression);
+            uint64_t expr_gen = sw_send1(&world, ctx, (uint64_t)compiler_class, world.class_class,
+                                         "compileExpression:", expr_source);
+            ASSERT_EQ(ctx, is_object_ptr(expr_gen), 1,
+                      "runtime: Compiler compileExpression: returns a CodeGenerator object");
+            uint64_t *expr_method = materialize_codegen_method(&world, (uint64_t *)expr_gen);
+            ASSERT_EQ(ctx, expr_method != NULL, 1,
+                      "runtime: compileExpression materializes into a CompiledMethod");
+
+            char selector[32];
+            snprintf(selector, sizeof(selector), "expr%llu", (unsigned long long)(index + 1));
+            uint64_t *c_method = compile_c_expression_method(&world, selector, expression_specs[index].expression);
+            ASSERT_EQ(ctx, c_method != NULL, 1,
+                      "runtime: C compiler materializes expression comparison method");
+            ASSERT_EQ(ctx, method_structurally_equal(&world, c_method, expr_method, 0), 1,
+                      expression_specs[index].expression);
+
+            uint64_t expr_result = run_materialized_method(&world, ctx, expr_method, tagged_nil());
+            if (expression_specs[index].expected_kind == 1)
+            {
+                ASSERT_EQ(ctx, byte_object_equals_cstring(expr_result, expression_specs[index].expected_text), 1,
+                          expression_specs[index].expression);
+            }
+            else
+            {
+                ASSERT_EQ(ctx, expr_result, expression_specs[index].expected,
+                          expression_specs[index].expression);
+            }
+        }
+    }
+
     uint64_t *code_generator_class = smalltalk_world_lookup_class(&world, "CodeGenerator");
     ASSERT_EQ(ctx, code_generator_class != NULL, 1, "runtime: CodeGenerator in Smalltalk dict");
+    {
+        uint64_t visit_message_selector = intern_cstring_symbol(world.om, "visitMessage:");
+        uint64_t visit_message_method = class_lookup(code_generator_class, visit_message_selector);
+        ASSERT_EQ(ctx, is_object_ptr(visit_message_method), 1,
+                  "runtime: CodeGenerator understands visitMessage:");
+        uint64_t *visit_message_bytecodes = (uint64_t *)OBJ_FIELD((uint64_t *)visit_message_method, CM_BYTECODES);
+        uint64_t visit_message_len = OBJ_SIZE(visit_message_bytecodes);
+        uint8_t *visit_message_bytes = (uint8_t *)&OBJ_FIELD(visit_message_bytecodes, 0);
+        ASSERT_EQ(ctx, visit_message_bytes[visit_message_len - 2], BC_PUSH_SELF,
+                  "runtime: visitMessage: keeps trailing push self");
+        ASSERT_EQ(ctx, visit_message_bytes[visit_message_len - 1], BC_RETURN,
+                  "runtime: visitMessage: keeps trailing return");
+    }
     {
         uint64_t direct_gen = sw_send0(&world, ctx, (uint64_t)code_generator_class,
                                        world.class_class, "new");
@@ -397,8 +692,120 @@ void test_smalltalk_runtime(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)direct_gen, 1), tag_smallint(9),
                   "runtime: emitSendMessage:argc: appends nine bytes");
     }
+    trap_world = &world;
+    ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_codegen_add_literal_nil), 0,
+              "runtime: CodeGenerator addLiteral: nil executes");
+    ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_codegen_resolve_nil), 0,
+              "runtime: CodeGenerator resolveVariable: 'nil' executes");
     uint64_t *parser_class = smalltalk_world_lookup_class(&world, "Parser");
     ASSERT_EQ(ctx, parser_class != NULL, 1, "runtime: Parser in Smalltalk dict");
+    uint64_t *message_node_class = smalltalk_world_lookup_class(&world, "MessageNode");
+    ASSERT_EQ(ctx, message_node_class != NULL, 1, "runtime: MessageNode in Smalltalk dict");
+    {
+        uint64_t nil_source = (uint64_t)sw_make_string(&world, "nil");
+        uint64_t nil_parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,
+                                       "on:", nil_source);
+        uint64_t nil_ast = sw_send0(&world, ctx, nil_parser, NULL, "parseExpression");
+        ASSERT_EQ(ctx, is_object_ptr(nil_ast), 1,
+                  "runtime: Parser parseExpression returns a node for nil");
+    }
+    ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_compiler_compile_nil), 0,
+              "runtime: Compiler compileExpression: 'nil' executes");
+    {
+        uint64_t expr_source = (uint64_t)sw_make_string(&world, "1 + 2");
+        uint64_t expr_parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,
+                                        "on:", expr_source);
+        uint64_t expr_ast = sw_send0(&world, ctx, expr_parser, NULL, "parseExpression");
+        ASSERT_EQ(ctx, is_object_ptr(expr_ast), 1,
+                  "runtime: Parser parses binary expression for direct CodeGenerator stepping");
+
+        uint64_t step_gen = sw_send0(&world, ctx, (uint64_t)code_generator_class,
+                                     world.class_class, "new");
+        ASSERT_EQ(ctx, is_object_ptr(step_gen), 1,
+                  "runtime: CodeGenerator new returns object for direct visitMessage stepping");
+
+        expr_source = (uint64_t)sw_make_string(&world, "1 + 2");
+        expr_parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,
+                               "on:", expr_source);
+        expr_ast = sw_send0(&world, ctx, expr_parser, NULL, "parseExpression");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)expr_ast), (uint64_t)message_node_class,
+                  "runtime: binary expression parses as MessageNode");
+        uint64_t expr_receiver = OBJ_FIELD((uint64_t *)expr_ast, 0);
+        uint64_t step_result =
+            sw_send1(&world, ctx, step_gen, NULL, "visitNode:", expr_receiver);
+        ASSERT_EQ(ctx, is_object_ptr(step_result), 1,
+                  "runtime: visit receiver node returns generator");
+        step_gen = step_result;
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)step_gen, 1), tag_smallint(5),
+                  "runtime: visit receiver node emits one push literal");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)step_gen, 3), tag_smallint(1),
+                  "runtime: visit receiver node records receiver literal");
+
+        expr_source = (uint64_t)sw_make_string(&world, "1 + 2");
+        expr_parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,
+                               "on:", expr_source);
+        expr_ast = sw_send0(&world, ctx, expr_parser, NULL, "parseExpression");
+        uint64_t expr_arguments = OBJ_FIELD((uint64_t *)expr_ast, 2);
+        ASSERT_EQ(ctx, is_object_ptr(expr_arguments), 1,
+                  "runtime: binary expression stores arguments in an object");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)expr_arguments), (uint64_t)world.array_class,
+                  "runtime: binary expression arguments are an Array");
+        uint64_t expr_argc = tag_smallint((int64_t)OBJ_SIZE((uint64_t *)expr_arguments));
+        ASSERT_EQ(ctx, expr_argc, tag_smallint(1),
+                  "runtime: binary expression exposes one argument");
+        ASSERT_EQ(ctx, is_object_ptr(OBJ_FIELD((uint64_t *)expr_arguments, 0)), 1,
+                  "runtime: binary expression first argument is an AST node");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)OBJ_FIELD((uint64_t *)expr_arguments, 0), 0), tag_smallint(2),
+                  "runtime: binary expression first argument literal is 2");
+        step_result =
+            sw_send2(&world, ctx, step_gen, NULL, "visitMessageArgs:from:",
+                     expr_arguments, tag_smallint(1));
+        ASSERT_EQ(ctx, is_object_ptr(step_result), 1,
+                  "runtime: visitMessageArgs:from: returns generator");
+        step_gen = step_result;
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)step_gen, 1), tag_smallint(10),
+                  "runtime: visitMessageArgs:from: emits argument bytecodes");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)step_gen, 3), tag_smallint(2),
+                  "runtime: visitMessageArgs:from: records argument literal");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)OBJ_FIELD((uint64_t *)step_gen, 2), 0), tag_smallint(1),
+                  "runtime: visitMessageArgs:from: keeps receiver literal first");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)OBJ_FIELD((uint64_t *)step_gen, 2), 1), tag_smallint(2),
+                  "runtime: visitMessageArgs:from: stores argument literal second");
+
+        expr_source = (uint64_t)sw_make_string(&world, "1 + 2");
+        expr_parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,
+                               "on:", expr_source);
+        expr_ast = sw_send0(&world, ctx, expr_parser, NULL, "parseExpression");
+        uint64_t expr_selector = OBJ_FIELD((uint64_t *)expr_ast, 1);
+        ASSERT_EQ(ctx, byte_object_equals_cstring(expr_selector, "+"), 1,
+                  "runtime: binary expression selector is '+'");
+        uint64_t selector_index =
+            sw_send1(&world, ctx, step_gen, NULL, "addSelectorLiteral:", expr_selector);
+        ASSERT_EQ(ctx, selector_index, tag_smallint(2),
+                  "runtime: addSelectorLiteral: returns selector literal index");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)step_gen, 3), tag_smallint(3),
+                  "runtime: addSelectorLiteral: appends selector literal");
+        ASSERT_EQ(ctx, byte_object_equals_cstring(OBJ_FIELD((uint64_t *)OBJ_FIELD((uint64_t *)step_gen, 2), 2), "+"), 1,
+                  "runtime: addSelectorLiteral: stores '+' as third literal");
+
+        step_result =
+            sw_send2(&world, ctx, step_gen, NULL, "emitSendMessage:argc:",
+                     selector_index, expr_argc);
+        ASSERT_EQ(ctx, is_object_ptr(step_result), 1,
+                  "runtime: emitSendMessage:argc: after selector setup returns generator");
+        step_gen = step_result;
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)step_gen, 1), tag_smallint(19),
+                  "runtime: emitSendMessage:argc: appends message send bytecodes");
+
+        expr_source = (uint64_t)sw_make_string(&world, "1 + 2");
+        expr_parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,
+                               "on:", expr_source);
+        expr_ast = sw_send0(&world, ctx, expr_parser, NULL, "parseExpression");
+        step_result =
+            sw_send1(&world, ctx, step_gen, NULL, "visitMessage:", expr_ast);
+        ASSERT_EQ(ctx, is_object_ptr(step_result), 1,
+                  "runtime: visitMessage: returns generator for binary expression");
+    }
     uint64_t loop_gen = sw_send0(&world, ctx, (uint64_t)code_generator_class,
                                  world.class_class, "new");
     ASSERT_EQ(ctx, is_object_ptr(loop_gen), 1,

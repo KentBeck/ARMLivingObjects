@@ -203,7 +203,7 @@ findLiteral: anObject from: index
             ^ literalCount - 1
         ]
         ifFalse: [
-            ((literals at: index) = anObject)
+            ((literals at: index) == anObject)
                 ifTrue: [^ index - 1]
                 ifFalse: [^ self findLiteral: anObject from: index + 1]
         ]
