@@ -14,6 +14,13 @@ extern void activate_method(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t saved_ip,
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
 extern Oop prim_string_as_symbol(Oop receiver);
+extern Oop prim_class_superclass(Oop receiver);
+extern Oop prim_class_name(Oop receiver);
+extern Oop prim_class_includes_selector(Oop receiver, Oop selector);
+extern Oop prim_smalltalk_globals(void);
+extern Oop prim_method_source_for_class_selector(Oop class_name, Oop selector, Om om);
+extern Oop prim_read_fd_count(Oop fd, Oop count, Om om);
+extern Oop prim_write_fd_string(Oop fd, Oop string);
 extern ObjPtr om_alloc(Om free_ptr_var, Oop class_ptr, uint64_t format, uint64_t size);
 extern Oop gc_is_registered_context(Om om);
 extern void gc_collect(Oop *roots, uint64_t num_roots,
@@ -650,6 +657,139 @@ static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
     }
 }
 
+static PrimitiveResult try_live_image_primitive(Oop **sp_ptr, Oop primitive,
+                                               uint64_t arg_count, Om om,
+                                               ObjPtr *fp_ptr, uint8_t **ip_ptr,
+                                               uint8_t **bytecode_base_ptr,
+                                               ObjPtr *class_table_ptr)
+{
+    Oop *sp = *sp_ptr;
+    Oop receiver = sp[arg_count];
+
+    switch (primitive)
+    {
+    case PRIM_CLASS_SUPERCLASS:
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        replace_receiver(sp_ptr, prim_class_superclass(receiver));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_CLASS_NAME:
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        replace_receiver(sp_ptr, prim_class_name(receiver));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_CLASS_INCLUDES_SELECTOR:
+        if (arg_count != 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        replace_receiver_and_arg(sp_ptr, prim_class_includes_selector(receiver, sp[0]));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_SMALLTALK_GLOBALS:
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        replace_receiver(sp_ptr, prim_smalltalk_globals());
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_METHOD_SOURCE_FOR_CLASS_SELECTOR:
+        if (arg_count != 2)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        {
+            Oop result = prim_method_source_for_class_selector(sp[1], sp[0], om);
+            if (result == TAGGED_NIL)
+            {
+                replace_receiver_and_two_args(sp_ptr, TAGGED_NIL);
+                return PRIMITIVE_SUCCEEDED;
+            }
+            if (!is_object_value(result))
+            {
+                if (!collect_and_retry_allocation(sp_ptr, fp_ptr, ip_ptr, bytecode_base_ptr, class_table_ptr, om))
+                {
+                    raise(SIGTRAP);
+                    return PRIMITIVE_UNSUPPORTED;
+                }
+                sp = *sp_ptr;
+                result = prim_method_source_for_class_selector(sp[1], sp[0], om);
+                if (!is_object_value(result) && result != TAGGED_NIL)
+                {
+                    raise(SIGTRAP);
+                    return PRIMITIVE_UNSUPPORTED;
+                }
+            }
+            replace_receiver_and_two_args(sp_ptr, result);
+            return PRIMITIVE_SUCCEEDED;
+        }
+
+    case PRIM_READ_FD_COUNT:
+        if (arg_count != 2)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        {
+            Oop result = prim_read_fd_count(sp[1], sp[0], om);
+            if (result == TAGGED_NIL)
+            {
+                replace_receiver_and_two_args(sp_ptr, TAGGED_NIL);
+                return PRIMITIVE_SUCCEEDED;
+            }
+            if (!is_object_value(result))
+            {
+                if (!collect_and_retry_allocation(sp_ptr, fp_ptr, ip_ptr, bytecode_base_ptr, class_table_ptr, om))
+                {
+                    raise(SIGTRAP);
+                    return PRIMITIVE_UNSUPPORTED;
+                }
+                sp = *sp_ptr;
+                result = prim_read_fd_count(sp[1], sp[0], om);
+                if (!is_object_value(result) && result != TAGGED_NIL)
+                {
+                    raise(SIGTRAP);
+                    return PRIMITIVE_UNSUPPORTED;
+                }
+            }
+            replace_receiver_and_two_args(sp_ptr, result);
+            return PRIMITIVE_SUCCEEDED;
+        }
+
+    case PRIM_WRITE_FD_STRING:
+        if (arg_count != 2)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        replace_receiver_and_two_args(sp_ptr, prim_write_fd_string(sp[1], sp[0]));
+        return PRIMITIVE_SUCCEEDED;
+
+    default:
+        return PRIMITIVE_UNSUPPORTED;
+    }
+}
+
 static PrimitiveResult try_character_primitive(Oop **sp_ptr, Oop primitive,
                                               uint64_t arg_count)
 {
@@ -1170,6 +1310,12 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
                     result = try_object_primitive(sp_ptr, primitive_id, arg_count, class_table);
+                }
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    result = try_live_image_primitive(sp_ptr, primitive_id, arg_count, om,
+                                                      fp_ptr, &ip, &bytecode_base,
+                                                      &class_table);
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {

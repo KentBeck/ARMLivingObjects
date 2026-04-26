@@ -26,6 +26,7 @@ enum
     BC_CM_NUM_TEMPS = 2,
     BC_CM_LITERALS = 3,
     BC_CM_BYTECODES = 4,
+    BC_CM_SOURCE = 5,
     BC_ASSOC_KEY = 0,
     BC_ASSOC_VALUE = 1,
     BC_DICT_ASSOCIATIONS = 0,
@@ -2062,6 +2063,7 @@ int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,
         strncpy(method->class_name, chunks[index].class_name, sizeof(method->class_name) - 1);
         method->class_side = chunks[index].class_side;
         method->primitive_index = -1;
+        strncpy(method->method_source, chunks[index].method_source, sizeof(method->method_source) - 1);
 
         if (!bc_parse_method_header(header_source, &method->header))
         {
@@ -2490,7 +2492,7 @@ static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_cla
         ((uint8_t *)&BC_OBJ_FIELD(bytecodes, 0))[0] = 0;
     }
 
-    uint64_t *compiled_method = om_alloc(om, (uint64_t)class_class, 0, 5);
+    uint64_t *compiled_method = om_alloc(om, (uint64_t)class_class, 0, 6);
     if (compiled_method == NULL)
     {
         return NULL;
@@ -2500,6 +2502,7 @@ static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_cla
     BC_OBJ_FIELD(compiled_method, BC_CM_NUM_TEMPS) = tag_smallint(0);
     BC_OBJ_FIELD(compiled_method, BC_CM_LITERALS) = literals ? (uint64_t)literals : tagged_nil();
     BC_OBJ_FIELD(compiled_method, BC_CM_BYTECODES) = (uint64_t)bytecodes;
+    BC_OBJ_FIELD(compiled_method, BC_CM_SOURCE) = tagged_nil();
     return compiled_method;
 }
 
@@ -2638,9 +2641,23 @@ static uint64_t *bc_materialize_compiled_method(uint64_t *om, uint64_t *class_cl
 {
     uint64_t *literals = bc_build_literal_array(om, class_class, string_class, array_class,
                                                 association_class, &method->body);
+    uint64_t *source = NULL;
     if (method->body.literal_count > 0 && literals == NULL)
     {
         return NULL;
+    }
+    if (method->method_source[0] != '\0')
+    {
+        uint64_t source_size = (uint64_t)strlen(method->method_source);
+        source = om_alloc(om, (uint64_t)string_class, BC_FORMAT_BYTES, source_size);
+        if (source == NULL)
+        {
+            return NULL;
+        }
+        if (source_size > 0)
+        {
+            memcpy(&BC_OBJ_FIELD(source, 0), method->method_source, (size_t)source_size);
+        }
     }
 
     uint64_t bytecode_size = method->body.bytecode_count > 0 ? (uint64_t)method->body.bytecode_count : 1;
@@ -2654,13 +2671,14 @@ static uint64_t *bc_materialize_compiled_method(uint64_t *om, uint64_t *class_cl
         ((uint8_t *)&BC_OBJ_FIELD(bytecodes, 0))[0] = 0;
     }
 
-    uint64_t *compiled_method = om_alloc(om, (uint64_t)class_class, 0, 5);
+    uint64_t *compiled_method = om_alloc(om, (uint64_t)class_class, 0, 6);
     BC_OBJ_FIELD(compiled_method, BC_CM_PRIMITIVE) =
         tag_smallint(method->primitive_index >= 0 ? method->primitive_index : 0);
     BC_OBJ_FIELD(compiled_method, BC_CM_NUM_ARGS) = tag_smallint(method->header.arg_count);
     BC_OBJ_FIELD(compiled_method, BC_CM_NUM_TEMPS) = tag_smallint(method->body.temp_count);
     BC_OBJ_FIELD(compiled_method, BC_CM_LITERALS) = literals ? (uint64_t)literals : tagged_nil();
     BC_OBJ_FIELD(compiled_method, BC_CM_BYTECODES) = (uint64_t)bytecodes;
+    BC_OBJ_FIELD(compiled_method, BC_CM_SOURCE) = source ? (uint64_t)source : tagged_nil();
     return compiled_method;
 }
 
@@ -2717,6 +2735,7 @@ int bc_install_compiled_methods(Om om, ObjPtr class_class,
             bc_active_class_count = saved_binding_count;
             return 0;
         }
+
     }
 
     bc_active_class_bindings = saved_bindings;
@@ -2759,6 +2778,7 @@ int bc_compile_and_install_source_methods(Om om, ObjPtr class_class,
         BCompiledMethodDef method;
         memset(&method, 0, sizeof(method));
         strncpy(method.class_name, chunk->class_name, sizeof(method.class_name) - 1);
+        strncpy(method.method_source, chunk->method_source, sizeof(method.method_source) - 1);
         method.class_side = chunk->class_side;
         method.primitive_index = -1;
 
@@ -2858,6 +2878,7 @@ int bc_compile_and_install_source_methods(Om om, ObjPtr class_class,
             bc_active_class_count = saved_binding_count;
             return 0;
         }
+
     }
 
     bc_active_class_bindings = saved_bindings;

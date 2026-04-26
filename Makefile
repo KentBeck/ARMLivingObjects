@@ -9,6 +9,7 @@ TEST_BIN = $(BIN_DIR)/test
 GC_STRESS_BIN = $(BIN_DIR)/gc_stress
 C_INTERPRETER_SMOKE_BIN = $(BIN_DIR)/c_interpreter_smoke
 SMALLTALK_EXPR_BIN = $(BIN_DIR)/smalltalk_expr
+SMALLTALK_LSP_BIN = $(BIN_DIR)/smalltalk_lsp
 INTERPRETER ?= c
 ifeq ($(INTERPRETER),c)
 CFLAGS += -DALO_INTERPRETER_C
@@ -31,7 +32,8 @@ GC_STRESS_OBJS = $(BIN_DIR)/c_vm_object.o $(BIN_DIR)/gc.o $(BIN_DIR)/c_vm_tagged
 TEST_SRCS = $(filter-out tests/test_c_interpreter_smoke.c,$(wildcard tests/*.c)) src/c/bootstrap_compiler.c src/c/primitives.c
 C_INTERPRETER_SMOKE_SRCS = tests/test_c_interpreter_smoke.c src/c/primitives.c
 GC_STRESS_SRCS = tools/gc_stress.c
-SMALLTALK_EXPR_SRCS = tools/smalltalk_expr.c tests/smalltalk_world.c src/c/bootstrap_compiler.c src/c/primitives.c
+SMALLTALK_EXPR_SRCS = tools/smalltalk_expr.c tests/smalltalk_world.c src/c/bootstrap_compiler.c src/c/primitives.c src/c/smalltalk_tool_support.c
+SMALLTALK_LSP_SRCS = tools/smalltalk_lsp.c tests/smalltalk_world.c src/c/bootstrap_compiler.c src/c/primitives.c src/c/smalltalk_tool_support.c
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)
@@ -54,6 +56,8 @@ gc-stress: $(GC_STRESS_BIN)
 
 smalltalk-expr: $(SMALLTALK_EXPR_BIN)
 
+smalltalk-lsp: $(SMALLTALK_LSP_BIN)
+
 test-smalltalk-expr: $(SMALLTALK_EXPR_BIN)
 	@output="$$(./$(SMALLTALK_EXPR_BIN) "nil" "true" "false" "1" "#foo")"; \
 	expected="$$(printf 'nil\ntrue\nfalse\n1\n#foo')"; \
@@ -63,6 +67,26 @@ test-smalltalk-expr: $(SMALLTALK_EXPR_BIN)
 	fi; \
 	printf '%s\n' "$$output"
 
+test-smalltalk-lsp: $(SMALLTALK_LSP_BIN)
+	@init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}'; \
+	sym='{"jsonrpc":"2.0","id":2,"method":"workspace/symbol","params":{"query":"Object>>yourself"}}'; \
+	hover='{"jsonrpc":"2.0","id":3,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///tmp/armlivingobjects-live-image/Object/yourself.st"},"position":{"line":0,"character":2}}}'; \
+	defn='{"jsonrpc":"2.0","id":4,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///tmp/armlivingobjects-live-image/Object/yourself.st"},"position":{"line":0,"character":2}}}'; \
+	shutdown='{"jsonrpc":"2.0","id":5,"method":"shutdown","params":null}'; \
+	exitmsg='{"jsonrpc":"2.0","method":"exit","params":null}'; \
+	output="$$( \
+		{ printf 'Content-Length: %d\r\n\r\n%s' "$${#init}" "$$init"; \
+		  printf 'Content-Length: %d\r\n\r\n%s' "$${#sym}" "$$sym"; \
+		  printf 'Content-Length: %d\r\n\r\n%s' "$${#hover}" "$$hover"; \
+		  printf 'Content-Length: %d\r\n\r\n%s' "$${#defn}" "$$defn"; \
+		  printf 'Content-Length: %d\r\n\r\n%s' "$${#shutdown}" "$$shutdown"; \
+		  printf 'Content-Length: %d\r\n\r\n%s' "$${#exitmsg}" "$$exitmsg"; } | ./$(SMALLTALK_LSP_BIN) \
+	)"; \
+	printf '%s\n' "$$output" | grep -q '"hoverProvider":true' || { printf 'initialize response missing hoverProvider\n'; exit 1; }; \
+	printf '%s\n' "$$output" | grep -q '"Object>>yourself"' || { printf 'workspace/symbol missing Object>>yourself\n'; exit 1; }; \
+	printf '%s\n' "$$output" | grep -q '"Object>>yourself\\n\\nyourself\\n    \^ self"' || { printf 'hover response missing live method source\n'; exit 1; }; \
+	printf '%s\n' "$$output" | grep -q 'file:///tmp/armlivingobjects-live-image/Object/yourself.st' || { printf 'definition response missing live-image file uri\n'; exit 1; }
+
 $(TEST_BIN): $(TEST_SRCS) tests/test_defs.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(TEST_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
 
@@ -71,6 +95,9 @@ $(GC_STRESS_BIN): $(GC_STRESS_SRCS) tests/test_defs.h $(GC_STRESS_OBJS) | $(BIN_
 
 $(SMALLTALK_EXPR_BIN): $(SMALLTALK_EXPR_SRCS) tests/test_defs.h tests/smalltalk_world.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(SMALLTALK_EXPR_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
+
+$(SMALLTALK_LSP_BIN): $(SMALLTALK_LSP_SRCS) tests/test_defs.h tests/smalltalk_world.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
+	$(CC) $(CFLAGS) -o $@ $(SMALLTALK_LSP_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
 
 $(C_INTERPRETER_SMOKE_BIN): $(C_INTERPRETER_SMOKE_SRCS) tests/test_defs.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(C_INTERPRETER_SMOKE_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
@@ -88,4 +115,4 @@ clean:
 	rm -rf $(BIN_DIR)
 	rm -f *.o test test_new
 
-.PHONY: clean gc-stress smalltalk-expr test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr
+.PHONY: clean gc-stress smalltalk-expr smalltalk-lsp test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr test-smalltalk-lsp

@@ -96,12 +96,14 @@ typedef uint64_t *Om;     // Object-memory allocator or semispace GC context.
 #define CM_NUM_TEMPS 2
 #define CM_LITERALS 3
 #define CM_BYTECODES 4
+#define CM_SOURCE 5
 
 #define CM_PRIMITIVE_OFS 24
 #define CM_NUM_ARGS_OFS 32
 #define CM_NUM_TEMPS_OFS 40
 #define CM_LITERALS_OFS 48
 #define CM_BYTECODES_OFS 56
+#define CM_SOURCE_OFS 64
 
 // Primitive IDs.
 #define PRIM_NONE 0
@@ -134,6 +136,13 @@ typedef uint64_t *Om;     // Object-memory allocator or semispace GC context.
 #define PRIM_STRING_AS_SYMBOL 27
 #define PRIM_SYMBOL_EQ 28
 #define PRIM_ERROR 29
+#define PRIM_CLASS_SUPERCLASS 30
+#define PRIM_CLASS_NAME 31
+#define PRIM_CLASS_INCLUDES_SELECTOR 32
+#define PRIM_SMALLTALK_GLOBALS 33
+#define PRIM_METHOD_SOURCE_FOR_CLASS_SELECTOR 34
+#define PRIM_READ_FD_COUNT 35
+#define PRIM_WRITE_FD_STRING 36
 
 // BlockClosure fields.
 #define BLOCK_HOME_CONTEXT 0

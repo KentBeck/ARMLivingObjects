@@ -34,9 +34,13 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/Dictionary.st", "Dictionary.st corpus compile", 1},
         {"src/smalltalk/ExpressionSpecTest.st", "ExpressionSpecTest.st corpus compile", 1},
         {"src/smalltalk/False.st", "False.st corpus compile", 1},
+        {"src/smalltalk/LSPDocument.st", "LSPDocument.st corpus compile", 1},
+        {"src/smalltalk/LSPMethodSpan.st", "LSPMethodSpan.st corpus compile", 1},
+        {"src/smalltalk/LSPSourceIndex.st", "LSPSourceIndex.st corpus compile", 1},
         {"src/smalltalk/Object.st", "Object.st corpus compile", 1},
         {"src/smalltalk/ReadStream.st", "ReadStream.st corpus compile", 1},
         {"src/smalltalk/SmallInteger.st", "SmallInteger.st corpus compile", 1},
+        {"src/smalltalk/Stdio.st", "Stdio.st corpus compile", 1},
         {"src/smalltalk/String.st", "String.st corpus compile", 1},
         {"src/smalltalk/Symbol.st", "Symbol.st corpus compile", 1},
         {"src/smalltalk/SystemDictionary.st", "SystemDictionary.st corpus compile", 1},
@@ -64,6 +68,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char dictionary_src[12288];
     char system_dictionary_src[4096];
     char read_stream_src[8192];
+    char stdio_src[4096];
     char write_stream_src[8192];
     char undefined_object_src[2048];
     char context_src[2048];
@@ -72,6 +77,9 @@ void test_smalltalk_sources(TestContext *ctx)
     char test_suite_src[4096];
     char tokenizer_src[32768];
     char expression_spec_test_src[2048];
+    char lsp_document_src[4096];
+    char lsp_method_span_src[4096];
+    char lsp_source_index_src[4096];
     char expr_specs_src[4096];
     char expr_fixture_specs_src[8192];
     BCompiledMethodDef methods[64];
@@ -106,9 +114,24 @@ void test_smalltalk_sources(TestContext *ctx)
               "Class>>new delegates to basicNew");
     ASSERT_EQ(ctx, strstr(class_src, "new: size\n    ^ self basicNew: size") != NULL, 1,
               "Class>>new: delegates to basicNew:");
+    ASSERT_EQ(ctx, strstr(class_src, "superclass\n    <primitive: 30>") != NULL, 1,
+              "Class>>superclass uses live-image primitive");
+    ASSERT_EQ(ctx, strstr(class_src, "name\n    <primitive: 31>") != NULL, 1,
+              "Class>>name uses live-image primitive");
+    ASSERT_EQ(ctx, strstr(class_src, "includesSelector: aSelector\n    <primitive: 32>") != NULL, 1,
+              "Class>>includesSelector: uses live-image primitive");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Stdio.st", stdio_src, sizeof(stdio_src)), 1,
+              "src/smalltalk/Stdio.st exists");
+    ASSERT_EQ(ctx, strstr(stdio_src, "readFd: anFd count: aCount\n    <primitive: 35>") != NULL, 1,
+              "Stdio class>>readFd:count: uses fd-read primitive");
+    ASSERT_EQ(ctx, strstr(stdio_src, "writeFd: anFd string: aString\n    <primitive: 36>") != NULL, 1,
+              "Stdio class>>writeFd:string: uses fd-write primitive");
+    ASSERT_EQ(ctx, strstr(class_src, "sourceAtSelector: aSelector") != NULL, 1,
+              "Class>>sourceAtSelector: exists");
     ASSERT_EQ(ctx, bc_compile_source_methods(class_src, methods, 64, &method_count), 1,
               "Class.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 4, "Class.st method count");
+    ASSERT_EQ(ctx, method_count, 8, "Class.st method count");
     ASSERT_EQ(ctx, strcmp(methods[0].class_name, "Class"), 0, "Class.st compiled class name");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/String.st", string_src, sizeof(string_src)), 1,
@@ -188,6 +211,12 @@ void test_smalltalk_sources(TestContext *ctx)
               "Dictionary appends association in storage array");
     ASSERT_EQ(ctx, strstr(dictionary_src, "at: aKey ifAbsent: aBlock") != NULL, 1,
               "Dictionary supports at:ifAbsent:");
+    ASSERT_EQ(ctx, strstr(dictionary_src, "smalltalk\n    <primitive: 33>") != NULL, 1,
+              "Dictionary class>>smalltalk uses live-image primitive");
+    ASSERT_EQ(ctx, strstr(dictionary_src, "classNamed: aClassName") != NULL, 1,
+              "Dictionary>>classNamed: exists");
+    ASSERT_EQ(ctx, strstr(dictionary_src, "methodSourceForClass: aClassName selector: aSelector\n    <primitive: 34>") != NULL, 1,
+              "Dictionary>>methodSourceForClass:selector: uses live-image primitive");
     ASSERT_EQ(ctx, read_file("src/smalltalk/SystemDictionary.st", system_dictionary_src, sizeof(system_dictionary_src)), 1,
               "src/smalltalk/SystemDictionary.st exists");
     ASSERT_EQ(ctx, strstr(system_dictionary_src, "initializeSmalltalkNamespace") != NULL, 1,
@@ -322,4 +351,40 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, bc_compile_source_methods(expression_spec_test_src, methods, 64, &method_count), 1,
               "ExpressionSpecTest.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 2, "ExpressionSpecTest.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/LSPMethodSpan.st", lsp_method_span_src, sizeof(lsp_method_span_src)), 1,
+              "src/smalltalk/LSPMethodSpan.st exists");
+    ASSERT_EQ(ctx, strstr(lsp_method_span_src, "className: aClassName selector: aSelector") != NULL, 1,
+              "LSPMethodSpan has class-side constructor");
+    ASSERT_EQ(ctx, strstr(lsp_method_span_src, "start: aStart stop: aStop") != NULL, 1,
+              "LSPMethodSpan has start:stop: updater");
+    ASSERT_EQ(ctx, strstr(lsp_method_span_src, "initializeClassName: aClassName selector: aSelector") != NULL, 1,
+              "LSPMethodSpan has initializer");
+    ASSERT_EQ(ctx, bc_compile_source_methods(lsp_method_span_src, methods, 64, &method_count), 1,
+              "LSPMethodSpan.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 13, "LSPMethodSpan.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/LSPSourceIndex.st", lsp_source_index_src, sizeof(lsp_source_index_src)), 1,
+              "src/smalltalk/LSPSourceIndex.st exists");
+    ASSERT_EQ(ctx, strstr(lsp_source_index_src, "addMethodSpan: aMethodSpan") != NULL, 1,
+              "LSPSourceIndex has addMethodSpan:");
+    ASSERT_EQ(ctx, strstr(lsp_source_index_src, "methodSpanAtClass: aClassName selector: aSelector") != NULL, 1,
+              "LSPSourceIndex has lookup protocol");
+    ASSERT_EQ(ctx, strstr(lsp_source_index_src, "keyForClass: aClassName selector: aSelector") != NULL, 1,
+              "LSPSourceIndex has key builder");
+    ASSERT_EQ(ctx, bc_compile_source_methods(lsp_source_index_src, methods, 64, &method_count), 1,
+              "LSPSourceIndex.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 7, "LSPSourceIndex.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/LSPDocument.st", lsp_document_src, sizeof(lsp_document_src)), 1,
+              "src/smalltalk/LSPDocument.st exists");
+    ASSERT_EQ(ctx, strstr(lsp_document_src, "parseMethodAst") != NULL, 1,
+              "LSPDocument has cached parse entrypoint");
+    ASSERT_EQ(ctx, strstr(lsp_document_src, "updateText: aText version: aVersion") != NULL, 1,
+              "LSPDocument can update text/version");
+    ASSERT_EQ(ctx, strstr(lsp_document_src, "recordMethodSpan: aMethodSpan") != NULL, 1,
+              "LSPDocument can record method spans");
+    ASSERT_EQ(ctx, bc_compile_source_methods(lsp_document_src, methods, 64, &method_count), 1,
+              "LSPDocument.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 11, "LSPDocument.st method count");
 }

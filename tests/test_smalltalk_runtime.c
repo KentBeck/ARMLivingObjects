@@ -11,6 +11,8 @@
 #include "primitives.h"
 #include "bootstrap_compiler.h"
 
+#include <unistd.h>
+
 static int byte_object_equals_cstring(uint64_t value, const char *text)
 {
     if (!is_object_ptr(value))
@@ -119,7 +121,7 @@ static uint64_t *materialize_codegen_method(SmalltalkWorld *world, uint64_t *gen
         }
     }
 
-    uint64_t *method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    uint64_t *method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 6);
     if (method == NULL)
     {
         return NULL;
@@ -129,6 +131,7 @@ static uint64_t *materialize_codegen_method(SmalltalkWorld *world, uint64_t *gen
     OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(temp_count);
     OBJ_FIELD(method, CM_LITERALS) = literals != NULL ? (uint64_t)literals : tagged_nil();
     OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = tagged_nil();
     return method;
 }
 
@@ -243,7 +246,7 @@ static uint64_t *materialize_c_compiled_method(SmalltalkWorld *world, const BCom
         ((uint8_t *)&OBJ_FIELD(bytecodes, 0))[0] = 0;
     }
 
-    uint64_t *method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 5);
+    uint64_t *method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 6);
     if (method == NULL)
     {
         return NULL;
@@ -255,6 +258,9 @@ static uint64_t *materialize_c_compiled_method(SmalltalkWorld *world, const BCom
     OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(method_def->body.temp_count);
     OBJ_FIELD(method, CM_LITERALS) = literals != NULL ? (uint64_t)literals : tagged_nil();
     OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = method_def->method_source[0] != '\0'
+                                       ? (uint64_t)sw_make_string(world, method_def->method_source)
+                                       : tagged_nil();
     return method;
 }
 
@@ -481,6 +487,8 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: SmallInteger.st declaration matches existing class and installs methods");
     ASSERT_EQ(ctx, (uint64_t)smallint_class, (uint64_t)world.smallint_class,
               "runtime: SmallInteger.st attaches to the existing SmallInteger class");
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Class.st"), 1,
+              "runtime: Class.st installs methods onto the existing Class class");
     uint64_t *array_class = smalltalk_world_install_existing_class_file(&world, "src/smalltalk/Array.st");
     ASSERT_EQ(ctx, array_class != NULL, 1,
               "runtime: Array.st declaration matches existing class and installs methods");
@@ -491,11 +499,97 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: String.st declaration matches existing class and installs methods");
     ASSERT_EQ(ctx, (uint64_t)string_class, (uint64_t)world.string_class,
               "runtime: String.st attaches to the existing String class");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Stdio.st") != NULL,
+              1, "runtime: Stdio.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Dictionary.st"), 1,
+              "runtime: Dictionary.st installs methods onto the existing Dictionary class");
+    uint64_t *dictionary_class = world.dictionary_class;
     uint64_t hello = (uint64_t)sw_make_string(&world, "ab");
     uint64_t suffix = (uint64_t)sw_make_string(&world, "cd");
     uint64_t combined = sw_send1(&world, ctx, hello, NULL, ",", suffix);
     ASSERT_EQ(ctx, byte_object_equals_cstring(combined, "abcd"), 1,
               "runtime: String.st concatenation executes with whileTrue:");
+
+    {
+        uint64_t *dictionary_class_live = smalltalk_world_lookup_class(&world, "Dictionary");
+        uint64_t smalltalk_method = class_lookup((uint64_t *)OBJ_CLASS(dictionary_class_live),
+                                                 intern_cstring_symbol(world.om, "smalltalk"));
+        uint64_t globals;
+        uint64_t source;
+        uint64_t object_name;
+        uint64_t yourself_selector = intern_cstring_symbol(world.om, "yourself");
+
+        ASSERT_EQ(ctx, smalltalk_method != 0, 1,
+                  "runtime: Dictionary class-side smalltalk method is installed");
+        ASSERT_EQ(ctx, OBJ_FIELD((uint64_t *)smalltalk_method, CM_PRIMITIVE),
+                  tag_smallint(PRIM_SMALLTALK_GLOBALS),
+                  "runtime: Dictionary class-side smalltalk method uses live-image primitive");
+        ASSERT_EQ(ctx, global_smalltalk_dictionary != NULL, 1,
+                  "runtime: global Smalltalk dictionary is available to live-image primitives");
+        globals = prim_smalltalk_globals();
+        ASSERT_EQ(ctx, is_object_ptr(globals), 1,
+                  "runtime: Dictionary smalltalk returns a live Smalltalk dictionary");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)globals), (uint64_t)dictionary_class_live,
+                  "runtime: Dictionary smalltalk returns a Dictionary instance");
+
+        ASSERT_EQ(ctx, prim_class_name((uint64_t)smalltalk_world_lookup_class(&world, "Object")),
+                  intern_cstring_symbol(world.om, "Object"),
+                  "runtime: Class name returns live class symbol");
+        ASSERT_EQ(ctx, prim_class_superclass((uint64_t)smalltalk_world_lookup_class(&world, "Object")),
+                  tagged_nil(),
+                  "runtime: Object superclass is nil");
+        ASSERT_EQ(ctx, prim_class_includes_selector((uint64_t)smalltalk_world_lookup_class(&world, "Object"),
+                                                    yourself_selector),
+                  tagged_true(),
+                  "runtime: Class includesSelector: sees installed method");
+
+        object_name = (uint64_t)sw_make_string(&world, "Object");
+        source = prim_method_source_for_class_selector(object_name, yourself_selector, world.om);
+        ASSERT_EQ(ctx, byte_object_equals_cstring(source, "yourself\n    ^ self"), 1,
+                  "runtime: Class sourceAtSelector: returns live method source");
+        ASSERT_EQ(ctx,
+                  byte_object_equals_cstring(
+                      OBJ_FIELD((uint64_t *)class_lookup(smalltalk_world_lookup_class(&world, "Object"),
+                                                         yourself_selector),
+                                CM_SOURCE),
+                      "yourself\n    ^ self"),
+                  1,
+                  "runtime: installed CompiledMethod retains full source");
+    }
+
+    {
+        uint64_t *stdio_class = smalltalk_world_lookup_class(&world, "Stdio");
+        int read_pipe[2];
+        int write_pipe[2];
+        char write_buffer[8] = {0};
+        ssize_t written_bytes;
+        uint64_t input;
+        uint64_t output;
+
+        ASSERT_EQ(ctx, stdio_class != NULL, 1, "runtime: Stdio in Smalltalk dict");
+        ASSERT_EQ(ctx, pipe(read_pipe), 0, "runtime: Stdio read pipe setup succeeds");
+        ASSERT_EQ(ctx, write(read_pipe[1], "lsp", 3), 3, "runtime: Stdio read pipe accepts bytes");
+        close(read_pipe[1]);
+        input = sw_send2(&world, ctx, (uint64_t)stdio_class, world.class_class,
+                         "read:count:", tag_smallint(read_pipe[0]), tag_smallint(8));
+        close(read_pipe[0]);
+        ASSERT_EQ(ctx, byte_object_equals_cstring(input, "lsp"), 1,
+                  "runtime: Stdio class>>read:count: returns bytes from fd");
+
+        ASSERT_EQ(ctx, pipe(write_pipe), 0, "runtime: Stdio write pipe setup succeeds");
+        output = sw_send2(&world, ctx, (uint64_t)stdio_class, world.class_class,
+                          "write:string:", tag_smallint(write_pipe[1]),
+                          (uint64_t)sw_make_string(&world, "json"));
+        close(write_pipe[1]);
+        written_bytes = read(write_pipe[0], write_buffer, sizeof(write_buffer));
+        close(write_pipe[0]);
+        ASSERT_EQ(ctx, output, tag_smallint(4),
+                  "runtime: Stdio class>>write:string: reports bytes written");
+        ASSERT_EQ(ctx, written_bytes, 4,
+                  "runtime: Stdio class>>write:string: writes expected byte count");
+        ASSERT_EQ(ctx, memcmp(write_buffer, "json", 4) == 0, 1,
+                  "runtime: Stdio class>>write:string: writes expected bytes");
+    }
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Tokenizer.st") != NULL,
               1, "runtime: Tokenizer.st defines class and installs methods");
@@ -556,7 +650,12 @@ void test_smalltalk_runtime(TestContext *ctx)
               1, "runtime: CodeGenerator.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Compiler.st") != NULL,
               1, "runtime: Compiler.st defines class and installs methods");
-
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/LSPMethodSpan.st") != NULL,
+              1, "runtime: LSPMethodSpan.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/LSPSourceIndex.st") != NULL,
+              1, "runtime: LSPSourceIndex.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/LSPDocument.st") != NULL,
+              1, "runtime: LSPDocument.st defines class and installs methods");
     {
         uint64_t *parser_class = smalltalk_world_lookup_class(&world, "Parser");
         uint64_t *method_node_class = smalltalk_world_lookup_class(&world, "MethodNode");
@@ -711,6 +810,86 @@ void test_smalltalk_runtime(TestContext *ctx)
     }
     ASSERT_EQ(ctx, (uint64_t)run_trap_test(ctx, trap_compiler_compile_nil), 0,
               "runtime: Compiler compileExpression: 'nil' executes");
+    {
+        uint64_t *lsp_document_class = smalltalk_world_lookup_class(&world, "LSPDocument");
+        uint64_t *lsp_method_span_class = smalltalk_world_lookup_class(&world, "LSPMethodSpan");
+        uint64_t *method_node_class = smalltalk_world_lookup_class(&world, "MethodNode");
+        ASSERT_EQ(ctx, lsp_document_class != NULL, 1, "runtime: LSPDocument in Smalltalk dict");
+        ASSERT_EQ(ctx, lsp_method_span_class != NULL, 1, "runtime: LSPMethodSpan in Smalltalk dict");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(lsp_document_class, CLASS_INST_SIZE)), 5,
+                  "runtime: LSPDocument class declaration has five instance variables");
+
+        uint64_t method_text = (uint64_t)sw_make_string(&world, "answer ^ 1");
+        uint64_t method_uri = (uint64_t)sw_make_string(&world, "memory://Answer.st");
+        uint64_t doc = sw_send2(&world, ctx, (uint64_t)lsp_document_class, world.class_class,
+                                "uri:text:", method_uri, method_text);
+        ASSERT_EQ(ctx, is_object_ptr(doc), 1,
+                  "runtime: LSPDocument class-side constructor returns object");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, doc, NULL, "uri"), method_uri,
+                  "runtime: LSPDocument stores URI");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, doc, NULL, "text"), method_text,
+                  "runtime: LSPDocument stores source text");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, doc, NULL, "version"), tag_smallint(1),
+                  "runtime: LSPDocument starts at version 1");
+        ASSERT_EQ(ctx, is_object_ptr(sw_send0(&world, ctx, doc, NULL, "sourceIndex")), 1,
+                  "runtime: LSPDocument creates a source index object");
+
+        uint64_t ast0 = sw_send0(&world, ctx, doc, NULL, "ast");
+        ASSERT_EQ(ctx, ast0, tagged_nil(),
+                  "runtime: LSPDocument starts without cached AST");
+
+        uint64_t ast1 = sw_send0(&world, ctx, doc, NULL, "parseMethodAst");
+        ASSERT_EQ(ctx, is_object_ptr(ast1), 1,
+                  "runtime: LSPDocument parseMethodAst returns AST");
+        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)ast1), (uint64_t)method_node_class,
+                  "runtime: LSPDocument parseMethodAst returns MethodNode");
+        uint64_t ast2 = sw_send0(&world, ctx, doc, NULL, "parseMethodAst");
+        ASSERT_EQ(ctx, ast1, ast2,
+                  "runtime: LSPDocument reuses cached AST");
+
+        uint64_t answer_class_name = intern_cstring_symbol(world.om, "Answer");
+        uint64_t answer_selector = intern_cstring_symbol(world.om, "answer");
+        uint64_t span = sw_send2(&world, ctx, (uint64_t)lsp_method_span_class, world.class_class,
+                                 "className:selector:",
+                                 answer_class_name,
+                                 answer_selector);
+        ASSERT_EQ(ctx, is_object_ptr(span), 1,
+                  "runtime: LSPMethodSpan class-side constructor returns object");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, span, NULL, "className"), answer_class_name,
+                  "runtime: LSPMethodSpan stores class name");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, span, NULL, "selector"), answer_selector,
+                  "runtime: LSPMethodSpan stores selector");
+        ASSERT_EQ(ctx, sw_send2(&world, ctx, span, NULL,
+                                "start:stop:",
+                                tag_smallint(1),
+                                tag_smallint(10)),
+                  span,
+                  "runtime: LSPMethodSpan start:stop: returns self");
+        ASSERT_EQ(ctx, sw_send1(&world, ctx, span, NULL,
+                                "source:",
+                                method_text),
+                  method_text,
+                  "runtime: LSPMethodSpan source: stores source text");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, span, NULL, "source"), method_text,
+                  "runtime: span keeps source text");
+
+        {
+            uint64_t updated_text = (uint64_t)sw_make_string(&world, "answer ^ 2");
+            uint64_t update_result = sw_send2(&world, ctx, doc, NULL,
+                                              "updateText:version:",
+                                              updated_text, tag_smallint(2));
+            ASSERT_EQ(ctx, update_result, doc,
+                      "runtime: LSPDocument updateText:version: returns self");
+            ASSERT_EQ(ctx, sw_send0(&world, ctx, doc, NULL, "version"), tag_smallint(2),
+                      "runtime: LSPDocument updates version");
+            ASSERT_EQ(ctx, sw_send0(&world, ctx, doc, NULL, "text"), updated_text,
+                      "runtime: LSPDocument updates text");
+            ASSERT_EQ(ctx, sw_send0(&world, ctx, doc, NULL, "ast"), tagged_nil(),
+                      "runtime: LSPDocument clears cached AST on update");
+            ASSERT_EQ(ctx, is_object_ptr(sw_send0(&world, ctx, doc, NULL, "sourceIndex")), 1,
+                      "runtime: LSPDocument replaces source index on update");
+        }
+    }
     {
         uint64_t expr_source = (uint64_t)sw_make_string(&world, "1 + 2");
         uint64_t expr_parser = sw_send1(&world, ctx, (uint64_t)parser_class, world.class_class,

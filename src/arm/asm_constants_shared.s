@@ -41,6 +41,7 @@
 .equ CM_NUM_TEMPS_OFS, 40
 .equ CM_LITERALS_OFS, 48
 .equ CM_BYTECODES_OFS, 56
+.equ CM_SOURCE_OFS, 64
 
 // Class table object field offsets
 .equ CLASS_TABLE_SMALLINT_OFS, 24

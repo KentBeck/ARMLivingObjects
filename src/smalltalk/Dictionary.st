@@ -1,5 +1,11 @@
 "Dictionary — array of Associations with linear search"
 
+!Dictionary class methodsFor: 'image access'!
+smalltalk
+    <primitive: 33>
+    ^ nil
+!
+
 !Dictionary methodsFor: 'accessing'!
 size
     ^ tally
@@ -33,6 +39,15 @@ includesKey: aKey
     ^ (self indexOfKey: aKey startingAt: 1) = 0
         ifTrue: [false]
         ifFalse: [true]
+!
+
+classNamed: aClassName
+    ^ self at: aClassName asSymbol
+!
+
+methodSourceForClass: aClassName selector: aSelector
+    <primitive: 34>
+    ^ nil
 !
 
 at: aKey put: aValue

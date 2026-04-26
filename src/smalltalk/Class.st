@@ -19,3 +19,23 @@ new
 new: size
     ^ self basicNew: size
 !
+
+!Class methodsFor: 'introspection'!
+superclass
+    <primitive: 30>
+    ^ nil
+!
+
+name
+    <primitive: 31>
+    ^ nil
+!
+
+includesSelector: aSelector
+    <primitive: 32>
+    ^ false
+!
+
+sourceAtSelector: aSelector
+    ^ Dictionary smalltalk methodSourceForClass: self name selector: aSelector
+!

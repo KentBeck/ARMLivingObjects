@@ -108,6 +108,7 @@ typedef struct
     BMethodHeader header;
     int primitive_index;
     BCompiledBody body;
+    char method_source[4096];
 } BCompiledMethodDef;
 
 int bc_compile_method_chunks(const BMethodChunk *chunks, int chunk_count,

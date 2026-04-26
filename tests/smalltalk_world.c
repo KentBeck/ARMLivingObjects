@@ -30,12 +30,13 @@ static uint64_t *make_primitive_cm_local(uint64_t *om, uint64_t *class_class, in
     uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
     ((uint8_t *)&OBJ_FIELD(prim_bc, 0))[0] = BC_HALT;
 
-    uint64_t *cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+    uint64_t *cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
     OBJ_FIELD(cm, CM_PRIMITIVE) = tag_smallint(prim);
     OBJ_FIELD(cm, CM_NUM_ARGS) = tag_smallint(num_args);
     OBJ_FIELD(cm, CM_NUM_TEMPS) = tag_smallint(0);
     OBJ_FIELD(cm, CM_LITERALS) = tagged_nil();
     OBJ_FIELD(cm, CM_BYTECODES) = (uint64_t)prim_bc;
+    OBJ_FIELD(cm, CM_SOURCE) = tagged_nil();
     return cm;
 }
 
@@ -134,6 +135,79 @@ static void sw_dict_put(SmalltalkWorld *world, const char *name, uint64_t value)
     OBJ_FIELD(world->smalltalk_dict, 1) = tag_smallint(tally + 1);
 }
 
+static int sw_copy_symbol_to_cstring(uint64_t symbol_oop, char *buffer, size_t capacity)
+{
+    uint64_t *symbol;
+    uint64_t size;
+
+    if (!is_object_ptr(symbol_oop) || buffer == NULL || capacity == 0)
+    {
+        return 0;
+    }
+    symbol = (uint64_t *)symbol_oop;
+    if (OBJ_FORMAT(symbol) != FORMAT_BYTES)
+    {
+        return 0;
+    }
+    size = OBJ_SIZE(symbol);
+    if (size >= capacity)
+    {
+        return 0;
+    }
+    if (size > 0)
+    {
+        memcpy(&buffer[0], &OBJ_FIELD(symbol, 0), (size_t)size);
+    }
+    buffer[size] = '\0';
+    return 1;
+}
+
+static int sw_collect_class_bindings(SmalltalkWorld *world,
+                                     BClassBinding *bindings,
+                                     char names[][64],
+                                     int max_bindings)
+{
+    uint64_t associations_oop = OBJ_FIELD(world->smalltalk_dict, 0);
+    uint64_t tally_oop = OBJ_FIELD(world->smalltalk_dict, 1);
+    uint64_t *associations;
+    uint64_t tally;
+    int count = 0;
+
+    if (!is_object_ptr(associations_oop) || !is_smallint(tally_oop))
+    {
+        return 0;
+    }
+
+    associations = (uint64_t *)associations_oop;
+    tally = (uint64_t)untag_smallint(tally_oop);
+    for (uint64_t index = 0; index < tally && count < max_bindings; index++)
+    {
+        uint64_t assoc_oop = OBJ_FIELD(associations, index);
+        uint64_t key_oop;
+        uint64_t value_oop;
+
+        if (!is_object_ptr(assoc_oop))
+        {
+            continue;
+        }
+        key_oop = OBJ_FIELD((uint64_t *)assoc_oop, 0);
+        value_oop = OBJ_FIELD((uint64_t *)assoc_oop, 1);
+        if (!is_object_ptr(value_oop))
+        {
+            continue;
+        }
+        if (!sw_copy_symbol_to_cstring(key_oop, names[count], sizeof(names[count])))
+        {
+            continue;
+        }
+        bindings[count].class_name = names[count];
+        bindings[count].klass = (ObjPtr)value_oop;
+        count++;
+    }
+
+    return count;
+}
+
 void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_size)
 {
     world->saved_symbol_table = global_symbol_table;
@@ -142,7 +216,6 @@ void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_s
     world->saved_smalltalk_dict = global_smalltalk_dictionary;
 
     om_init(buffer, buffer_size, world->om);
-
     // Root class: Class.
     world->class_class = om_alloc(world->om, 0, FORMAT_FIELDS, 5);
     OBJ_CLASS(world->class_class) = (uint64_t)world->class_class;
@@ -207,6 +280,7 @@ void smalltalk_world_init(SmalltalkWorld *world, void *buffer, uint64_t buffer_s
     global_smalltalk_dictionary = world->smalltalk_dict;
 
     // Register core classes in the Smalltalk dictionary.
+    sw_dict_put(world, "Class", (uint64_t)world->class_class);
     sw_dict_put(world, "Object", (uint64_t)world->object_class);
     sw_dict_put(world, "SmallInteger", (uint64_t)world->smallint_class);
     sw_dict_put(world, "Integer", (uint64_t)world->smallint_class);
@@ -316,25 +390,36 @@ uint64_t *smalltalk_world_define_class(SmalltalkWorld *world, const char *name,
 
 int smalltalk_world_install_st_file(SmalltalkWorld *world, const char *path)
 {
+    BClassBinding bindings[128];
+    char binding_names[128][64];
+    int binding_count = sw_collect_class_bindings(world, bindings, binding_names, 128);
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
     static char buf[32768];
     size_t n = fread(buf, 1, sizeof(buf) - 1, f);
     fclose(f);
     buf[n] = '\0';
-    return bc_compile_and_install_source_methods(world->om, world->class_class, NULL, 0, buf);
+    return bc_compile_and_install_source_methods(world->om, world->class_class,
+                                                 bindings, binding_count, buf);
 }
 
 uint64_t *smalltalk_world_install_class_file(SmalltalkWorld *world, const char *path)
 {
+    BClassBinding bindings[128];
+    char binding_names[128][64];
+    int binding_count = sw_collect_class_bindings(world, bindings, binding_names, 128);
     return bc_compile_and_install_class_file(world->om, world->class_class,
                                              world->string_class, world->array_class,
-                                             world->association_class, NULL, 0, path);
+                                             world->association_class, bindings, binding_count, path);
 }
 
 uint64_t *smalltalk_world_install_existing_class_file(SmalltalkWorld *world, const char *path)
 {
-    return bc_compile_and_install_existing_class_file(world->om, world->class_class, NULL, 0, path);
+    BClassBinding bindings[128];
+    char binding_names[128][64];
+    int binding_count = sw_collect_class_bindings(world, bindings, binding_names, 128);
+    return bc_compile_and_install_existing_class_file(world->om, world->class_class,
+                                                      bindings, binding_count, path);
 }
 
 ObjPtr smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name)

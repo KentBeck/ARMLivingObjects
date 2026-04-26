@@ -1,5 +1,6 @@
 #include "bootstrap_compiler.h"
 #include "primitives.h"
+#include "smalltalk_tool_support.h"
 #include "smalltalk_world.h"
 #include "test_defs.h"
 
@@ -46,131 +47,6 @@ static void restore_trap_handlers(const struct sigaction *old_trap, const struct
     sigaction(SIGSEGV, old_segv, NULL);
 }
 
-void debug_mnu(uint64_t selector)
-{
-    fprintf(stderr, "Message not understood: 0x%llx\n", (unsigned long long)selector);
-}
-
-void debug_mnu_context(uint64_t selector, uint64_t *current_cm, uint64_t selector_index)
-{
-    (void)current_cm;
-    fprintf(stderr, "Message not understood: selector=0x%llx literal=%llu\n",
-            (unsigned long long)selector, (unsigned long long)selector_index);
-}
-
-void debug_oom(void)
-{
-    fprintf(stderr, "Out of object memory\n");
-}
-
-void debug_unknown_prim(uint64_t prim_index)
-{
-    fprintf(stderr, "Unknown primitive: %llu\n", (unsigned long long)prim_index);
-}
-
-void debug_error(uint64_t message, uint64_t *fp, uint64_t *class_table)
-{
-    (void)fp;
-    (void)class_table;
-    fprintf(stderr, "VM error: 0x%llx\n", (unsigned long long)message);
-}
-
-static void init_context(TestContext *ctx, SmalltalkWorld *world)
-{
-    memset(ctx, 0, sizeof(*ctx));
-    ctx->om = world->om;
-    ctx->class_class = world->class_class;
-    ctx->smallint_class = world->smallint_class;
-    ctx->block_class = world->block_class;
-    ctx->undefined_object_class = world->undefined_class;
-    ctx->character_class = world->character_class;
-    ctx->string_class = world->string_class;
-    ctx->symbol_class = world->symbol_class;
-    ctx->context_class = world->context_class;
-    ctx->symbol_table = world->symbol_table;
-    ctx->class_table = world->class_table;
-}
-
-static int install_runtime_sources(SmalltalkWorld *world)
-{
-    struct RuntimeSource
-    {
-        const char *path;
-        int has_class_declaration;
-    };
-    const struct RuntimeSource files[] = {
-        {"src/smalltalk/Object.st", 1},
-        {"src/smalltalk/SmallInteger.st", 1},
-        {"src/smalltalk/True.st", 1},
-        {"src/smalltalk/False.st", 1},
-        {"src/smalltalk/UndefinedObject.st", 1},
-        {"src/smalltalk/Character.st", 0},
-        {"src/smalltalk/BlockClosure.st", 0},
-        {"src/smalltalk/Array.st", 1},
-        {"src/smalltalk/String.st", 1},
-        {"src/smalltalk/Symbol.st", 0},
-        {"src/smalltalk/Association.st", 0},
-        {"src/smalltalk/Dictionary.st", 0},
-        {"src/smalltalk/Context.st", 0},
-    };
-    size_t count = sizeof(files) / sizeof(files[0]);
-    for (size_t index = 0; index < count; index++)
-    {
-        int installed = files[index].has_class_declaration
-                            ? smalltalk_world_install_existing_class_file(world, files[index].path) != NULL
-                            : smalltalk_world_install_st_file(world, files[index].path);
-        if (!installed)
-        {
-            fprintf(stderr, "failed to install %s\n", files[index].path);
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static int install_smalltalk_compiler_sources(SmalltalkWorld *world)
-{
-    const char *class_files[] = {
-        "src/smalltalk/Token.st",
-        "src/smalltalk/ReadStream.st",
-        "src/smalltalk/Tokenizer.st",
-    };
-    size_t class_count = sizeof(class_files) / sizeof(class_files[0]);
-
-    for (size_t index = 0; index < class_count; index++)
-    {
-        if (smalltalk_world_install_class_file(world, class_files[index]) == NULL)
-        {
-            fprintf(stderr, "failed to install %s\n", class_files[index]);
-            return 0;
-        }
-    }
-    if (!bc_compile_and_install_classes_file(world->om, world->class_class,
-                                             world->string_class, world->array_class,
-                                             world->association_class, NULL, 0,
-                                             "src/smalltalk/ASTNodes.st"))
-    {
-        fprintf(stderr, "failed to install src/smalltalk/ASTNodes.st\n");
-        return 0;
-    }
-    if (smalltalk_world_install_class_file(world, "src/smalltalk/Parser.st") == NULL)
-    {
-        fprintf(stderr, "failed to install src/smalltalk/Parser.st\n");
-        return 0;
-    }
-    if (smalltalk_world_install_class_file(world, "src/smalltalk/CodeGenerator.st") == NULL)
-    {
-        fprintf(stderr, "failed to install src/smalltalk/CodeGenerator.st\n");
-        return 0;
-    }
-    if (smalltalk_world_install_class_file(world, "src/smalltalk/Compiler.st") == NULL)
-    {
-        fprintf(stderr, "failed to install src/smalltalk/Compiler.st\n");
-        return 0;
-    }
-    return 1;
-}
-
 static Oop run_method(SmalltalkWorld *world, TestContext *ctx, ObjPtr method, Oop receiver)
 {
     ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
@@ -183,51 +59,6 @@ static Oop run_method(SmalltalkWorld *world, TestContext *ctx, ObjPtr method, Oo
     activate_method(&sp, &fp, 0, (Oop)method, num_args, num_temps);
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0),
                      world->class_table, world->om, NULL);
-}
-
-static Oop sw_send0_capture_receiver(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
-                                     ObjPtr receiver_class, const char *selector,
-                                     Oop *updated_receiver)
-{
-    ObjPtr dispatch_class = is_object_ptr(receiver) ? (ObjPtr)OBJ_CLASS((ObjPtr)receiver) : receiver_class;
-    Oop sel_oop = intern_cstring_symbol(world->om, selector);
-    Oop method_oop = class_lookup(dispatch_class, sel_oop);
-    ObjPtr method = (ObjPtr)method_oop;
-    ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
-    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    Oop *sp = ctx->stack + STACK_WORDS;
-    ObjPtr fp = (ObjPtr)0xCAFE;
-
-    stack_push(&sp, ctx->stack, receiver);
-    activate_method(&sp, &fp, 0, (Oop)method, 0, num_temps);
-    Oop *receiver_slot = (Oop *)(fp + FRAME_RECEIVER);
-    Oop result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0),
-                           world->class_table, world->om, NULL);
-    *updated_receiver = *receiver_slot;
-    return result;
-}
-
-static Oop sw_send1_capture_receiver(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
-                                     ObjPtr receiver_class, const char *selector, Oop arg,
-                                     Oop *updated_receiver)
-{
-    ObjPtr dispatch_class = is_object_ptr(receiver) ? (ObjPtr)OBJ_CLASS((ObjPtr)receiver) : receiver_class;
-    Oop sel_oop = intern_cstring_symbol(world->om, selector);
-    Oop method_oop = class_lookup(dispatch_class, sel_oop);
-    ObjPtr method = (ObjPtr)method_oop;
-    ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
-    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    Oop *sp = ctx->stack + STACK_WORDS;
-    ObjPtr fp = (ObjPtr)0xCAFE;
-
-    stack_push(&sp, ctx->stack, receiver);
-    stack_push(&sp, ctx->stack, arg);
-    activate_method(&sp, &fp, 0, (Oop)method, 1, num_temps);
-    Oop *receiver_slot = (Oop *)(fp + FRAME_RECEIVER);
-    Oop result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0),
-                           world->class_table, world->om, NULL);
-    *updated_receiver = *receiver_slot;
-    return result;
 }
 
 static ObjPtr lookup_class_or_null(SmalltalkWorld *world, const char *name)
@@ -299,7 +130,7 @@ static ObjPtr materialize_smalltalk_codegen_method(SmalltalkWorld *world, ObjPtr
         }
     }
 
-    ObjPtr method = om_alloc(world->om, (Oop)world->class_class, FORMAT_FIELDS, 5);
+    ObjPtr method = om_alloc(world->om, (Oop)world->class_class, FORMAT_FIELDS, 6);
     if (method == NULL)
     {
         return NULL;
@@ -309,6 +140,7 @@ static ObjPtr materialize_smalltalk_codegen_method(SmalltalkWorld *world, ObjPtr
     OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(temp_count);
     OBJ_FIELD(method, CM_LITERALS) = literals != NULL ? (Oop)literals : tagged_nil();
     OBJ_FIELD(method, CM_BYTECODES) = (Oop)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = tagged_nil();
     return method;
 }
 
@@ -387,7 +219,7 @@ static ObjPtr materialize_c_compiled_method(SmalltalkWorld *world, const BCompil
         ((uint8_t *)&OBJ_FIELD(bytecodes, 0))[0] = 0;
     }
 
-    ObjPtr method = om_alloc(world->om, (Oop)world->class_class, FORMAT_FIELDS, 5);
+    ObjPtr method = om_alloc(world->om, (Oop)world->class_class, FORMAT_FIELDS, 6);
     if (method == NULL)
     {
         return NULL;
@@ -399,6 +231,9 @@ static ObjPtr materialize_c_compiled_method(SmalltalkWorld *world, const BCompil
     OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(method_def->body.temp_count);
     OBJ_FIELD(method, CM_LITERALS) = literals != NULL ? (Oop)literals : tagged_nil();
     OBJ_FIELD(method, CM_BYTECODES) = (Oop)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = method_def->method_source[0] != '\0'
+                                       ? (Oop)sw_make_string(world, method_def->method_source)
+                                       : tagged_nil();
     return method;
 }
 
@@ -698,19 +533,6 @@ static char *build_method_source(const char *selector, const char *expression)
     return source;
 }
 
-static char *build_raw_method_source(const char *selector, const char *expression)
-{
-    const char *middle = "\n    ^ ";
-    size_t len = strlen(selector) + strlen(middle) + strlen(expression) + 1;
-    char *source = malloc(len);
-    if (source == NULL)
-    {
-        return NULL;
-    }
-    snprintf(source, len, "%s%s%s", selector, middle, expression);
-    return source;
-}
-
 static ObjPtr compile_c_expression_method(SmalltalkWorld *world, ObjPtr receiver_class,
                                           const char *expression, int index)
 {
@@ -862,13 +684,29 @@ static int run_cli(int argc, char **argv)
 {
     SmalltalkWorld world;
     TestContext ctx;
+    static const LoRuntimeSource runtime_sources[] = {
+        {"src/smalltalk/Object.st", LO_RUNTIME_SOURCE_EXISTING_CLASS},
+        {"src/smalltalk/SmallInteger.st", LO_RUNTIME_SOURCE_EXISTING_CLASS},
+        {"src/smalltalk/True.st", LO_RUNTIME_SOURCE_EXISTING_CLASS},
+        {"src/smalltalk/False.st", LO_RUNTIME_SOURCE_EXISTING_CLASS},
+        {"src/smalltalk/UndefinedObject.st", LO_RUNTIME_SOURCE_EXISTING_CLASS},
+        {"src/smalltalk/Character.st", LO_RUNTIME_SOURCE_METHODS_ONLY},
+        {"src/smalltalk/BlockClosure.st", LO_RUNTIME_SOURCE_METHODS_ONLY},
+        {"src/smalltalk/Array.st", LO_RUNTIME_SOURCE_EXISTING_CLASS},
+        {"src/smalltalk/String.st", LO_RUNTIME_SOURCE_EXISTING_CLASS},
+        {"src/smalltalk/Symbol.st", LO_RUNTIME_SOURCE_METHODS_ONLY},
+        {"src/smalltalk/Association.st", LO_RUNTIME_SOURCE_METHODS_ONLY},
+        {"src/smalltalk/Dictionary.st", LO_RUNTIME_SOURCE_METHODS_ONLY},
+        {"src/smalltalk/Context.st", LO_RUNTIME_SOURCE_METHODS_ONLY},
+    };
     smalltalk_world_init(&world, heap, sizeof(heap));
-    init_context(&ctx, &world);
+    lo_init_context(&ctx, &world);
 
-    int ok = install_runtime_sources(&world);
+    int ok = lo_install_runtime_sources(&world, runtime_sources,
+                                        sizeof(runtime_sources) / sizeof(runtime_sources[0]));
     if (ok)
     {
-        ok = install_smalltalk_compiler_sources(&world);
+        ok = lo_install_smalltalk_compiler_sources(&world);
     }
     ObjPtr expr_class = NULL;
     Oop receiver = tagged_nil();
