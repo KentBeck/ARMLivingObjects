@@ -32,49 +32,14 @@ typedef struct
     int64_t expected_smallint;
 } ExpressionSpec;
 
-static void trim_in_place(char *text)
-{
-    size_t len = strlen(text);
-    size_t start = 0;
-    while (start < len && isspace((unsigned char)text[start]))
-    {
-        start++;
-    }
-    size_t end = len;
-    while (end > start && isspace((unsigned char)text[end - 1]))
-    {
-        end--;
-    }
-    if (start > 0)
-    {
-        memmove(text, text + start, end - start);
-    }
-    text[end - start] = '\0';
-}
-
 static int parse_expected_value(const char *text, ExprExpectedKind *kind, int64_t *smallint_value)
 {
-    if (strcmp(text, "true") == 0)
-    {
-        *kind = EXPR_EXPECT_TRUE;
-        *smallint_value = 0;
-        return 1;
-    }
-    if (strcmp(text, "false") == 0)
-    {
-        *kind = EXPR_EXPECT_FALSE;
-        *smallint_value = 0;
-        return 1;
-    }
-
-    char *end = NULL;
-    long long parsed = strtoll(text, &end, 10);
-    if (end == text || *end != '\0')
+    int parsed_kind = 0;
+    if (!stt_parse_expected_value(text, &parsed_kind, smallint_value))
     {
         return 0;
     }
-    *kind = EXPR_EXPECT_SMALLINT;
-    *smallint_value = (int64_t)parsed;
+    *kind = (ExprExpectedKind)parsed_kind;
     return 1;
 }
 
@@ -90,7 +55,7 @@ static int load_expression_specs(const char *path, ExpressionSpec *specs, int ma
     int count = 0;
     while (fgets(line, sizeof(line), file) != NULL)
     {
-        trim_in_place(line);
+        stt_trim_in_place(line);
         if (line[0] == '\0' || line[0] == '#')
         {
             continue;
@@ -114,9 +79,9 @@ static int load_expression_specs(const char *path, ExpressionSpec *specs, int ma
         *second_sep = '\0';
         char *third_field = second_sep + 1;
 
-        trim_in_place(line);
-        trim_in_place(second_field);
-        trim_in_place(third_field);
+        stt_trim_in_place(line);
+        stt_trim_in_place(second_field);
+        stt_trim_in_place(third_field);
 
         if (line[0] == '\0' || second_field[0] == '\0' || third_field[0] == '\0' || count >= max_specs)
         {

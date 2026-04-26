@@ -42,49 +42,14 @@ static int read_file(const char *path, char *buf, size_t cap)
     return 1;
 }
 
-static void trim_in_place(char *text)
-{
-    size_t len = strlen(text);
-    size_t start = 0;
-    while (start < len && isspace((unsigned char)text[start]))
-    {
-        start++;
-    }
-    size_t end = len;
-    while (end > start && isspace((unsigned char)text[end - 1]))
-    {
-        end--;
-    }
-    if (start > 0)
-    {
-        memmove(text, text + start, end - start);
-    }
-    text[end - start] = '\0';
-}
-
 static int parse_expected_value(const char *text, FixtureExpectedKind *kind, int64_t *smallint_value)
 {
-    if (strcmp(text, "true") == 0)
-    {
-        *kind = FIXTURE_EXPECT_TRUE;
-        *smallint_value = 0;
-        return 1;
-    }
-    if (strcmp(text, "false") == 0)
-    {
-        *kind = FIXTURE_EXPECT_FALSE;
-        *smallint_value = 0;
-        return 1;
-    }
-
-    char *end = NULL;
-    long long parsed = strtoll(text, &end, 10);
-    if (end == text || *end != '\0')
+    int parsed_kind = 0;
+    if (!stt_parse_expected_value(text, &parsed_kind, smallint_value))
     {
         return 0;
     }
-    *kind = FIXTURE_EXPECT_SMALLINT;
-    *smallint_value = (int64_t)parsed;
+    *kind = (FixtureExpectedKind)parsed_kind;
     return 1;
 }
 
@@ -107,7 +72,7 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
         strncpy(raw_line, line, sizeof(raw_line) - 1);
         raw_line[sizeof(raw_line) - 1] = '\0';
 
-        trim_in_place(line);
+        stt_trim_in_place(line);
         if (!in_setup && (line[0] == '\0' || line[0] == '#'))
         {
             continue;
@@ -123,7 +88,7 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
             current = &specs[count];
             memset(current, 0, sizeof(*current));
             strncpy(current->name, line + 3, sizeof(current->name) - 1);
-            trim_in_place(current->name);
+            stt_trim_in_place(current->name);
             in_setup = 0;
             count++;
             continue;
@@ -140,7 +105,7 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
             if (strncmp(line, "expression:", 11) == 0)
             {
                 strncpy(current->expression, line + 11, sizeof(current->expression) - 1);
-                trim_in_place(current->expression);
+                stt_trim_in_place(current->expression);
                 in_setup = 0;
                 continue;
             }
@@ -167,7 +132,7 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
             char class_decl[128];
             memset(class_decl, 0, sizeof(class_decl));
             strncpy(class_decl, line + 6, sizeof(class_decl) - 1);
-            trim_in_place(class_decl);
+            stt_trim_in_place(class_decl);
 
             FixtureClassDecl *decl = &current->classes[current->class_count++];
             char *lt = strstr(class_decl, "<");
@@ -175,14 +140,14 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
             {
                 *lt = '\0';
                 strncpy(decl->name, class_decl, sizeof(decl->name) - 1);
-                trim_in_place(decl->name);
+                stt_trim_in_place(decl->name);
                 strncpy(decl->superclass_name, lt + 1, sizeof(decl->superclass_name) - 1);
-                trim_in_place(decl->superclass_name);
+                stt_trim_in_place(decl->superclass_name);
             }
             else
             {
                 strncpy(decl->name, class_decl, sizeof(decl->name) - 1);
-                trim_in_place(decl->name);
+                stt_trim_in_place(decl->name);
                 strncpy(decl->superclass_name, "Object", sizeof(decl->superclass_name) - 1);
             }
             continue;
@@ -191,7 +156,7 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
         if (strncmp(line, "receiver-class:", 15) == 0)
         {
             strncpy(current->receiver_class_name, line + 15, sizeof(current->receiver_class_name) - 1);
-            trim_in_place(current->receiver_class_name);
+            stt_trim_in_place(current->receiver_class_name);
             continue;
         }
 
@@ -205,7 +170,7 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
         if (strncmp(line, "expression:", 11) == 0)
         {
             strncpy(current->expression, line + 11, sizeof(current->expression) - 1);
-            trim_in_place(current->expression);
+            stt_trim_in_place(current->expression);
             continue;
         }
 
@@ -214,7 +179,7 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
             char expected_text[64];
             memset(expected_text, 0, sizeof(expected_text));
             strncpy(expected_text, line + 9, sizeof(expected_text) - 1);
-            trim_in_place(expected_text);
+            stt_trim_in_place(expected_text);
             if (!parse_expected_value(expected_text, &current->expected_kind, &current->expected_smallint))
             {
                 fclose(file);

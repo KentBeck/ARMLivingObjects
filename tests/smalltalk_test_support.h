@@ -5,12 +5,18 @@
 #include "primitives.h"
 
 Oop stt_selector_oop(Om om, const char *selector);
+void stt_trim_in_place(char *text);
+int stt_parse_expected_value(const char *text, int *kind_out, int64_t *smallint_value);
 void stt_md_append(Om om, ObjPtr class_class, ObjPtr klass, const char *selector, Oop method);
+void stt_md_append_oop(Om om, ObjPtr class_class, ObjPtr klass, Oop selector, Oop method);
 ObjPtr stt_make_primitive_cm(Om om, ObjPtr class_class, int prim, int num_args);
 ObjPtr stt_make_byte_string(Om om, ObjPtr string_class, const char *text);
 ObjPtr stt_make_class_with_ivars(Om om, ObjPtr class_class, ObjPtr string_class,
                                  ObjPtr superclass, const char **ivars, uint64_t ivar_count);
 void stt_smalltalk_at_put(Om om, ObjPtr array_class, ObjPtr association_class,
                           const char *name, Oop value);
+void stt_install_class_new_size_methods(Om om, ObjPtr class_class, Oop sel_basic_new_size, Oop sel_new_size);
+Oop stt_send_class_new_size(TestContext *ctx, ObjPtr class_table, Om om, ObjPtr class_class,
+                            Oop class_receiver, Oop sel_new_size, int64_t requested_size);
 
 #endif

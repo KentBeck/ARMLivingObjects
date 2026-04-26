@@ -1,4 +1,5 @@
 #include "test_defs.h"
+#include "smalltalk_test_support.h"
 
 static uint64_t *make_bytes_obj(uint64_t *om, uint64_t *class_class, uint64_t *string_class, const char *bytes, uint64_t n);
 
@@ -168,21 +169,6 @@ static void trap_string_as_symbol_wrong_receiver(TestContext *ctx)
     (void)interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
 }
 
-static void md_append(uint64_t *om, uint64_t *class_class, uint64_t *klass, uint64_t selector, uint64_t method)
-{
-    uint64_t md_val = OBJ_FIELD(klass, CLASS_METHOD_DICT);
-    uint64_t *old_md = (md_val != tagged_nil() && (md_val & 3) == 0) ? (uint64_t *)md_val : NULL;
-    uint64_t old_size = old_md ? OBJ_SIZE(old_md) : 0;
-    uint64_t *new_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, old_size + 2);
-    for (uint64_t i = 0; i < old_size; i++)
-    {
-        OBJ_FIELD(new_md, i) = OBJ_FIELD(old_md, i);
-    }
-    OBJ_FIELD(new_md, old_size) = selector;
-    OBJ_FIELD(new_md, old_size + 1) = method;
-    OBJ_FIELD(klass, CLASS_METHOD_DICT) = (uint64_t)new_md;
-}
-
 static uint64_t *make_bytes_obj(uint64_t *om, uint64_t *class_class, uint64_t *string_class, const char *bytes, uint64_t n)
 {
     uint64_t *obj = om_alloc(om, (uint64_t)string_class, FORMAT_BYTES, n);
@@ -212,84 +198,15 @@ void test_string_dispatch(TestContext *ctx)
     uint64_t sel_new_size = tag_smallint(312);
     uint64_t sel_comma = tag_smallint(313);
 
-    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
-
-    uint64_t *cm_lt = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-    OBJ_FIELD(cm_lt, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_LT);
-    OBJ_FIELD(cm_lt, CM_NUM_ARGS) = tag_smallint(1);
-    OBJ_FIELD(cm_lt, CM_NUM_TEMPS) = tag_smallint(0);
-    OBJ_FIELD(cm_lt, CM_LITERALS) = tagged_nil();
-    OBJ_FIELD(cm_lt, CM_BYTECODES) = (uint64_t)prim_bc;
-
-    uint64_t *cm_plus = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-    OBJ_FIELD(cm_plus, CM_PRIMITIVE) = tag_smallint(PRIM_SMALLINT_ADD);
-    OBJ_FIELD(cm_plus, CM_NUM_ARGS) = tag_smallint(1);
-    OBJ_FIELD(cm_plus, CM_NUM_TEMPS) = tag_smallint(0);
-    OBJ_FIELD(cm_plus, CM_LITERALS) = tagged_nil();
-    OBJ_FIELD(cm_plus, CM_BYTECODES) = (uint64_t)prim_bc;
-
-    md_append(om, class_class, smallint_class, sel_lt, (uint64_t)cm_lt);
-    md_append(om, class_class, smallint_class, sel_plus, (uint64_t)cm_plus);
-
-    uint64_t *cm_basic_new_size = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-    OBJ_FIELD(cm_basic_new_size, CM_PRIMITIVE) = tag_smallint(PRIM_BASIC_NEW_SIZE);
-    OBJ_FIELD(cm_basic_new_size, CM_NUM_ARGS) = tag_smallint(1);
-    OBJ_FIELD(cm_basic_new_size, CM_NUM_TEMPS) = tag_smallint(0);
-    OBJ_FIELD(cm_basic_new_size, CM_LITERALS) = tagged_nil();
-    OBJ_FIELD(cm_basic_new_size, CM_BYTECODES) = (uint64_t)prim_bc;
-    md_append(om, class_class, class_class, sel_basicNewSize, (uint64_t)cm_basic_new_size);
+    stt_md_append_oop(om, class_class, smallint_class, sel_lt,
+                      (uint64_t)stt_make_primitive_cm(om, class_class, PRIM_SMALLINT_LT, 1));
+    stt_md_append_oop(om, class_class, smallint_class, sel_plus,
+                      (uint64_t)stt_make_primitive_cm(om, class_class, PRIM_SMALLINT_ADD, 1));
+    stt_install_class_new_size_methods(om, class_class, sel_basicNewSize, sel_new_size);
 
     {
-        uint64_t *bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
-        uint8_t *p = (uint8_t *)&OBJ_FIELD(bc, 0);
-        p[0] = BC_PUSH_SELF;
-        p[1] = BC_PUSH_ARG;
-        WRITE_U32(&p[2], 0);
-        p[6] = BC_SEND_MESSAGE;
-        WRITE_U32(&p[7], 0);
-        WRITE_U32(&p[11], 1);
-        p[15] = BC_RETURN;
-
-        uint64_t *lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
-        OBJ_FIELD(lits, 0) = sel_basicNewSize;
-
-        uint64_t *cm_new_size = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-        OBJ_FIELD(cm_new_size, CM_PRIMITIVE) = tag_smallint(0);
-        OBJ_FIELD(cm_new_size, CM_NUM_ARGS) = tag_smallint(1);
-        OBJ_FIELD(cm_new_size, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(cm_new_size, CM_LITERALS) = (uint64_t)lits;
-        OBJ_FIELD(cm_new_size, CM_BYTECODES) = (uint64_t)bc;
-
-        md_append(om, class_class, class_class, sel_new_size, (uint64_t)cm_new_size);
-    }
-
-    {
-        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 20);
-        uint8_t *p = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
-        p[0] = BC_PUSH_SELF;
-        p[1] = BC_PUSH_LITERAL;
-        WRITE_U32(&p[2], 1);
-        p[6] = BC_SEND_MESSAGE;
-        WRITE_U32(&p[7], 0);
-        WRITE_U32(&p[11], 1);
-        p[15] = BC_HALT;
-
-        uint64_t *lits = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 2);
-        OBJ_FIELD(lits, 0) = sel_new_size;
-        OBJ_FIELD(lits, 1) = tag_smallint(5);
-
-        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
-        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)lits;
-        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
-
-        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
-        fp = (uint64_t *)0xCAFE;
-        stack_push(&sp, stack, (uint64_t)string_class);
-        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
-        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), class_table, om, NULL);
+        result = stt_send_class_new_size(ctx, class_table, om, class_class,
+                                         (uint64_t)string_class, sel_new_size, 5);
 
         ASSERT_EQ(ctx, result & 3, 0, "dispatch new:: result is object ptr");
         ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)result), (uint64_t)string_class,
@@ -494,7 +411,7 @@ void test_string_dispatch(TestContext *ctx)
         OBJ_FIELD(cm_comma, CM_NUM_TEMPS) = tag_smallint(1);
         OBJ_FIELD(cm_comma, CM_LITERALS) = (uint64_t)comma_lits;
         OBJ_FIELD(cm_comma, CM_BYTECODES) = (uint64_t)comma_bc;
-        md_append(om, class_class, string_class, sel_comma, (uint64_t)cm_comma);
+        stt_md_append_oop(om, class_class, string_class, sel_comma, (uint64_t)cm_comma);
 
         uint64_t *s1 = make_bytes_obj(om, class_class, string_class, "he", 2);
         uint64_t *s2 = make_bytes_obj(om, class_class, string_class, "llo", 3);
