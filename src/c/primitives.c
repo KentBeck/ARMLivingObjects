@@ -1,5 +1,7 @@
 #include "primitives.h"
+#include <errno.h>
 #include <string.h> // For memcmp
+#include <unistd.h>
 
 uint64_t *global_symbol_table; // Define global symbol table
 uint64_t *global_symbol_class;
@@ -27,6 +29,298 @@ static inline void get_byte_obj_data(uint64_t obj_ptr, uint8_t **data, uint64_t 
     uint64_t *obj = (uint64_t *)obj_ptr;
     *data = (uint8_t *)&OBJ_FIELD(obj, 0);
     *size = OBJ_SIZE(obj);
+}
+
+static int copy_oop_bytes_to_cstring(Oop oop, char *buffer, uint64_t buffer_size)
+{
+    if (!is_object_ptr(oop) || buffer == NULL || buffer_size == 0)
+    {
+        return 0;
+    }
+
+    uint64_t *object = (uint64_t *)oop;
+    if (OBJ_FORMAT(object) != FORMAT_BYTES || OBJ_SIZE(object) >= buffer_size)
+    {
+        return 0;
+    }
+
+    if (OBJ_SIZE(object) > 0)
+    {
+        memcpy(buffer, (const void *)&OBJ_FIELD(object, 0), (size_t)OBJ_SIZE(object));
+    }
+    buffer[OBJ_SIZE(object)] = '\0';
+    return 1;
+}
+
+static uint64_t method_dict_size(Oop method_dict_oop)
+{
+    if (!is_object_ptr(method_dict_oop))
+    {
+        return 0;
+    }
+    return OBJ_SIZE((ObjPtr)method_dict_oop);
+}
+
+static Oop method_dict_lookup_local(Oop method_dict_oop, Oop selector)
+{
+    if (!is_object_ptr(method_dict_oop))
+    {
+        return 0;
+    }
+
+    ObjPtr method_dict = (ObjPtr)method_dict_oop;
+    for (uint64_t index = 0; index < OBJ_SIZE(method_dict); index += 2)
+    {
+        if (OBJ_FIELD(method_dict, index) == selector)
+        {
+            return OBJ_FIELD(method_dict, index + 1);
+        }
+    }
+
+    return 0;
+}
+
+static int smalltalk_dictionary_bindings(ObjPtr *associations_out, uint64_t *tally_out)
+{
+    Oop associations_oop;
+    Oop tally_oop;
+
+    if (global_smalltalk_dictionary == NULL)
+    {
+        return 0;
+    }
+
+    associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
+    tally_oop = OBJ_FIELD(global_smalltalk_dictionary, 1);
+    if (!is_object_ptr(associations_oop) || !is_smallint(tally_oop))
+    {
+        return 0;
+    }
+
+    *associations_out = (ObjPtr)associations_oop;
+    *tally_out = (uint64_t)untag_smallint(tally_oop);
+    return 1;
+}
+
+static Oop smalltalk_find_association_by_key(Oop key)
+{
+    ObjPtr associations;
+    uint64_t tally;
+
+    if (!is_object_ptr(key) || !smalltalk_dictionary_bindings(&associations, &tally))
+    {
+        return tagged_nil();
+    }
+
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        Oop assoc_oop = OBJ_FIELD(associations, index);
+        if (!is_object_ptr(assoc_oop))
+        {
+            continue;
+        }
+        ObjPtr assoc = (ObjPtr)assoc_oop;
+        if (OBJ_FIELD(assoc, 0) == key)
+        {
+            return OBJ_FIELD(assoc, 1);
+        }
+    }
+
+    return tagged_nil();
+}
+
+static Oop smalltalk_find_association_by_value(Oop value)
+{
+    ObjPtr associations;
+    uint64_t tally;
+
+    if (!is_object_ptr(value) || !smalltalk_dictionary_bindings(&associations, &tally))
+    {
+        return tagged_nil();
+    }
+
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        Oop assoc_oop = OBJ_FIELD(associations, index);
+        if (!is_object_ptr(assoc_oop))
+        {
+            continue;
+        }
+        ObjPtr assoc = (ObjPtr)assoc_oop;
+        if (OBJ_FIELD(assoc, 1) == value)
+        {
+            return OBJ_FIELD(assoc, 0);
+        }
+    }
+
+    return tagged_nil();
+}
+
+static Oop smalltalk_lookup_global_value(const char *name)
+{
+    Oop key;
+
+    if (name == NULL)
+    {
+        return tagged_nil();
+    }
+
+    key = lookup_cstring_symbol(name);
+    return key == tagged_nil() ? tagged_nil() : smalltalk_find_association_by_key(key);
+}
+
+static Oop class_name_symbol_for_class(Oop class_oop)
+{
+    return smalltalk_find_association_by_value(class_oop);
+}
+
+Oop prim_class_superclass(Oop receiver)
+{
+    if (!is_object_ptr(receiver))
+    {
+        return tagged_nil();
+    }
+    return OBJ_FIELD((ObjPtr)receiver, CLASS_SUPERCLASS);
+}
+
+Oop prim_class_name(Oop receiver)
+{
+    return class_name_symbol_for_class(receiver);
+}
+
+Oop prim_class_includes_selector(Oop receiver, Oop selector)
+{
+    if (!is_object_ptr(receiver) || !is_object_ptr(selector))
+    {
+        return tagged_false();
+    }
+
+    return method_dict_lookup_local(OBJ_FIELD((ObjPtr)receiver, CLASS_METHOD_DICT), selector) != 0
+               ? tagged_true()
+               : tagged_false();
+}
+
+Oop prim_smalltalk_globals(void)
+{
+    return global_smalltalk_dictionary == NULL ? tagged_nil() : (Oop)global_smalltalk_dictionary;
+}
+
+Oop prim_method_source_for_class_selector(Oop class_name, Oop selector, Om om)
+{
+    char class_name_text[64];
+    Oop klass;
+    Oop method;
+    Oop source;
+
+    (void)om;
+    if (!copy_oop_bytes_to_cstring(class_name, class_name_text, sizeof(class_name_text)))
+    {
+        return tagged_nil();
+    }
+    klass = smalltalk_lookup_global_value(class_name_text);
+    if (!is_object_ptr(klass))
+    {
+        return tagged_nil();
+    }
+    method = method_dict_lookup_local(OBJ_FIELD((ObjPtr)klass, CLASS_METHOD_DICT), selector);
+    if (!is_object_ptr(method))
+    {
+        return tagged_nil();
+    }
+    source = OBJ_FIELD((ObjPtr)method, CM_SOURCE);
+    return is_object_ptr(source) ? source : tagged_nil();
+}
+
+Oop prim_read_fd_count(Oop fd, Oop count, Om om)
+{
+    ObjPtr string_class;
+    ObjPtr string;
+    int read_fd;
+    int64_t requested;
+    ssize_t bytes_read;
+
+    if (!is_smallint(fd) || !is_smallint(count))
+    {
+        return tagged_nil();
+    }
+
+    read_fd = (int)untag_smallint(fd);
+    requested = untag_smallint(count);
+    if (requested < 0)
+    {
+        return tagged_nil();
+    }
+
+    string_class = (ObjPtr)smalltalk_lookup_global_value("String");
+    if (string_class == NULL || !is_object_ptr((Oop)string_class))
+    {
+        return tagged_nil();
+    }
+
+    string = om_alloc(om, (Oop)string_class, FORMAT_BYTES, (uint64_t)requested);
+    if (string == NULL)
+    {
+        return tagged_nil();
+    }
+    if (requested == 0)
+    {
+        return (Oop)string;
+    }
+
+    for (;;)
+    {
+        bytes_read = read(read_fd, (void *)&OBJ_FIELD(string, 0), (size_t)requested);
+        if (bytes_read < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        break;
+    }
+
+    if (bytes_read <= 0)
+    {
+        return tagged_nil();
+    }
+
+    OBJ_SIZE(string) = (uint64_t)bytes_read;
+    return (Oop)string;
+}
+
+Oop prim_write_fd_string(Oop fd, Oop string)
+{
+    const uint8_t *bytes;
+    uint64_t size;
+    size_t offset;
+    ssize_t written;
+    int write_fd;
+
+    if (!is_smallint(fd) || !is_object_ptr(string))
+    {
+        return tagged_nil();
+    }
+    if (OBJ_FORMAT((ObjPtr)string) != FORMAT_BYTES)
+    {
+        return tagged_nil();
+    }
+
+    write_fd = (int)untag_smallint(fd);
+    bytes = (const uint8_t *)&OBJ_FIELD((ObjPtr)string, 0);
+    size = OBJ_SIZE((ObjPtr)string);
+    offset = 0;
+    while (offset < size)
+    {
+        written = write(write_fd, bytes + offset, size - offset);
+        if (written < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        if (written <= 0)
+        {
+            return tagged_nil();
+        }
+        offset += (size_t)written;
+    }
+    return tag_smallint((int64_t)size);
 }
 
 Oop lookup_cstring_symbol(const char *text)

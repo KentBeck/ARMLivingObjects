@@ -1,6 +1,7 @@
 #include "test_defs.h"
 #include "bootstrap_compiler.h"
 #include "primitives.h"
+#include "smalltalk_test_support.h"
 #include <ctype.h>
 
 static int read_file(const char *path, char *buf, size_t cap)
@@ -145,134 +146,11 @@ static int load_expression_specs(const char *path, ExpressionSpec *specs, int ma
     return 1;
 }
 
-static uint64_t selector_oop(uint64_t *om, const char *selector)
-{
-    return intern_cstring_symbol(om, selector);
-}
-
-static void md_append(uint64_t *om, uint64_t *class_class, uint64_t *klass, const char *selector, uint64_t method)
-{
-    uint64_t md_val = OBJ_FIELD(klass, CLASS_METHOD_DICT);
-    uint64_t *old_md = (md_val != tagged_nil() && (md_val & 3) == 0) ? (uint64_t *)md_val : NULL;
-    uint64_t old_size = old_md ? OBJ_SIZE(old_md) : 0;
-    uint64_t *new_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, old_size + 2);
-
-    for (uint64_t index = 0; index < old_size; index++)
-    {
-        OBJ_FIELD(new_md, index) = OBJ_FIELD(old_md, index);
-    }
-    OBJ_FIELD(new_md, old_size) = selector_oop(om, selector);
-    OBJ_FIELD(new_md, old_size + 1) = method;
-    OBJ_FIELD(klass, CLASS_METHOD_DICT) = (uint64_t)new_md;
-}
-
-static uint64_t *make_primitive_cm(uint64_t *om, uint64_t *class_class, int prim, int num_args)
-{
-    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
-    ((uint8_t *)&OBJ_FIELD(prim_bc, 0))[0] = BC_HALT;
-
-    uint64_t *cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-    OBJ_FIELD(cm, CM_PRIMITIVE) = tag_smallint(prim);
-    OBJ_FIELD(cm, CM_NUM_ARGS) = tag_smallint(num_args);
-    OBJ_FIELD(cm, CM_NUM_TEMPS) = tag_smallint(0);
-    OBJ_FIELD(cm, CM_LITERALS) = tagged_nil();
-    OBJ_FIELD(cm, CM_BYTECODES) = (uint64_t)prim_bc;
-    return cm;
-}
-
-static uint64_t *make_byte_string(uint64_t *om, uint64_t *string_class, const char *text)
-{
-    uint64_t size = (uint64_t)strlen(text);
-    uint64_t *obj = om_alloc(om, (uint64_t)string_class, FORMAT_BYTES, size);
-    memcpy((uint8_t *)&OBJ_FIELD(obj, 0), text, size);
-    return obj;
-}
-
-static uint64_t *make_class_with_ivars(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
-                                       uint64_t *superclass, const char **ivars, uint64_t ivar_count)
-{
-    uint64_t *klass = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-    OBJ_FIELD(klass, CLASS_SUPERCLASS) = superclass ? (uint64_t)superclass : tagged_nil();
-    OBJ_FIELD(klass, CLASS_METHOD_DICT) = tagged_nil();
-    OBJ_FIELD(klass, CLASS_INST_SIZE) = tag_smallint((int64_t)ivar_count);
-    OBJ_FIELD(klass, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
-    if (ivar_count == 0)
-    {
-        OBJ_FIELD(klass, CLASS_INST_VARS) = tagged_nil();
-        return klass;
-    }
-
-    uint64_t *ivar_array = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, ivar_count);
-    for (uint64_t index = 0; index < ivar_count; index++)
-    {
-        OBJ_FIELD(ivar_array, index) = (uint64_t)make_byte_string(om, string_class, ivars[index]);
-    }
-    OBJ_FIELD(klass, CLASS_INST_VARS) = (uint64_t)ivar_array;
-    return klass;
-}
-
-static void smalltalk_at_put(uint64_t *om, uint64_t *array_class, uint64_t *association_class,
-                             const char *name, uint64_t value)
-{
-    uint64_t key = intern_cstring_symbol(om, name);
-    uint64_t associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
-    uint64_t tally = OBJ_FIELD(global_smalltalk_dictionary, 1) == tagged_nil()
-                         ? 0
-                         : (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
-
-    if (associations_oop == tagged_nil())
-    {
-        uint64_t *associations = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, 8);
-        for (uint64_t index = 0; index < 8; index++)
-        {
-            OBJ_FIELD(associations, index) = tagged_nil();
-        }
-        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)associations;
-        associations_oop = (uint64_t)associations;
-        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
-    }
-
-    uint64_t *associations = (uint64_t *)associations_oop;
-    for (uint64_t index = 0; index < tally; index++)
-    {
-        uint64_t assoc_oop = OBJ_FIELD(associations, index);
-        if (!is_object_ptr(assoc_oop))
-        {
-            continue;
-        }
-        uint64_t *assoc = (uint64_t *)assoc_oop;
-        if (OBJ_FIELD(assoc, 0) == key)
-        {
-            OBJ_FIELD(assoc, 1) = value;
-            return;
-        }
-    }
-
-    if (tally >= OBJ_SIZE(associations))
-    {
-        uint64_t new_size = OBJ_SIZE(associations) * 2;
-        uint64_t *grown = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, new_size);
-        for (uint64_t index = 0; index < new_size; index++)
-        {
-            OBJ_FIELD(grown, index) = index < OBJ_SIZE(associations)
-                                          ? OBJ_FIELD(associations, index)
-                                          : tagged_nil();
-        }
-        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)grown;
-        associations = grown;
-    }
-
-    uint64_t *assoc = om_alloc(om, (uint64_t)association_class, FORMAT_FIELDS, 2);
-    OBJ_FIELD(assoc, 0) = key;
-    OBJ_FIELD(assoc, 1) = value;
-    OBJ_FIELD(associations, tally) = (uint64_t)assoc;
-    OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint((int64_t)(tally + 1));
-}
 
 static uint64_t send_selector0(uint64_t *stack, uint64_t *class_table, uint64_t *om,
                                uint64_t receiver, uint64_t *receiver_class, const char *selector)
 {
-    uint64_t method_oop = class_lookup(receiver_class, selector_oop(om, selector));
+    uint64_t method_oop = class_lookup(receiver_class, stt_selector_oop(om, selector));
     uint64_t *compiled_method = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
@@ -286,7 +164,7 @@ static uint64_t send_selector1(uint64_t *stack, uint64_t *class_table, uint64_t 
                                uint64_t receiver, uint64_t *receiver_class, const char *selector,
                                uint64_t arg)
 {
-    uint64_t method_oop = class_lookup(receiver_class, selector_oop(om, selector));
+    uint64_t method_oop = class_lookup(receiver_class, stt_selector_oop(om, selector));
     uint64_t *compiled_method = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
@@ -301,7 +179,7 @@ static uint64_t send_selector2(uint64_t *stack, uint64_t *class_table, uint64_t 
                                uint64_t receiver, uint64_t *receiver_class, const char *selector,
                                uint64_t arg0, uint64_t arg1)
 {
-    uint64_t method_oop = class_lookup(receiver_class, selector_oop(om, selector));
+    uint64_t method_oop = class_lookup(receiver_class, stt_selector_oop(om, selector));
     uint64_t *compiled_method = (uint64_t *)method_oop;
     uint64_t *bytecodes = (uint64_t *)OBJ_FIELD(compiled_method, CM_BYTECODES);
     uint64_t *sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
@@ -355,27 +233,27 @@ void test_smalltalk_expressions(TestContext *ctx)
     const char *dictionary_ivars[] = {"associations", "tally"};
     uint64_t *saved_global_smalltalk_dictionary = global_smalltalk_dictionary;
 
-    md_append(ctx->om, ctx->class_class, ctx->smallint_class, "+",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_ADD, 1));
-    md_append(ctx->om, ctx->class_class, ctx->smallint_class, "-",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_SUB, 1));
-    md_append(ctx->om, ctx->class_class, ctx->smallint_class, "*",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_MUL, 1));
-    md_append(ctx->om, ctx->class_class, ctx->smallint_class, "<",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_LT, 1));
-    md_append(ctx->om, ctx->class_class, ctx->smallint_class, "=",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_EQ, 1));
-    md_append(ctx->om, ctx->class_class, ctx->smallint_class, "asCharacter",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_AS_CHARACTER, 0));
-    md_append(ctx->om, ctx->class_class, ctx->context_class, "==",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_IDENTITY_EQ, 1));
+    stt_md_append(ctx->om, ctx->class_class, ctx->smallint_class, "+",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_ADD, 1));
+    stt_md_append(ctx->om, ctx->class_class, ctx->smallint_class, "-",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_SUB, 1));
+    stt_md_append(ctx->om, ctx->class_class, ctx->smallint_class, "*",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_MUL, 1));
+    stt_md_append(ctx->om, ctx->class_class, ctx->smallint_class, "<",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_LT, 1));
+    stt_md_append(ctx->om, ctx->class_class, ctx->smallint_class, "=",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_EQ, 1));
+    stt_md_append(ctx->om, ctx->class_class, ctx->smallint_class, "asCharacter",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_AS_CHARACTER, 0));
+    stt_md_append(ctx->om, ctx->class_class, ctx->context_class, "==",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_IDENTITY_EQ, 1));
 
-    md_append(ctx->om, ctx->class_class, ctx->character_class, "value",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_VALUE, 0));
-    md_append(ctx->om, ctx->class_class, ctx->character_class, "isLetter",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_IS_LETTER, 0));
-    md_append(ctx->om, ctx->class_class, ctx->character_class, "isDigit",
-              (uint64_t)make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_IS_DIGIT, 0));
+    stt_md_append(ctx->om, ctx->class_class, ctx->character_class, "value",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_VALUE, 0));
+    stt_md_append(ctx->om, ctx->class_class, ctx->character_class, "isLetter",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_IS_LETTER, 0));
+    stt_md_append(ctx->om, ctx->class_class, ctx->character_class, "isDigit",
+                  (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_CHAR_IS_DIGIT, 0));
 
     uint64_t *expr_meta = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(expr_meta, CLASS_SUPERCLASS) = tagged_nil();
@@ -389,24 +267,24 @@ void test_smalltalk_expressions(TestContext *ctx)
     OBJ_FIELD(expr_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(expr_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
-    uint64_t *array_class = make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
-                                                  ctx->test_class, NULL, 0);
+    uint64_t *array_class = stt_make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
+                                                      ctx->test_class, NULL, 0);
     OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
-    uint64_t *association_class = make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
-                                                        ctx->test_class, association_ivars, 2);
-    uint64_t *dictionary_class = make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
-                                                       ctx->test_class, dictionary_ivars, 2);
+    uint64_t *association_class = stt_make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
+                                                            ctx->test_class, association_ivars, 2);
+    uint64_t *dictionary_class = stt_make_class_with_ivars(ctx->om, ctx->class_class, ctx->string_class,
+                                                           ctx->test_class, dictionary_ivars, 2);
     global_smalltalk_dictionary = om_alloc(ctx->om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
     OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
     OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
-    smalltalk_at_put(ctx->om, array_class, association_class, "Object", (uint64_t)ctx->test_class);
-    smalltalk_at_put(ctx->om, array_class, association_class, "Context", (uint64_t)ctx->context_class);
-    smalltalk_at_put(ctx->om, array_class, association_class, "UndefinedObject", (uint64_t)ctx->undefined_object_class);
-    smalltalk_at_put(ctx->om, array_class, association_class, "ExprSpec", (uint64_t)expr_class);
-    smalltalk_at_put(ctx->om, array_class, association_class, "String", (uint64_t)ctx->string_class);
-    smalltalk_at_put(ctx->om, array_class, association_class, "Array", (uint64_t)array_class);
-    smalltalk_at_put(ctx->om, array_class, association_class, "Association", (uint64_t)association_class);
-    smalltalk_at_put(ctx->om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+    stt_smalltalk_at_put(ctx->om, array_class, association_class, "Object", (uint64_t)ctx->test_class);
+    stt_smalltalk_at_put(ctx->om, array_class, association_class, "Context", (uint64_t)ctx->context_class);
+    stt_smalltalk_at_put(ctx->om, array_class, association_class, "UndefinedObject", (uint64_t)ctx->undefined_object_class);
+    stt_smalltalk_at_put(ctx->om, array_class, association_class, "ExprSpec", (uint64_t)expr_class);
+    stt_smalltalk_at_put(ctx->om, array_class, association_class, "String", (uint64_t)ctx->string_class);
+    stt_smalltalk_at_put(ctx->om, array_class, association_class, "Array", (uint64_t)array_class);
+    stt_smalltalk_at_put(ctx->om, array_class, association_class, "Association", (uint64_t)association_class);
+    stt_smalltalk_at_put(ctx->om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Context.st", context_src, sizeof(context_src)), 1,
               "expression Context source loads");
@@ -422,9 +300,9 @@ void test_smalltalk_expressions(TestContext *ctx)
               bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, undefined_object_testing_src),
               1,
               "expression UndefinedObject methods install");
-    ASSERT_EQ(ctx, class_lookup(ctx->context_class, selector_oop(ctx->om, "receiver")) != 0, 1,
+    ASSERT_EQ(ctx, class_lookup(ctx->context_class, stt_selector_oop(ctx->om, "receiver")) != 0, 1,
               "expression runtime: Context understands receiver");
-    ASSERT_EQ(ctx, class_lookup(expr_class, selector_oop(ctx->om, "isNil")) != 0, 1,
+    ASSERT_EQ(ctx, class_lookup(expr_class, stt_selector_oop(ctx->om, "isNil")) != 0, 1,
               "expression runtime: ExprSpec receiver understands isNil");
 
     ExpressionSpec specs[128];
@@ -467,7 +345,7 @@ void test_smalltalk_expressions(TestContext *ctx)
                   specs[index].name);
 
         uint64_t *instance_md = (uint64_t *)OBJ_FIELD(expr_class, CLASS_METHOD_DICT);
-        uint64_t selector_value = selector_oop(ctx->om, selector);
+        uint64_t selector_value = stt_selector_oop(ctx->om, selector);
         uint64_t method_oop = md_lookup(instance_md, selector_value);
         ASSERT_EQ(ctx, method_oop != 0, 1, "expression method installed");
         ASSERT_EQ(ctx, is_object_ptr(method_oop), 1, "expression method is object");
@@ -510,21 +388,21 @@ void test_smalltalk_expressions(TestContext *ctx)
         OBJ_FIELD(class_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
         OBJ_FIELD(class_class, CLASS_INST_VARS) = tagged_nil();
 
-        uint64_t *smallint_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
-        uint64_t *block_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
-        uint64_t *undefined_object_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
-        uint64_t *string_class = make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *smallint_class = stt_make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *block_class = stt_make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *undefined_object_class = stt_make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *string_class = stt_make_class_with_ivars(xunit_om, class_class, class_class, NULL, NULL, 0);
         OBJ_FIELD(string_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
-        uint64_t *symbol_class = make_class_with_ivars(xunit_om, class_class, string_class, string_class, NULL, 0);
+        uint64_t *symbol_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, string_class, NULL, 0);
         OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
-        uint64_t *character_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
+        uint64_t *character_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
 
         const char *context_ivars[] = {
             "sender", "ip", "method", "receiver", "home", "closure", "flags", "numArgs", "numTemps"
         };
-        uint64_t *context_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL,
-                                                        context_ivars, CONTEXT_VAR_BASE);
-        uint64_t *object_class = make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
+        uint64_t *context_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, NULL,
+                                                            context_ivars, CONTEXT_VAR_BASE);
+        uint64_t *object_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
 
         uint64_t *symbol_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
         for (int index = 0; index < 256; index++)
@@ -538,22 +416,22 @@ void test_smalltalk_expressions(TestContext *ctx)
         global_symbol_table = symbol_table;
         global_symbol_class = symbol_class;
         global_context_class = context_class;
-        uint64_t *array_class = make_class_with_ivars(xunit_om, class_class, string_class, object_class, NULL, 0);
+        uint64_t *array_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, object_class, NULL, 0);
         OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
-        uint64_t *association_class = make_class_with_ivars(xunit_om, class_class, string_class, object_class,
-                                                            association_ivars, 2);
-        uint64_t *dictionary_class = make_class_with_ivars(xunit_om, class_class, string_class, object_class,
-                                                           dictionary_ivars, 2);
+        uint64_t *association_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, object_class,
+                                                                association_ivars, 2);
+        uint64_t *dictionary_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, object_class,
+                                                               dictionary_ivars, 2);
         global_smalltalk_dictionary = om_alloc(xunit_om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
         OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
         OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
-        smalltalk_at_put(xunit_om, array_class, association_class, "Object", (uint64_t)object_class);
-        smalltalk_at_put(xunit_om, array_class, association_class, "Context", (uint64_t)context_class);
-        smalltalk_at_put(xunit_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
-        smalltalk_at_put(xunit_om, array_class, association_class, "String", (uint64_t)string_class);
-        smalltalk_at_put(xunit_om, array_class, association_class, "Array", (uint64_t)array_class);
-        smalltalk_at_put(xunit_om, array_class, association_class, "Association", (uint64_t)association_class);
-        smalltalk_at_put(xunit_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+        stt_smalltalk_at_put(xunit_om, array_class, association_class, "Object", (uint64_t)object_class);
+        stt_smalltalk_at_put(xunit_om, array_class, association_class, "Context", (uint64_t)context_class);
+        stt_smalltalk_at_put(xunit_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
+        stt_smalltalk_at_put(xunit_om, array_class, association_class, "String", (uint64_t)string_class);
+        stt_smalltalk_at_put(xunit_om, array_class, association_class, "Array", (uint64_t)array_class);
+        stt_smalltalk_at_put(xunit_om, array_class, association_class, "Association", (uint64_t)association_class);
+        stt_smalltalk_at_put(xunit_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
 
         ASSERT_EQ(ctx,
                   bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, object_framework_src),
@@ -580,7 +458,7 @@ void test_smalltalk_expressions(TestContext *ctx)
                   "xUnit TestResult.st defines class and installs methods");
         ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_result_class, CLASS_INST_SIZE)), 6,
                   "xUnit TestResult.st class declaration has six instance variables");
-        ASSERT_EQ(ctx, class_lookup(test_result_class, selector_oop(xunit_om, "wasSuccessful")) != 0,
+        ASSERT_EQ(ctx, class_lookup(test_result_class, stt_selector_oop(xunit_om, "wasSuccessful")) != 0,
                   1, "xUnit TestResult installs wasSuccessful");
         uint64_t *expression_spec_test_class = bc_compile_and_install_class_file(
             xunit_om, class_class, string_class, array_class, association_class,
@@ -588,15 +466,15 @@ void test_smalltalk_expressions(TestContext *ctx)
         ASSERT_EQ(ctx, expression_spec_test_class != NULL, 1,
                   "xUnit ExpressionSpecTest.st defines class and installs methods");
         ASSERT_EQ(ctx, class_lookup(expression_spec_test_class,
-                                    selector_oop(xunit_om, "testThisContextReceiverIsNil")) != 0,
+                                    stt_selector_oop(xunit_om, "testThisContextReceiverIsNil")) != 0,
                   1, "xUnit ExpressionSpecTest installs testThisContextReceiverIsNil");
 
-        md_append(xunit_om, class_class, smallint_class, "+",
-                  (uint64_t)make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_ADD, 1));
-        md_append(xunit_om, class_class, smallint_class, "<",
-                  (uint64_t)make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_LT, 1));
-        md_append(xunit_om, class_class, smallint_class, "=",
-                  (uint64_t)make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_EQ, 1));
+        stt_md_append(xunit_om, class_class, smallint_class, "+",
+                      (uint64_t)stt_make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_ADD, 1));
+        stt_md_append(xunit_om, class_class, smallint_class, "<",
+                      (uint64_t)stt_make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_LT, 1));
+        stt_md_append(xunit_om, class_class, smallint_class, "=",
+                      (uint64_t)stt_make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_EQ, 1));
 
         uint64_t *framework_class_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
         OBJ_FIELD(framework_class_table, 0) = (uint64_t)smallint_class;
@@ -677,26 +555,26 @@ void test_smalltalk_expressions(TestContext *ctx)
         OBJ_FIELD(class_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
         OBJ_FIELD(class_class, CLASS_INST_VARS) = tagged_nil();
 
-        uint64_t *object_class = make_class_with_ivars(tokenizer_om, class_class, class_class, NULL, NULL, 0);
-        uint64_t *smallint_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
-        uint64_t *block_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
-        uint64_t *undefined_object_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
-        uint64_t *true_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
-        uint64_t *false_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
-        uint64_t *string_class = make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *object_class = stt_make_class_with_ivars(tokenizer_om, class_class, class_class, NULL, NULL, 0);
+        uint64_t *smallint_class = stt_make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *block_class = stt_make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *undefined_object_class = stt_make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *true_class = stt_make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *false_class = stt_make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
+        uint64_t *string_class = stt_make_class_with_ivars(tokenizer_om, class_class, class_class, object_class, NULL, 0);
         OBJ_FIELD(string_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
-        uint64_t *symbol_class = make_class_with_ivars(tokenizer_om, class_class, string_class, string_class, NULL, 0);
+        uint64_t *symbol_class = stt_make_class_with_ivars(tokenizer_om, class_class, string_class, string_class, NULL, 0);
         OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
-        uint64_t *character_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
-        uint64_t *array_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
+        uint64_t *character_class = stt_make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
+        uint64_t *array_class = stt_make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
         OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
-        uint64_t *association_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
-                                                            association_ivars, 2);
-        uint64_t *dictionary_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
-                                                           dictionary_ivars, 2);
-        uint64_t *tokenizer_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
-                                                          tokenizer_ivars, 1);
-        uint64_t *expr_class = make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
+        uint64_t *association_class = stt_make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
+                                                                association_ivars, 2);
+        uint64_t *dictionary_class = stt_make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
+                                                               dictionary_ivars, 2);
+        uint64_t *tokenizer_class = stt_make_class_with_ivars(tokenizer_om, class_class, string_class, object_class,
+                                                              tokenizer_ivars, 1);
+        uint64_t *expr_class = stt_make_class_with_ivars(tokenizer_om, class_class, string_class, object_class, NULL, 0);
 
         uint64_t *symbol_table = om_alloc(tokenizer_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
         for (int index = 0; index < 256; index++)
@@ -709,17 +587,17 @@ void test_smalltalk_expressions(TestContext *ctx)
         global_smalltalk_dictionary = om_alloc(tokenizer_om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
         OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
         OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "Class", (uint64_t)class_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "Object", (uint64_t)object_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "True", (uint64_t)true_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "False", (uint64_t)false_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "String", (uint64_t)string_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "Array", (uint64_t)array_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "Association", (uint64_t)association_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "Tokenizer", (uint64_t)tokenizer_class);
-        smalltalk_at_put(tokenizer_om, array_class, association_class, "TokenizerExpr", (uint64_t)expr_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "Class", (uint64_t)class_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "Object", (uint64_t)object_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "True", (uint64_t)true_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "False", (uint64_t)false_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "String", (uint64_t)string_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "Array", (uint64_t)array_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "Association", (uint64_t)association_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "Tokenizer", (uint64_t)tokenizer_class);
+        stt_smalltalk_at_put(tokenizer_om, array_class, association_class, "TokenizerExpr", (uint64_t)expr_class);
         ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
                   "tokenizer source loads");
 
@@ -740,53 +618,53 @@ void test_smalltalk_expressions(TestContext *ctx)
                   1,
                   "tokenizer tokens install");
 
-        md_append(tokenizer_om, class_class, class_class, "==",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_IDENTITY_EQ, 1));
-        md_append(tokenizer_om, class_class, class_class, "new",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_BASIC_NEW, 0));
-        md_append(tokenizer_om, class_class, class_class, "new:",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_BASIC_NEW_SIZE, 1));
-        md_append(tokenizer_om, class_class, smallint_class, "+",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_ADD, 1));
-        md_append(tokenizer_om, class_class, smallint_class, "-",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_SUB, 1));
-        md_append(tokenizer_om, class_class, smallint_class, "*",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_MUL, 1));
-        md_append(tokenizer_om, class_class, smallint_class, "<",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_LT, 1));
-        md_append(tokenizer_om, class_class, smallint_class, "=",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_EQ, 1));
-        md_append(tokenizer_om, class_class, smallint_class, "asCharacter",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AS_CHARACTER, 0));
+        stt_md_append(tokenizer_om, class_class, class_class, "==",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_IDENTITY_EQ, 1));
+        stt_md_append(tokenizer_om, class_class, class_class, "new",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_BASIC_NEW, 0));
+        stt_md_append(tokenizer_om, class_class, class_class, "new:",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_BASIC_NEW_SIZE, 1));
+        stt_md_append(tokenizer_om, class_class, smallint_class, "+",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_ADD, 1));
+        stt_md_append(tokenizer_om, class_class, smallint_class, "-",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_SUB, 1));
+        stt_md_append(tokenizer_om, class_class, smallint_class, "*",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_MUL, 1));
+        stt_md_append(tokenizer_om, class_class, smallint_class, "<",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_LT, 1));
+        stt_md_append(tokenizer_om, class_class, smallint_class, "=",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_SMALLINT_EQ, 1));
+        stt_md_append(tokenizer_om, class_class, smallint_class, "asCharacter",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_AS_CHARACTER, 0));
 
-        md_append(tokenizer_om, class_class, block_class, "value",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_BLOCK_VALUE, 0));
+        stt_md_append(tokenizer_om, class_class, block_class, "value",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_BLOCK_VALUE, 0));
 
-        md_append(tokenizer_om, class_class, character_class, "isDigit",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_CHAR_IS_DIGIT, 0));
-        md_append(tokenizer_om, class_class, character_class, "value",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_CHAR_VALUE, 0));
+        stt_md_append(tokenizer_om, class_class, character_class, "isDigit",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_CHAR_IS_DIGIT, 0));
+        stt_md_append(tokenizer_om, class_class, character_class, "value",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_CHAR_VALUE, 0));
 
-        md_append(tokenizer_om, class_class, string_class, "=",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_STRING_EQ, 1));
-        md_append(tokenizer_om, class_class, string_class, "asSymbol",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_STRING_AS_SYMBOL, 0));
-        md_append(tokenizer_om, class_class, string_class, "size",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SIZE, 0));
-        md_append(tokenizer_om, class_class, string_class, "at:",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AT, 1));
-        md_append(tokenizer_om, class_class, string_class, "at:put:",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AT_PUT, 2));
+        stt_md_append(tokenizer_om, class_class, string_class, "=",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_STRING_EQ, 1));
+        stt_md_append(tokenizer_om, class_class, string_class, "asSymbol",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_STRING_AS_SYMBOL, 0));
+        stt_md_append(tokenizer_om, class_class, string_class, "size",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_SIZE, 0));
+        stt_md_append(tokenizer_om, class_class, string_class, "at:",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_AT, 1));
+        stt_md_append(tokenizer_om, class_class, string_class, "at:put:",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_AT_PUT, 2));
 
-        md_append(tokenizer_om, class_class, symbol_class, "=",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SYMBOL_EQ, 1));
+        stt_md_append(tokenizer_om, class_class, symbol_class, "=",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_SYMBOL_EQ, 1));
 
-        md_append(tokenizer_om, class_class, array_class, "size",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_SIZE, 0));
-        md_append(tokenizer_om, class_class, array_class, "at:",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AT, 1));
-        md_append(tokenizer_om, class_class, array_class, "at:put:",
-                  (uint64_t)make_primitive_cm(tokenizer_om, class_class, PRIM_AT_PUT, 2));
+        stt_md_append(tokenizer_om, class_class, array_class, "size",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_SIZE, 0));
+        stt_md_append(tokenizer_om, class_class, array_class, "at:",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_AT, 1));
+        stt_md_append(tokenizer_om, class_class, array_class, "at:put:",
+                      (uint64_t)stt_make_primitive_cm(tokenizer_om, class_class, PRIM_AT_PUT, 2));
 
         {
             const char *expr_source =
@@ -818,7 +696,7 @@ void test_smalltalk_expressions(TestContext *ctx)
         uint64_t tokenizer_obj = send_selector0(ctx->stack, framework_class_table, tokenizer_om,
                                                 (uint64_t)tokenizer_class, class_class, "new");
         ASSERT_EQ(ctx, is_object_ptr(tokenizer_obj), 1, "Tokenizer new returns object");
-        uint64_t *literal_string = make_byte_string(tokenizer_om, string_class, "2 + 3");
+        uint64_t *literal_string = stt_make_byte_string(tokenizer_om, string_class, "2 + 3");
         ASSERT_EQ(ctx, literal_string != NULL, 1, "tokenizer literal string allocates");
         uint64_t configured = send_selector1(ctx->stack, framework_class_table, tokenizer_om,
                                              tokenizer_obj, tokenizer_class, "setString:", (uint64_t)literal_string);

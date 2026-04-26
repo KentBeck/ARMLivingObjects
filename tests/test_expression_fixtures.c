@@ -1,6 +1,7 @@
 #include "test_defs.h"
 #include "bootstrap_compiler.h"
 #include "primitives.h"
+#include "smalltalk_test_support.h"
 #include <ctype.h>
 
 typedef enum
@@ -246,67 +247,6 @@ static int load_expression_fixture_specs(const char *path, ExpressionFixtureSpec
     return 1;
 }
 
-static uint64_t selector_oop(uint64_t *om, const char *selector)
-{
-    return intern_cstring_symbol(om, selector);
-}
-
-static void md_append(uint64_t *om, uint64_t *class_class, uint64_t *klass, const char *selector, uint64_t method)
-{
-    uint64_t md_val = OBJ_FIELD(klass, CLASS_METHOD_DICT);
-    uint64_t *old_md = (md_val != tagged_nil() && (md_val & 3) == 0) ? (uint64_t *)md_val : NULL;
-    uint64_t old_size = old_md ? OBJ_SIZE(old_md) : 0;
-    uint64_t *new_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, old_size + 2);
-
-    for (uint64_t index = 0; index < old_size; index++)
-    {
-        OBJ_FIELD(new_md, index) = OBJ_FIELD(old_md, index);
-    }
-    OBJ_FIELD(new_md, old_size) = selector_oop(om, selector);
-    OBJ_FIELD(new_md, old_size + 1) = method;
-    OBJ_FIELD(klass, CLASS_METHOD_DICT) = (uint64_t)new_md;
-}
-
-static uint64_t *make_primitive_cm(uint64_t *om, uint64_t *class_class, int prim, int num_args)
-{
-    uint64_t *prim_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
-    ((uint8_t *)&OBJ_FIELD(prim_bc, 0))[0] = BC_HALT;
-
-    uint64_t *cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-    OBJ_FIELD(cm, CM_PRIMITIVE) = tag_smallint(prim);
-    OBJ_FIELD(cm, CM_NUM_ARGS) = tag_smallint(num_args);
-    OBJ_FIELD(cm, CM_NUM_TEMPS) = tag_smallint(0);
-    OBJ_FIELD(cm, CM_LITERALS) = tagged_nil();
-    OBJ_FIELD(cm, CM_BYTECODES) = (uint64_t)prim_bc;
-    return cm;
-}
-
-static uint64_t *make_class_with_ivars(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
-                                       uint64_t *superclass, const char **ivars, uint64_t ivar_count)
-{
-    uint64_t *klass = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
-    OBJ_FIELD(klass, CLASS_SUPERCLASS) = superclass ? (uint64_t)superclass : tagged_nil();
-    OBJ_FIELD(klass, CLASS_METHOD_DICT) = tagged_nil();
-    OBJ_FIELD(klass, CLASS_INST_SIZE) = tag_smallint((int64_t)ivar_count);
-    OBJ_FIELD(klass, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
-    if (ivar_count == 0)
-    {
-        OBJ_FIELD(klass, CLASS_INST_VARS) = tagged_nil();
-        return klass;
-    }
-
-    uint64_t *ivar_array = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, ivar_count);
-    for (uint64_t index = 0; index < ivar_count; index++)
-    {
-        uint64_t size = (uint64_t)strlen(ivars[index]);
-        uint64_t *name = om_alloc(om, (uint64_t)string_class, FORMAT_BYTES, size);
-        memcpy((uint8_t *)&OBJ_FIELD(name, 0), ivars[index], size);
-        OBJ_FIELD(ivar_array, index) = (uint64_t)name;
-    }
-    OBJ_FIELD(klass, CLASS_INST_VARS) = (uint64_t)ivar_array;
-    return klass;
-}
-
 static uint64_t *make_runtime_class(uint64_t *om, uint64_t *class_class, uint64_t *string_class,
                                     uint64_t *superclass, const char **ivars, uint64_t ivar_count)
 {
@@ -317,7 +257,7 @@ static uint64_t *make_runtime_class(uint64_t *om, uint64_t *class_class, uint64_
     OBJ_FIELD(meta, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
     OBJ_FIELD(meta, CLASS_INST_VARS) = tagged_nil();
 
-    uint64_t *klass = make_class_with_ivars(om, class_class, string_class, superclass, ivars, ivar_count);
+    uint64_t *klass = stt_make_class_with_ivars(om, class_class, string_class, superclass, ivars, ivar_count);
     OBJ_CLASS(klass) = (uint64_t)meta;
     return klass;
 }
@@ -360,63 +300,6 @@ static uint64_t *smalltalk_lookup_class(const char *name)
     return NULL;
 }
 
-static void smalltalk_at_put(uint64_t *om, uint64_t *array_class, uint64_t *association_class,
-                             const char *name, uint64_t value)
-{
-    uint64_t key = intern_cstring_symbol(om, name);
-    uint64_t associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
-    uint64_t tally = OBJ_FIELD(global_smalltalk_dictionary, 1) == tagged_nil()
-                         ? 0
-                         : (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
-
-    if (associations_oop == tagged_nil())
-    {
-        uint64_t *associations = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, 8);
-        for (uint64_t index = 0; index < 8; index++)
-        {
-            OBJ_FIELD(associations, index) = tagged_nil();
-        }
-        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)associations;
-        associations_oop = (uint64_t)associations;
-        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
-    }
-
-    uint64_t *associations = (uint64_t *)associations_oop;
-    for (uint64_t index = 0; index < tally; index++)
-    {
-        uint64_t assoc_oop = OBJ_FIELD(associations, index);
-        if (!is_object_ptr(assoc_oop))
-        {
-            continue;
-        }
-        uint64_t *assoc = (uint64_t *)assoc_oop;
-        if (OBJ_FIELD(assoc, 0) == key)
-        {
-            OBJ_FIELD(assoc, 1) = value;
-            return;
-        }
-    }
-
-    if (tally >= OBJ_SIZE(associations))
-    {
-        uint64_t new_size = OBJ_SIZE(associations) * 2;
-        uint64_t *grown = om_alloc(om, (uint64_t)array_class, FORMAT_INDEXABLE, new_size);
-        for (uint64_t index = 0; index < new_size; index++)
-        {
-            OBJ_FIELD(grown, index) = index < OBJ_SIZE(associations)
-                                          ? OBJ_FIELD(associations, index)
-                                          : tagged_nil();
-        }
-        OBJ_FIELD(global_smalltalk_dictionary, 0) = (uint64_t)grown;
-        associations = grown;
-    }
-
-    uint64_t *assoc = om_alloc(om, (uint64_t)association_class, FORMAT_FIELDS, 2);
-    OBJ_FIELD(assoc, 0) = key;
-    OBJ_FIELD(assoc, 1) = value;
-    OBJ_FIELD(associations, tally) = (uint64_t)assoc;
-    OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint((int64_t)(tally + 1));
-}
 
 void test_expression_fixtures(TestContext *ctx)
 {
@@ -484,13 +367,13 @@ void test_expression_fixtures(TestContext *ctx)
     global_smalltalk_dictionary = om_alloc(fixture_om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
     OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
     OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
-    smalltalk_at_put(fixture_om, array_class, association_class, "Object", (uint64_t)object_class);
-    smalltalk_at_put(fixture_om, array_class, association_class, "True", (uint64_t)true_class);
-    smalltalk_at_put(fixture_om, array_class, association_class, "False", (uint64_t)false_class);
-    smalltalk_at_put(fixture_om, array_class, association_class, "String", (uint64_t)string_class);
-    smalltalk_at_put(fixture_om, array_class, association_class, "Array", (uint64_t)array_class);
-    smalltalk_at_put(fixture_om, array_class, association_class, "Association", (uint64_t)association_class);
-    smalltalk_at_put(fixture_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+    stt_smalltalk_at_put(fixture_om, array_class, association_class, "Object", (uint64_t)object_class);
+    stt_smalltalk_at_put(fixture_om, array_class, association_class, "True", (uint64_t)true_class);
+    stt_smalltalk_at_put(fixture_om, array_class, association_class, "False", (uint64_t)false_class);
+    stt_smalltalk_at_put(fixture_om, array_class, association_class, "String", (uint64_t)string_class);
+    stt_smalltalk_at_put(fixture_om, array_class, association_class, "Array", (uint64_t)array_class);
+    stt_smalltalk_at_put(fixture_om, array_class, association_class, "Association", (uint64_t)association_class);
+    stt_smalltalk_at_put(fixture_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
 
     uint64_t *class_table = om_alloc(fixture_om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
     OBJ_FIELD(class_table, 0) = (uint64_t)smallint_class;
@@ -500,18 +383,18 @@ void test_expression_fixtures(TestContext *ctx)
     OBJ_FIELD(class_table, 4) = (uint64_t)character_class;
     OBJ_FIELD(class_table, 5) = (uint64_t)undefined_object_class;
 
-    md_append(fixture_om, class_class, smallint_class, "+",
-              (uint64_t)make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_ADD, 1));
-    md_append(fixture_om, class_class, smallint_class, "-",
-              (uint64_t)make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_SUB, 1));
-    md_append(fixture_om, class_class, smallint_class, "*",
-              (uint64_t)make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_MUL, 1));
-    md_append(fixture_om, class_class, smallint_class, "<",
-              (uint64_t)make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_LT, 1));
-    md_append(fixture_om, class_class, smallint_class, "=",
-              (uint64_t)make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_EQ, 1));
-    md_append(fixture_om, class_class, block_class, "value",
-              (uint64_t)make_primitive_cm(fixture_om, class_class, PRIM_BLOCK_VALUE, 0));
+    stt_md_append(fixture_om, class_class, smallint_class, "+",
+                  (uint64_t)stt_make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_ADD, 1));
+    stt_md_append(fixture_om, class_class, smallint_class, "-",
+                  (uint64_t)stt_make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_SUB, 1));
+    stt_md_append(fixture_om, class_class, smallint_class, "*",
+                  (uint64_t)stt_make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_MUL, 1));
+    stt_md_append(fixture_om, class_class, smallint_class, "<",
+                  (uint64_t)stt_make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_LT, 1));
+    stt_md_append(fixture_om, class_class, smallint_class, "=",
+                  (uint64_t)stt_make_primitive_cm(fixture_om, class_class, PRIM_SMALLINT_EQ, 1));
+    stt_md_append(fixture_om, class_class, block_class, "value",
+                  (uint64_t)stt_make_primitive_cm(fixture_om, class_class, PRIM_BLOCK_VALUE, 0));
 
     ASSERT_EQ(ctx,
               bc_compile_and_install_source_methods(fixture_om, class_class, NULL, 0, true_src),
@@ -537,7 +420,7 @@ void test_expression_fixtures(TestContext *ctx)
 
             uint64_t *klass = make_runtime_class(fixture_om, class_class, string_class,
                                                  superclass, NULL, 0);
-            smalltalk_at_put(fixture_om, array_class, association_class, decl->name, (uint64_t)klass);
+            stt_smalltalk_at_put(fixture_om, array_class, association_class, decl->name, (uint64_t)klass);
         }
 
         int setup_parse_ok = bc_compile_source_methods(fixture->setup_source, setup_methods, 8, &setup_method_count);
@@ -551,7 +434,7 @@ void test_expression_fixtures(TestContext *ctx)
 
         uint64_t *receiver_class = smalltalk_lookup_class(fixture->receiver_class_name);
         ASSERT_EQ(ctx, receiver_class != NULL, 1, fixture->name);
-        ASSERT_EQ(ctx, class_lookup(receiver_class, selector_oop(fixture_om, "factorial:")) != 0, 1,
+        ASSERT_EQ(ctx, class_lookup(receiver_class, stt_selector_oop(fixture_om, "factorial:")) != 0, 1,
                   "fixture helper method installed");
 
         char selector[32];
@@ -575,9 +458,9 @@ void test_expression_fixtures(TestContext *ctx)
                   fixture->name);
 
         uint64_t *instance_md = (uint64_t *)OBJ_FIELD(receiver_class, CLASS_METHOD_DICT);
-        uint64_t method_oop = md_lookup(instance_md, selector_oop(fixture_om, selector));
+        uint64_t method_oop = md_lookup(instance_md, stt_selector_oop(fixture_om, selector));
         ASSERT_EQ(ctx, method_oop != 0, 1, "fixture expression method installed");
-        ASSERT_EQ(ctx, class_lookup(receiver_class, selector_oop(fixture_om, "factorial:")) != 0, 1,
+        ASSERT_EQ(ctx, class_lookup(receiver_class, stt_selector_oop(fixture_om, "factorial:")) != 0, 1,
                   "fixture helper method survives expression install");
 
         uint64_t *receiver = om_alloc(fixture_om, (uint64_t)receiver_class, FORMAT_FIELDS, 0);
