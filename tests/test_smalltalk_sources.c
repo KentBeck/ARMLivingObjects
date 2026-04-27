@@ -78,6 +78,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char tokenizer_src[32768];
     char expression_spec_test_src[2048];
     char block_activation_test_src[4096];
+    char exception_handling_test_src[4096];
     char smalltalk_self_test_suite_src[4096];
     char lsp_document_src[4096];
     char lsp_method_span_src[4096];
@@ -106,9 +107,13 @@ void test_smalltalk_sources(TestContext *ctx)
               "Object>>== has explicit fallback body");
     ASSERT_EQ(ctx, strstr(object_src, "isNil\n    ^ false") != NULL, 1,
               "Object>>isNil exists");
+    ASSERT_EQ(ctx, strstr(object_src, "signal: aString") != NULL, 1,
+              "Object class>>signal: exists");
+    ASSERT_EQ(ctx, strstr(object_src, "<primitive: 37>") != NULL, 1,
+              "Object class>>signal: uses primitive 37");
     ASSERT_EQ(ctx, bc_compile_source_methods(object_src, methods, 64, &method_count), 1,
               "Object.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 9, "Object.st method count");
+    ASSERT_EQ(ctx, method_count, 10, "Object.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Class.st exists");
@@ -329,6 +334,18 @@ void test_smalltalk_sources(TestContext *ctx)
               "BlockActivationTest covers temp-held blocks inside blocks");
     ASSERT_EQ(ctx, strstr(block_activation_test_src, "testNestedBlockUsesOuterTempBlock") != NULL, 1,
               "BlockActivationTest covers nested blocks invoking outer temp blocks");
+
+    ASSERT_EQ(ctx, read_file("tests/fixtures/ExceptionHandlingTest.st", exception_handling_test_src,
+                             sizeof(exception_handling_test_src)), 1,
+              "tests/fixtures/ExceptionHandlingTest.st exists");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "on: self errorClass do:") != NULL, 1,
+              "ExceptionHandlingTest covers handler activation");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "do: [2]") != NULL, 1,
+              "ExceptionHandlingTest starts with zero-argument handler coverage");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testOnDoCatchesSignaledException") != NULL, 1,
+              "ExceptionHandlingTest installs one initial exception test");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "exceptionClass") != NULL, 1,
+              "ExceptionHandlingTest isolates future exception globals behind helpers");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,
                              sizeof(smalltalk_self_test_suite_src)), 1,

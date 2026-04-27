@@ -44,6 +44,12 @@ error: aString
     ^ self halt
 !
 
+!Object class methodsFor: 'exceptions'!
+signal: aString
+    <primitive: 37>
+    ^ nil
+!
+
 !Object methodsFor: 'convenience'!
 yourself
     ^ self

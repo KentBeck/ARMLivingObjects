@@ -1,6 +1,7 @@
 #include "vm_defs.h"
 
 #include <limits.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -37,6 +38,7 @@ extern ObjPtr global_context_class;
 extern Oop cannot_return_selector_oop(void);
 extern void txn_log_write(Oop *log, Oop obj, uint64_t field_index, Oop value);
 extern Oop txn_log_read(Oop *log, Oop obj, uint64_t field_index, uint64_t *found);
+extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table, Om om, Oop *txn_log);
 
 enum
 {
@@ -111,6 +113,16 @@ typedef enum
     PRIMITIVE_FAILED,
     PRIMITIVE_UNSUPPORTED
 } PrimitiveResult;
+
+typedef struct ExceptionHandlerFrame
+{
+    jmp_buf env;
+    struct ExceptionHandlerFrame *previous;
+    Oop exception_class;
+    Oop signaled_exception;
+} ExceptionHandlerFrame;
+
+static ExceptionHandlerFrame *current_exception_handler = NULL;
 
 static int is_smallint_value(Oop value)
 {
@@ -193,6 +205,86 @@ static Oop lookup_method_for_receiver(Oop receiver, Oop selector,
         return 0;
     }
     return class_lookup((ObjPtr)klass, selector);
+}
+
+static uint64_t block_copied_count(Oop block);
+static void mark_block_frame(ObjPtr fp, Oop block);
+static void populate_block_copied_values(ObjPtr fp, Oop block, uint64_t copied_count);
+static uint64_t block_num_args(Oop block);
+
+static int activate_block_call(Oop **sp_ptr, ObjPtr *fp_ptr,
+                               uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
+                               Oop block, uint64_t arg_count,
+                               ObjPtr class_table)
+{
+    if (!is_object_value(block) ||
+        OBJ_CLASS((ObjPtr)block) != OBJ_FIELD(class_table, CLASS_TABLE_BLOCK))
+    {
+        raise(SIGTRAP);
+        return 0;
+    }
+
+    ObjPtr block_object = (ObjPtr)block;
+    Oop home_receiver = OBJ_FIELD(block_object, BLOCK_HOME_RECEIVER);
+    Oop block_method = OBJ_FIELD(block_object, BLOCK_CM);
+    uint64_t copied_count = block_copied_count(block);
+    uint64_t method_temps = (uint64_t)untag_smallint(OBJ_FIELD((ObjPtr)block_method, CM_NUM_TEMPS));
+
+    if (arg_count == 0)
+    {
+        (void)pop(sp_ptr);
+        push(sp_ptr, home_receiver);
+    }
+    else
+    {
+        (*sp_ptr)[arg_count] = home_receiver;
+    }
+
+    activate_method(sp_ptr, fp_ptr, (uint64_t)*ip_ptr, block_method, arg_count,
+                    method_temps + copied_count);
+    populate_block_copied_values(*fp_ptr, block, copied_count);
+    mark_block_frame(*fp_ptr, block);
+
+    ObjPtr new_method = (ObjPtr)(*fp_ptr)[FRAME_METHOD];
+    ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(new_method, CM_BYTECODES);
+    *bytecode_base_ptr = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    *ip_ptr = *bytecode_base_ptr;
+    return 1;
+}
+
+static Oop invoke_block_closure(Oop **sp_ptr, ObjPtr *fp_ptr, Oop block,
+                                uint64_t arg_count, Oop arg,
+                                ObjPtr class_table, Om om, Oop *txn_log)
+{
+    uint8_t *block_ip = NULL;
+    uint8_t *block_bytecode_base = NULL;
+
+    push(sp_ptr, block);
+    if (arg_count == 1)
+    {
+        push(sp_ptr, arg);
+    }
+
+    if (!activate_block_call(sp_ptr, fp_ptr, &block_ip, &block_bytecode_base, block, arg_count, class_table))
+    {
+        raise(SIGTRAP);
+        return TAGGED_NIL;
+    }
+
+    return interpret(sp_ptr, (Oop **)fp_ptr, block_ip, class_table, om, txn_log);
+}
+
+static uint64_t block_num_args(Oop block)
+{
+    ObjPtr block_method;
+
+    if (!is_object_value(block))
+    {
+        return UINT64_MAX;
+    }
+
+    block_method = (ObjPtr)OBJ_FIELD((ObjPtr)block, BLOCK_CM);
+    return (uint64_t)untag_smallint(OBJ_FIELD(block_method, CM_NUM_ARGS));
 }
 
 static void initialize_word_fields(ObjPtr object, uint64_t size)
@@ -520,57 +612,67 @@ static void populate_block_copied_values(ObjPtr fp, Oop block, uint64_t copied_c
 static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                                           uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
                                           Oop primitive, uint64_t arg_count,
-                                          ObjPtr class_table)
+                                          ObjPtr class_table, Om om, Oop *txn_log)
 {
     switch (primitive)
     {
     case PRIM_BLOCK_VALUE:
     case PRIM_BLOCK_VALUE_ARG:
+    case PRIM_BLOCK_ON_DO:
         break;
     default:
         return PRIMITIVE_UNSUPPORTED;
     }
 
     if ((primitive == PRIM_BLOCK_VALUE && arg_count != 0) ||
-        (primitive == PRIM_BLOCK_VALUE_ARG && arg_count != 1))
+        (primitive == PRIM_BLOCK_VALUE_ARG && arg_count != 1) ||
+        (primitive == PRIM_BLOCK_ON_DO && arg_count != 2))
     {
         return PRIMITIVE_FAILED;
     }
 
     Oop *sp = *sp_ptr;
     Oop block = sp[arg_count];
-    if (!is_object_value(block) ||
-        OBJ_CLASS((ObjPtr)block) != OBJ_FIELD(class_table, CLASS_TABLE_BLOCK))
+    if (primitive == PRIM_BLOCK_ON_DO)
     {
-        raise(SIGTRAP);
+        Oop exception_class = sp[1];
+        Oop handler_block = sp[0];
+        Oop *saved_sp = sp + 3;
+        ObjPtr saved_fp = *fp_ptr;
+        ExceptionHandlerFrame handler;
+        uint64_t handler_arg_count = block_num_args(handler_block);
+
+        handler.previous = current_exception_handler;
+        handler.exception_class = exception_class;
+        handler.signaled_exception = TAGGED_NIL;
+        current_exception_handler = &handler;
+
+        if (setjmp(handler.env) == 0)
+        {
+            *sp_ptr = saved_sp;
+            (void)invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL, class_table, om, txn_log);
+        }
+        else
+        {
+            *sp_ptr = saved_sp;
+            *fp_ptr = saved_fp;
+            if (handler_arg_count > 1)
+            {
+                current_exception_handler = handler.previous;
+                return PRIMITIVE_FAILED;
+            }
+            (void)invoke_block_closure(sp_ptr, fp_ptr, handler_block, handler_arg_count,
+                                       handler.signaled_exception, class_table, om, txn_log);
+        }
+
+        current_exception_handler = handler.previous;
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    if (!activate_block_call(sp_ptr, fp_ptr, ip_ptr, bytecode_base_ptr, block, arg_count, class_table))
+    {
         return PRIMITIVE_UNSUPPORTED;
     }
-
-    ObjPtr block_object = (ObjPtr)block;
-    Oop home_receiver = OBJ_FIELD(block_object, BLOCK_HOME_RECEIVER);
-    Oop block_method = OBJ_FIELD(block_object, BLOCK_CM);
-    uint64_t copied_count = block_copied_count(block);
-    uint64_t method_temps = (uint64_t)untag_smallint(OBJ_FIELD((ObjPtr)block_method, CM_NUM_TEMPS));
-
-    if (primitive == PRIM_BLOCK_VALUE)
-    {
-        (void)pop(sp_ptr);
-        push(sp_ptr, home_receiver);
-    }
-    else
-    {
-        sp[arg_count] = home_receiver;
-    }
-
-    activate_method(sp_ptr, fp_ptr, (uint64_t)*ip_ptr, block_method, arg_count,
-                    method_temps + copied_count);
-    populate_block_copied_values(*fp_ptr, block, copied_count);
-    mark_block_frame(*fp_ptr, block);
-
-    ObjPtr new_method = (ObjPtr)(*fp_ptr)[FRAME_METHOD];
-    ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(new_method, CM_BYTECODES);
-    *bytecode_base_ptr = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
-    *ip_ptr = *bytecode_base_ptr;
     return PRIMITIVE_SUCCEEDED;
 }
 
@@ -690,6 +792,20 @@ static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
             replace_receiver(sp_ptr, tag_smallint((int64_t)((receiver >> 3) & 0x3FFFFFFF)));
         }
         return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_SIGNAL:
+        if (arg_count != 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (current_exception_handler != NULL &&
+            current_exception_handler->exception_class == receiver)
+        {
+            current_exception_handler->signaled_exception = sp[0];
+            longjmp(current_exception_handler->env, 1);
+        }
+        raise(SIGTRAP);
+        return PRIMITIVE_UNSUPPORTED;
 
     default:
         return PRIMITIVE_UNSUPPORTED;
@@ -1198,8 +1314,22 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, Oop primitive,
         }
 
         replace_receiver_and_two_args(sp_ptr, receiver);
-        return PRIMITIVE_SUCCEEDED;
-    }
+            return PRIMITIVE_SUCCEEDED;
+        }
+
+    case PRIM_SIGNAL:
+        if (arg_count != 1)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (current_exception_handler != NULL &&
+            current_exception_handler->exception_class == receiver)
+        {
+            current_exception_handler->signaled_exception = sp[0];
+            longjmp(current_exception_handler->env, 1);
+        }
+        raise(SIGTRAP);
+        return PRIMITIVE_UNSUPPORTED;
 
     default:
         return PRIMITIVE_UNSUPPORTED;
@@ -1340,7 +1470,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
                     result = try_block_primitive(sp_ptr, fp_ptr, &ip, &bytecode_base,
-                                                 primitive_id, arg_count, class_table);
+                                                 primitive_id, arg_count, class_table, om, txn_log);
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
