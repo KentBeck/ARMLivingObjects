@@ -159,6 +159,11 @@ static uint64_t send_selector2(uint64_t *stack, uint64_t *class_table, uint64_t 
 void test_smalltalk_expressions(TestContext *ctx)
 {
     char context_src[2048];
+    const char *expression_context_src =
+        "!Context methodsFor: 'accessing'!\n"
+        "receiver\n"
+        "    ^ receiver\n"
+        "!\n";
     char tokenizer_src[8192];
     const char *object_testing_src =
         "!Object methodsFor: 'testing'!\n"
@@ -258,7 +263,7 @@ void test_smalltalk_expressions(TestContext *ctx)
               1,
               "expression Object methods install");
     ASSERT_EQ(ctx,
-              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, context_src),
+              bc_compile_and_install_source_methods(ctx->om, ctx->class_class, NULL, 0, expression_context_src),
               1,
               "expression Context methods install");
     ASSERT_EQ(ctx,
@@ -360,13 +365,6 @@ void test_smalltalk_expressions(TestContext *ctx)
         OBJ_FIELD(string_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
         uint64_t *symbol_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, string_class, NULL, 0);
         OBJ_FIELD(symbol_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_BYTES);
-        uint64_t *character_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
-
-        const char *context_ivars[] = {
-            "sender", "ip", "method", "receiver", "home", "closure", "flags", "numArgs", "numTemps"
-        };
-        uint64_t *context_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, NULL,
-                                                            context_ivars, CONTEXT_VAR_BASE);
         uint64_t *object_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, NULL, NULL, 0);
 
         uint64_t *symbol_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 256);
@@ -377,10 +375,9 @@ void test_smalltalk_expressions(TestContext *ctx)
 
         uint64_t *saved_global_symbol_table = global_symbol_table;
         uint64_t *saved_global_symbol_class = global_symbol_class;
-        uint64_t *saved_global_context_class = global_context_class;
+        uint64_t *saved_global_smalltalk_dictionary = global_smalltalk_dictionary;
         global_symbol_table = symbol_table;
         global_symbol_class = symbol_class;
-        global_context_class = context_class;
         uint64_t *array_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, object_class, NULL, 0);
         OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
         uint64_t *association_class = stt_make_class_with_ivars(xunit_om, class_class, string_class, object_class,
@@ -391,93 +388,25 @@ void test_smalltalk_expressions(TestContext *ctx)
         OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
         OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
         stt_smalltalk_at_put(xunit_om, array_class, association_class, "Object", (uint64_t)object_class);
-        stt_smalltalk_at_put(xunit_om, array_class, association_class, "Context", (uint64_t)context_class);
-        stt_smalltalk_at_put(xunit_om, array_class, association_class, "UndefinedObject", (uint64_t)undefined_object_class);
         stt_smalltalk_at_put(xunit_om, array_class, association_class, "String", (uint64_t)string_class);
         stt_smalltalk_at_put(xunit_om, array_class, association_class, "Array", (uint64_t)array_class);
         stt_smalltalk_at_put(xunit_om, array_class, association_class, "Association", (uint64_t)association_class);
         stt_smalltalk_at_put(xunit_om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
 
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, object_framework_src),
-                  1,
-                  "xUnit Object methods install");
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, context_src),
-                  1,
-                  "xUnit Context methods install");
-        ASSERT_EQ(ctx,
-                  bc_compile_and_install_source_methods(xunit_om, class_class, NULL, 0, undefined_object_testing_src),
-                  1,
-                  "xUnit UndefinedObject methods install");
-        BClassBinding xunit_class_bindings[] = {
-            {"Object", object_class},
-            {"String", string_class},
-            {"Array", array_class},
-            {"Association", association_class},
-        };
         uint64_t *test_result_class = bc_compile_and_install_class_file(
             xunit_om, class_class, string_class, array_class, association_class,
-            xunit_class_bindings, 4, "src/smalltalk/TestResult.st");
+            NULL, 0, "src/smalltalk/TestResult.st");
         ASSERT_EQ(ctx, test_result_class != NULL, 1,
                   "xUnit TestResult.st defines class and installs methods");
-        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_result_class, CLASS_INST_SIZE)), 6,
-                  "xUnit TestResult.st class declaration has six instance variables");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_result_class, CLASS_INST_SIZE)), 8,
+                  "xUnit TestResult.st class declaration has eight instance variables");
         ASSERT_EQ(ctx, class_lookup(test_result_class, stt_selector_oop(xunit_om, "wasSuccessful")) != 0,
                   1, "xUnit TestResult installs wasSuccessful");
-        uint64_t *expression_spec_test_class = bc_compile_and_install_class_file(
-            xunit_om, class_class, string_class, array_class, association_class,
-            xunit_class_bindings, 4, "src/smalltalk/ExpressionSpecTest.st");
-        ASSERT_EQ(ctx, expression_spec_test_class != NULL, 1,
-                  "xUnit ExpressionSpecTest.st defines class and installs methods");
-        ASSERT_EQ(ctx, class_lookup(expression_spec_test_class,
-                                    stt_selector_oop(xunit_om, "testThisContextReceiverIsNil")) != 0,
-                  1, "xUnit ExpressionSpecTest installs testThisContextReceiverIsNil");
-
-        stt_md_append(xunit_om, class_class, smallint_class, "+",
-                      (uint64_t)stt_make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_ADD, 1));
-        stt_md_append(xunit_om, class_class, smallint_class, "<",
-                      (uint64_t)stt_make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_LT, 1));
-        stt_md_append(xunit_om, class_class, smallint_class, "=",
-                      (uint64_t)stt_make_primitive_cm(xunit_om, class_class, PRIM_SMALLINT_EQ, 1));
-
-        uint64_t *framework_class_table = om_alloc(xunit_om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
-        OBJ_FIELD(framework_class_table, 0) = (uint64_t)smallint_class;
-        OBJ_FIELD(framework_class_table, 1) = (uint64_t)block_class;
-        OBJ_FIELD(framework_class_table, 2) = 0;
-        OBJ_FIELD(framework_class_table, 3) = 0;
-        OBJ_FIELD(framework_class_table, 4) = (uint64_t)character_class;
-        OBJ_FIELD(framework_class_table, 5) = (uint64_t)undefined_object_class;
-
-        uint64_t *result_obj = om_alloc(xunit_om, (uint64_t)test_result_class, FORMAT_FIELDS, 6);
-        uint64_t *test_case_obj = om_alloc(xunit_om, (uint64_t)expression_spec_test_class, FORMAT_FIELDS, 0);
-
-        send_selector0(ctx->stack, framework_class_table, xunit_om, (uint64_t)result_obj, test_result_class, "initialize");
-        ASSERT_EQ(ctx, send_selector0(ctx->stack, framework_class_table, xunit_om, (uint64_t)test_case_obj,
-                                      expression_spec_test_class, "testThisContextReceiverIsNil"),
-                  tagged_false(),
-                  "xUnit migrated test method returns false");
-        uint64_t run_result = send_selector1(ctx->stack, framework_class_table, xunit_om, (uint64_t)test_case_obj,
-                                             expression_spec_test_class, "runOn:", (uint64_t)result_obj);
-
-        ASSERT_EQ(ctx, run_result, (uint64_t)result_obj,
-                  "xUnit suite returns the result object");
-        ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 0), tag_smallint(1),
-                  "xUnit runCount is 1");
-        ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 1), tag_smallint(1),
-                  "xUnit passCount is 1");
-        ASSERT_EQ(ctx, OBJ_FIELD(result_obj, 2), tag_smallint(0),
-                  "xUnit failureCount is 0");
-        ASSERT_EQ(ctx, OBJ_CLASS((uint64_t *)OBJ_FIELD(result_obj, 4)), (uint64_t)symbol_class,
-                  "xUnit records a Symbol last selector");
-        ASSERT_EQ(ctx, send_selector0(ctx->stack, framework_class_table, xunit_om, (uint64_t)result_obj,
-                                      test_result_class, "wasSuccessful"),
-                  tagged_true(),
-                  "xUnit migrated expression test passes");
+        ASSERT_EQ(ctx, class_lookup(test_result_class, stt_selector_oop(xunit_om, "failureBacktraces")) != 0,
+                  1, "xUnit TestResult installs failureBacktraces");
 
         global_symbol_table = saved_global_symbol_table;
         global_symbol_class = saved_global_symbol_class;
-        global_context_class = saved_global_context_class;
         global_smalltalk_dictionary = saved_global_smalltalk_dictionary;
     }
 

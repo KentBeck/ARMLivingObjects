@@ -1214,12 +1214,14 @@ static void test_this_context(SmokeWorld *world)
              "C interpreter: context stores receiver");
     CHECK_EQ(OBJ_FIELD(context, CONTEXT_NUM_ARGS), tag_smallint(1),
              "C interpreter: context stores arg count");
-    CHECK_EQ(OBJ_FIELD(context, CONTEXT_NUM_TEMPS), tag_smallint(0),
-             "C interpreter: context does not preserve volatile temp count");
-    CHECK_EQ(OBJ_SIZE(context), CONTEXT_VAR_BASE + 1,
-             "C interpreter: context stores fixed fields plus args only");
+    CHECK_EQ(OBJ_FIELD(context, CONTEXT_NUM_TEMPS), tag_smallint(1),
+             "C interpreter: context stores temp count");
+    CHECK_EQ(OBJ_SIZE(context), CONTEXT_VAR_BASE + 2,
+             "C interpreter: context stores fixed fields plus args and temps");
     CHECK_EQ(OBJ_FIELD(context, CONTEXT_VAR_BASE), arg,
              "C interpreter: context stores arg value");
+    CHECK_EQ(OBJ_FIELD(context, CONTEXT_VAR_BASE + 1), tag_smallint(5150),
+             "C interpreter: context stores temp value after args");
 
     static uint8_t context_gc_a[4096] __attribute__((aligned(8)));
     static uint8_t context_gc_b[4096] __attribute__((aligned(8)));
@@ -1267,10 +1269,12 @@ static void test_this_context(SmokeWorld *world)
              "C interpreter: PUSH_THIS_CONTEXT GC retry preserves context class");
     CHECK_EQ(OBJ_FIELD(context_gc, CONTEXT_VAR_BASE), context_gc_arg,
              "C interpreter: PUSH_THIS_CONTEXT GC retry preserves arg");
-    CHECK_EQ(OBJ_FIELD(context_gc, CONTEXT_NUM_TEMPS), tag_smallint(0),
-             "C interpreter: PUSH_THIS_CONTEXT GC retry does not preserve volatile temp count");
-    CHECK_EQ(OBJ_SIZE(context_gc), CONTEXT_VAR_BASE + 1,
-             "C interpreter: PUSH_THIS_CONTEXT GC retry stores fixed fields plus args only");
+    CHECK_EQ(OBJ_FIELD(context_gc, CONTEXT_NUM_TEMPS), tag_smallint(1),
+             "C interpreter: PUSH_THIS_CONTEXT GC retry preserves temp count");
+    CHECK_EQ(OBJ_SIZE(context_gc), CONTEXT_VAR_BASE + 2,
+             "C interpreter: PUSH_THIS_CONTEXT GC retry stores fixed fields plus args and temps");
+    CHECK_EQ(OBJ_FIELD(context_gc, CONTEXT_VAR_BASE + 1), tag_smallint(6160),
+             "C interpreter: PUSH_THIS_CONTEXT GC retry preserves temp");
 }
 
 int main(void)

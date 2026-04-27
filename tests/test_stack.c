@@ -182,10 +182,11 @@ void test_stack(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_HOME), tagged_nil(), "method context has nil lexical home");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_CLOSURE), tagged_nil(), "method context has nil closure");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_ARGS), tag_smallint(2), "context stores arg count");
-        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_TEMPS), tag_smallint(0), "context does not preserve volatile temp count");
-        ASSERT_EQ(ctx, OBJ_SIZE(frame_ctx), CONTEXT_VAR_BASE + 2, "context stores fixed fields plus args only");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_TEMPS), tag_smallint(1), "context stores temp count");
+        ASSERT_EQ(ctx, OBJ_SIZE(frame_ctx), CONTEXT_VAR_BASE + 3, "context stores fixed fields plus args and temps");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 0), arg0, "context stores arg 0 in source order");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 1), arg1, "context stores arg 1 in source order");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 2), 0xDEAD, "context stores temp 0 after args");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_SENDER), tagged_nil(), "top-level context sender is nil");
         ASSERT_EQ(ctx, (uint64_t)ensure_frame_context(ctx_fp, om, (uint64_t)ctx->context_class), (uint64_t)frame_ctx,
                   "ensure_frame_context reuses cached context");
@@ -221,8 +222,9 @@ void test_stack(TestContext *ctx)
         ASSERT_EQ(ctx, outer_fp[FRAME_CONTEXT], (uint64_t)outer_ctx, "sender frame caches outer context");
         ASSERT_EQ(ctx, OBJ_FIELD(inner_ctx, CONTEXT_RECEIVER), inner_receiver, "child context stores child receiver");
         ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_RECEIVER), outer_receiver, "sender context stores outer receiver");
-        ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_NUM_TEMPS), tag_smallint(0), "sender context does not preserve volatile temps");
-        ASSERT_EQ(ctx, OBJ_SIZE(outer_ctx), CONTEXT_VAR_BASE, "sender context stores fixed fields only when there are no args");
+        ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_NUM_TEMPS), tag_smallint(1), "sender context preserves temp count");
+        ASSERT_EQ(ctx, OBJ_SIZE(outer_ctx), CONTEXT_VAR_BASE + 1, "sender context stores temps even when there are no args");
+        ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_VAR_BASE), tag_smallint(99), "sender context stores temp 0 at first variable slot");
     }
 
     // --- Section 4: Temporary Variable Access ---

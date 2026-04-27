@@ -358,6 +358,7 @@ bootstrap — you see how far you get.
 - [ ] First Smalltalk test: SmallIntegerTest>>testAddition
 - [ ] Test String, Array, OrderedCollection, Dictionary using SUnit
 - [ ] Later: add `on:do:` exceptions, TestResult, proper failure reporting
+  - After exceptions exist, move backtrace capture out of `TestCase` and into `TestResult`; `TestCase` should only signal failure and let the result object record the unwind state
 
 ### 26. Smalltalk Compiler (in Smalltalk)
 
