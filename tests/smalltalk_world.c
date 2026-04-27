@@ -49,6 +49,7 @@ static uint64_t *sw_make_class_full(SmalltalkWorld *world, uint64_t *superclass,
 {
     uint64_t *class_class = world->class_class;
     uint64_t *class_of_klass = class_class;
+    int64_t inherited_inst_size = 0;
     if (with_metaclass)
     {
         uint64_t *metaclass = om_alloc(world->om, (uint64_t)class_class, FORMAT_FIELDS, 5);
@@ -59,10 +60,14 @@ static uint64_t *sw_make_class_full(SmalltalkWorld *world, uint64_t *superclass,
         OBJ_FIELD(metaclass, CLASS_INST_VARS) = tagged_nil();
         class_of_klass = metaclass;
     }
+    if (superclass != NULL)
+    {
+        inherited_inst_size = untag_smallint(OBJ_FIELD(superclass, CLASS_INST_SIZE));
+    }
     uint64_t *klass = om_alloc(world->om, (uint64_t)class_of_klass, FORMAT_FIELDS, 5);
     OBJ_FIELD(klass, CLASS_SUPERCLASS) = superclass ? (uint64_t)superclass : tagged_nil();
     OBJ_FIELD(klass, CLASS_METHOD_DICT) = tagged_nil();
-    OBJ_FIELD(klass, CLASS_INST_SIZE) = tag_smallint(ivar_count);
+    OBJ_FIELD(klass, CLASS_INST_SIZE) = tag_smallint(inherited_inst_size + ivar_count);
     OBJ_FIELD(klass, CLASS_INST_FORMAT) = tag_smallint(format);
     if (ivar_count <= 0)
     {
@@ -442,6 +447,31 @@ ObjPtr smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name)
     return NULL;
 }
 
+void smalltalk_world_put_global(SmalltalkWorld *world, const char *name, Oop value)
+{
+    sw_dict_put(world, name, value);
+}
+
+Oop smalltalk_world_lookup_global(SmalltalkWorld *world, const char *name)
+{
+    uint64_t key = lookup_cstring_symbol(name);
+    if (key == tagged_nil()) return tagged_nil();
+    uint64_t associations_oop = OBJ_FIELD(world->smalltalk_dict, 0);
+    if (!is_object_ptr(associations_oop)) return tagged_nil();
+    uint64_t *associations = (uint64_t *)associations_oop;
+    uint64_t tally = (uint64_t)untag_smallint(OBJ_FIELD(world->smalltalk_dict, 1));
+    for (uint64_t i = 0; i < tally; i++)
+    {
+        uint64_t a = OBJ_FIELD(associations, i);
+        if (!is_object_ptr(a)) continue;
+        if (OBJ_FIELD((uint64_t *)a, 0) == key)
+        {
+            return OBJ_FIELD((uint64_t *)a, 1);
+        }
+    }
+    return tagged_nil();
+}
+
 ObjPtr sw_make_string(SmalltalkWorld *world, const char *text)
 {
     uint64_t len = (uint64_t)strlen(text);
@@ -462,54 +492,72 @@ static ObjPtr sw_dispatch_class(Oop receiver, ObjPtr fallback)
     return fallback;
 }
 
+static Oop sw_send_common(SmalltalkWorld *world, TestContext *ctx,
+                          Oop receiver, uint32_t arg_count,
+                          const Oop *args, const char *selector)
+{
+    Oop selector_oop = intern_cstring_symbol(world->om, selector);
+    ObjPtr literals = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_INDEXABLE, 1);
+    ObjPtr bytecodes = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_BYTES,
+                                11 + (5 * arg_count));
+    ObjPtr method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 6);
+    Oop *sp = ctx->stack + STACK_WORDS;
+    ObjPtr fp = (ObjPtr)0xCAFE;
+
+    OBJ_FIELD(literals, 0) = selector_oop;
+
+    uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    uint32_t offset = 0;
+    bc[offset++] = BC_PUSH_SELF;
+    for (uint32_t index = 0; index < arg_count; index++)
+    {
+        bc[offset++] = BC_PUSH_ARG;
+        WRITE_U32(&bc[offset], index);
+        offset += 4;
+    }
+    bc[offset++] = BC_SEND_MESSAGE;
+    WRITE_U32(&bc[offset], 0);
+    offset += 4;
+    WRITE_U32(&bc[offset], arg_count);
+    offset += 4;
+    bc[offset] = BC_HALT;
+
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint((int64_t)arg_count);
+    OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(method, CM_LITERALS) = (Oop)literals;
+    OBJ_FIELD(method, CM_BYTECODES) = (Oop)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = tagged_nil();
+
+    stack_push(&sp, ctx->stack, receiver);
+    for (uint32_t index = 0; index < arg_count; index++)
+    {
+        stack_push(&sp, ctx->stack, args[index]);
+    }
+    activate_method(&sp, &fp, 0, (Oop)method, arg_count, 0);
+    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+}
+
 Oop sw_send0(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
              ObjPtr receiver_class, const char *selector)
 {
-    ObjPtr dispatch_class = sw_dispatch_class(receiver, receiver_class);
-    Oop selector_oop = intern_cstring_symbol(world->om, selector);
-    Oop method_oop = class_lookup(dispatch_class, selector_oop);
-    ObjPtr method = (ObjPtr)method_oop;
-    ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
-    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    Oop *sp = ctx->stack + STACK_WORDS;
-    ObjPtr fp = (ObjPtr)0xCAFE;
-    stack_push(&sp, ctx->stack, receiver);
-    activate_method(&sp, &fp, 0, (Oop)method, 0, num_temps);
-    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+    (void)receiver_class;
+    return sw_send_common(world, ctx, receiver, 0, NULL, selector);
 }
 
 Oop sw_send1(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
              ObjPtr receiver_class, const char *selector, Oop arg)
 {
-    ObjPtr dispatch_class = sw_dispatch_class(receiver, receiver_class);
-    Oop selector_oop = intern_cstring_symbol(world->om, selector);
-    Oop method_oop = class_lookup(dispatch_class, selector_oop);
-    ObjPtr method = (ObjPtr)method_oop;
-    ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
-    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    Oop *sp = ctx->stack + STACK_WORDS;
-    ObjPtr fp = (ObjPtr)0xCAFE;
-    stack_push(&sp, ctx->stack, receiver);
-    stack_push(&sp, ctx->stack, arg);
-    activate_method(&sp, &fp, 0, (Oop)method, 1, num_temps);
-    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+    Oop args[1] = {arg};
+    (void)receiver_class;
+    return sw_send_common(world, ctx, receiver, 1, args, selector);
 }
 
 Oop sw_send2(SmalltalkWorld *world, TestContext *ctx, Oop receiver,
              ObjPtr receiver_class, const char *selector,
              Oop arg0, Oop arg1)
 {
-    ObjPtr dispatch_class = sw_dispatch_class(receiver, receiver_class);
-    Oop selector_oop = intern_cstring_symbol(world->om, selector);
-    Oop method_oop = class_lookup(dispatch_class, selector_oop);
-    ObjPtr method = (ObjPtr)method_oop;
-    ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
-    uint64_t num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
-    Oop *sp = ctx->stack + STACK_WORDS;
-    ObjPtr fp = (ObjPtr)0xCAFE;
-    stack_push(&sp, ctx->stack, receiver);
-    stack_push(&sp, ctx->stack, arg0);
-    stack_push(&sp, ctx->stack, arg1);
-    activate_method(&sp, &fp, 0, (Oop)method, 2, num_temps);
-    return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
+    Oop args[2] = {arg0, arg1};
+    (void)receiver_class;
+    return sw_send_common(world, ctx, receiver, 2, args, selector);
 }

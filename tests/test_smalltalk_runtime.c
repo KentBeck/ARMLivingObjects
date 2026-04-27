@@ -39,6 +39,57 @@ static int bytecode_contains(uint64_t *bytecodes, uint64_t count, uint8_t opcode
     return 0;
 }
 
+static void print_smalltalk_suite_progress(const char *class_name, int pass_count, int failure_count)
+{
+    int index;
+    printf("[smalltalk] %s ", class_name);
+    for (index = 0; index < pass_count; index++)
+    {
+        putchar('.');
+    }
+    for (index = 0; index < failure_count; index++)
+    {
+        putchar('F');
+    }
+    printf(" (%d passed, %d failed)\n", pass_count, failure_count);
+    fflush(stdout);
+}
+
+static void run_smalltalk_self_test(TestContext *ctx, SmalltalkWorld *world,
+                                    const char *class_name, int expected_tests)
+{
+    uint64_t *test_class = smalltalk_world_lookup_class(world, class_name);
+    Oop test_result;
+    Oop run_count;
+    Oop pass_count;
+    Oop failure_count;
+    Oop last_reason;
+    Oop last_backtrace;
+
+    ASSERT_EQ(ctx, test_class != NULL, 1, "runtime: Smalltalk test class available to suite runner");
+    test_result = sw_send0(world, ctx, (Oop)test_class, world->class_class, "selfTest");
+    ASSERT_EQ(ctx, is_object_ptr(test_result), 1, "runtime: Smalltalk suite returns a TestResult");
+    smalltalk_world_put_global(world, "CurrentSmalltalkSuiteResult", test_result);
+    test_result = smalltalk_world_lookup_global(world, "CurrentSmalltalkSuiteResult");
+    ASSERT_EQ(ctx, is_object_ptr(test_result), 1, "runtime: Smalltalk suite result stays rooted");
+
+    run_count = sw_send0(world, ctx, test_result, NULL, "runCount");
+    pass_count = sw_send0(world, ctx, test_result, NULL, "passCount");
+    failure_count = sw_send0(world, ctx, test_result, NULL, "failureCount");
+    last_reason = sw_send0(world, ctx, test_result, NULL, "lastReason");
+    last_backtrace = sw_send0(world, ctx, test_result, NULL, "lastBacktrace");
+
+    print_smalltalk_suite_progress(class_name,
+                                   (int)untag_smallint(pass_count),
+                                   (int)untag_smallint(failure_count));
+
+    ASSERT_EQ(ctx, run_count, tag_smallint(expected_tests), "runtime: Smalltalk suite runCount matches");
+    ASSERT_EQ(ctx, pass_count, tag_smallint(expected_tests), "runtime: Smalltalk suite passCount matches");
+    ASSERT_EQ(ctx, failure_count, tag_smallint(0), "runtime: Smalltalk suite has no failures");
+    ASSERT_EQ(ctx, last_reason, tagged_nil(), "runtime: passing Smalltalk suite leaves lastReason nil");
+    ASSERT_EQ(ctx, last_backtrace, tagged_nil(), "runtime: passing Smalltalk suite leaves lastBacktrace nil");
+}
+
 #ifdef ALO_INTERPRETER_C
 static SmalltalkWorld *trap_world = NULL;
 
@@ -1011,12 +1062,26 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: Smalltalk compiler emits whileTrue: false jump");
 #endif
 
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Context.st"),
+              1, "runtime: Context.st installs methods onto the existing Context class");
+    ASSERT_EQ(ctx, class_lookup(world.context_class, intern_cstring_symbol(world.om, "sender")) != 0,
+              1, "runtime: Context.st installs sender");
+
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestResult.st") != NULL,
+              1, "runtime: TestResult.st defines class and installs methods");
+    uint64_t *test_result_class = smalltalk_world_lookup_class(&world, "TestResult");
+    ASSERT_EQ(ctx, test_result_class != NULL, 1, "runtime: TestResult in Smalltalk dict");
+    ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_result_class, CLASS_INST_SIZE)), 8,
+              "runtime: TestResult.st class declaration has eight instance variables");
+    ASSERT_EQ(ctx, class_lookup(test_result_class, intern_cstring_symbol(world.om, "failureBacktraces")) != 0,
+              1, "runtime: TestResult.st installs failureBacktraces");
+
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestCase.st") != NULL,
               1, "runtime: TestCase.st defines class and installs methods");
     uint64_t *test_case_class = smalltalk_world_lookup_class(&world, "TestCase");
     ASSERT_EQ(ctx, test_case_class != NULL, 1, "runtime: TestCase in Smalltalk dict");
-    ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_case_class, CLASS_INST_SIZE)), 4,
-              "runtime: TestCase.st class declaration has four instance variables");
+    ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_case_class, CLASS_INST_SIZE)), 5,
+              "runtime: TestCase.st class declaration has five instance variables");
     ASSERT_EQ(ctx, class_lookup(test_case_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
               1, "runtime: TestCase.st installs runOn:");
 
@@ -1028,6 +1093,21 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: TestSuite.st class declaration has two instance variables");
     ASSERT_EQ(ctx, class_lookup(test_suite_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
               1, "runtime: TestSuite.st installs runOn:");
+    ASSERT_EQ(ctx, class_lookup(test_suite_class, intern_cstring_symbol(world.om, "add:")) != 0,
+              1, "runtime: TestSuite.st installs add:");
+
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ContextTest.st") != NULL,
+              1, "runtime: ContextTest.st defines class and installs methods");
+    {
+        uint64_t *context_test_class = smalltalk_world_lookup_class(&world, "ContextTest");
+        ASSERT_EQ(ctx, context_test_class != NULL, 1, "runtime: ContextTest in Smalltalk dict");
+        ASSERT_EQ(ctx, class_lookup(context_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+                  1, "runtime: ContextTest inherits runOn:");
+        ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(context_test_class),
+                                    intern_cstring_symbol(world.om, "selfTest")) != 0,
+                  1, "runtime: ContextTest inherits class-side selfTest runner");
+        run_smalltalk_self_test(ctx, &world, "ContextTest", 2);
+    }
 
 #ifdef ALO_INTERPRETER_C
     if (have_method_gen_root)

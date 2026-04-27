@@ -2892,6 +2892,7 @@ ObjPtr bc_define_class(Om om, ObjPtr class_class, ObjPtr string_class,
                           const char **ivar_names, int ivar_count,
                           BClassFormat format)
 {
+    int64_t inherited_inst_size = 0;
     // Metaclass holds class-side methods. It inherits from Class so
     // Class>>new/basicNew stay reachable from user-defined classes.
     uint64_t *metaclass = om_alloc(om, (uint64_t)class_class, 0, 5);
@@ -2910,10 +2911,14 @@ ObjPtr bc_define_class(Om om, ObjPtr class_class, ObjPtr string_class,
     {
         return NULL;
     }
+    if (superclass != NULL)
+    {
+        inherited_inst_size = untag_smallint(BC_OBJ_FIELD(superclass, BC_CLASS_INST_SIZE));
+    }
     BC_OBJ_FIELD(klass, BC_CLASS_SUPERCLASS) =
         superclass != NULL ? (uint64_t)superclass : tagged_nil();
     BC_OBJ_FIELD(klass, BC_CLASS_METHOD_DICT) = tagged_nil();
-    BC_OBJ_FIELD(klass, BC_CLASS_INST_SIZE) = tag_smallint((int64_t)ivar_count);
+    BC_OBJ_FIELD(klass, BC_CLASS_INST_SIZE) = tag_smallint(inherited_inst_size + ivar_count);
     BC_OBJ_FIELD(klass, BC_CLASS_INST_FORMAT) = tag_smallint((int64_t)format);
 
     if (ivar_count <= 0)
@@ -3092,12 +3097,17 @@ static int bc_byte_object_equals_cstring(uint64_t oop, const char *text)
 static int bc_class_matches_declaration(uint64_t *klass, uint64_t *superclass,
                                         const BClassDeclaration *declaration)
 {
+    int64_t inherited_inst_size = 0;
     uint64_t expected_superclass = superclass != NULL ? (uint64_t)superclass : tagged_nil();
     if (BC_OBJ_FIELD(klass, BC_CLASS_SUPERCLASS) != expected_superclass)
     {
         return 0;
     }
-    if (untag_smallint(BC_OBJ_FIELD(klass, BC_CLASS_INST_SIZE)) != declaration->ivar_count)
+    if (superclass != NULL)
+    {
+        inherited_inst_size = untag_smallint(BC_OBJ_FIELD(superclass, BC_CLASS_INST_SIZE));
+    }
+    if (untag_smallint(BC_OBJ_FIELD(klass, BC_CLASS_INST_SIZE)) != inherited_inst_size + declaration->ivar_count)
     {
         return 0;
     }

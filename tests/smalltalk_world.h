@@ -87,6 +87,10 @@ uint64_t *smalltalk_world_install_existing_class_file(SmalltalkWorld *world, con
 // since it re-fetches the live pointer each time.
 ObjPtr smalltalk_world_lookup_class(SmalltalkWorld *world, const char *name) LO_NO_ALLOC;
 
+// Store and fetch arbitrary globals from the live Smalltalk dictionary.
+void smalltalk_world_put_global(SmalltalkWorld *world, const char *name, Oop value) LO_ALLOCATES;
+Oop smalltalk_world_lookup_global(SmalltalkWorld *world, const char *name) LO_NO_ALLOC;
+
 // Send a unary message to a receiver of a known class. Walks the class
 // hierarchy for method lookup and runs the interpreter.
 Oop sw_send0(SmalltalkWorld *world, TestContext *ctx, Oop receiver,

@@ -266,7 +266,7 @@ void test_smalltalk_sources(TestContext *ctx)
               "Context>>receiver is a normal ivar accessor");
     ASSERT_EQ(ctx, bc_compile_source_methods(context_src, methods, 64, &method_count), 1,
               "Context.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 1, "Context.st method count");
+    ASSERT_EQ(ctx, method_count, 2, "Context.st method count");
 
     ASSERT_EQ(ctx, read_file("tests/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
               "tests/ExpressionSpecs.txt exists");
@@ -288,27 +288,29 @@ void test_smalltalk_sources(TestContext *ctx)
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/TestResult.st", test_result_src, sizeof(test_result_src)), 1,
               "src/smalltalk/TestResult.st exists");
-    ASSERT_EQ(ctx, strstr(test_result_src, "recordFailure: aCase selector: aSelector reason: aSymbol") != NULL, 1,
-              "TestResult records failure metadata");
+    ASSERT_EQ(ctx, strstr(test_result_src, "recordFailure: aCase selector: aSelector reason: aSymbol backtrace: aBacktrace") != NULL, 1,
+              "TestResult records failure backtraces");
     ASSERT_EQ(ctx, bc_compile_source_methods(test_result_src, methods, 64, &method_count), 1,
               "TestResult.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 10, "TestResult.st method count");
+    ASSERT_EQ(ctx, method_count, 16, "TestResult.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/TestCase.st", test_case_src, sizeof(test_case_src)), 1,
               "src/smalltalk/TestCase.st exists");
-    ASSERT_EQ(ctx, strstr(test_case_src, "assert: aBoolean description: aSymbol") != NULL, 1,
-              "TestCase has assertion protocol");
+    ASSERT_EQ(ctx, strstr(test_case_src, "backtraceFrom: aContext") != NULL, 1,
+              "TestCase captures failure backtraces");
+    ASSERT_EQ(ctx, strstr(test_case_src, "selfTest") != NULL, 1,
+              "TestCase has class-side selfTest entrypoint");
     ASSERT_EQ(ctx, bc_compile_source_methods(test_case_src, methods, 64, &method_count), 1,
               "TestCase.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 13, "TestCase.st method count");
+    ASSERT_EQ(ctx, method_count, 23, "TestCase.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/TestSuite.st", test_suite_src, sizeof(test_suite_src)), 1,
               "src/smalltalk/TestSuite.st exists");
-    ASSERT_EQ(ctx, strstr(test_suite_src, "runOn: aResult startingAt: index") != NULL, 1,
-              "TestSuite recursively runs tests");
+    ASSERT_EQ(ctx, strstr(test_suite_src, "add: aTest") != NULL, 1,
+              "TestSuite grows incrementally");
     ASSERT_EQ(ctx, bc_compile_source_methods(test_suite_src, methods, 64, &method_count), 1,
               "TestSuite.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 6, "TestSuite.st method count");
+    ASSERT_EQ(ctx, method_count, 11, "TestSuite.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
               "src/smalltalk/Tokenizer.st exists");
