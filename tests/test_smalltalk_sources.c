@@ -264,9 +264,13 @@ void test_smalltalk_sources(TestContext *ctx)
               "src/smalltalk/Context.st exists");
     ASSERT_EQ(ctx, strstr(context_src, "receiver\n    ^ receiver") != NULL, 1,
               "Context>>receiver is a normal ivar accessor");
+    ASSERT_EQ(ctx, strstr(context_src, "home\n    ^ home") != NULL, 1,
+              "Context>>home is a normal ivar accessor");
+    ASSERT_EQ(ctx, strstr(context_src, "closure\n    ^ closure") != NULL, 1,
+              "Context>>closure is a normal ivar accessor");
     ASSERT_EQ(ctx, bc_compile_source_methods(context_src, methods, 64, &method_count), 1,
               "Context.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 2, "Context.st method count");
+    ASSERT_EQ(ctx, method_count, 4, "Context.st method count");
 
     ASSERT_EQ(ctx, read_file("tests/ExpressionSpecs.txt", expr_specs_src, sizeof(expr_specs_src)), 1,
               "tests/ExpressionSpecs.txt exists");

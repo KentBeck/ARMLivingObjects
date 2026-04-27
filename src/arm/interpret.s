@@ -5,6 +5,13 @@
 
 .extern _ensure_frame_context_global
 .extern _cannot_return_selector_oop
+.extern _prim_class_superclass
+.extern _prim_class_name
+.extern _prim_class_includes_selector
+.extern _prim_smalltalk_globals
+.extern _prim_method_source_for_class_selector
+.extern _prim_read_fd_count
+.extern _prim_write_fd_string
 
 // Primitive IDs (interpreter-local)
 .equ PRIM_SMALLINT_ADD, 1
@@ -484,6 +491,20 @@ _interpret:
     b.eq    .Lprim_symbol_eq
     cmp     x3, #PRIM_ERROR
     b.eq    .Lprim_error
+    cmp     x3, #PRIM_CLASS_SUPERCLASS
+    b.eq    .Lprim_class_superclass
+    cmp     x3, #PRIM_CLASS_NAME
+    b.eq    .Lprim_class_name
+    cmp     x3, #PRIM_CLASS_INCLUDES_SELECTOR
+    b.eq    .Lprim_class_includes_selector
+    cmp     x3, #PRIM_SMALLTALK_GLOBALS
+    b.eq    .Lprim_smalltalk_globals
+    cmp     x3, #PRIM_METHOD_SOURCE_FOR_CLASS_SELECTOR
+    b.eq    .Lprim_method_source_for_class_selector
+    cmp     x3, #PRIM_READ_FD_COUNT
+    b.eq    .Lprim_read_fd_count
+    cmp     x3, #PRIM_WRITE_FD_STRING
+    b.eq    .Lprim_write_fd_string
     // Debug: print unknown primitive
     stp     x0, x3, [sp, #-16]!
     mov     x0, x3
@@ -1363,6 +1384,100 @@ _interpret:
     add     x5, x5, #16        // Pop arg and receiver
     str     x0, [x5]           // Push result
     str     x5, [x19]          // Update SP
+    b       .Ldispatch
+
+.Lprim_class_superclass:
+    cmp     x22, #0
+    b.ne    .Lprimitive_failed
+    ldr     x5, [x19]          // SP
+    ldr     x0, [x5]           // receiver
+    and     x6, x0, #TAG_MASK
+    cbnz    x6, .Lprim_receiver_type_error
+    bl      _prim_class_superclass
+    ldr     x5, [x19]          // SP
+    str     x0, [x5]           // replace receiver with result
+    b       .Ldispatch
+
+.Lprim_class_name:
+    cmp     x22, #0
+    b.ne    .Lprimitive_failed
+    ldr     x5, [x19]          // SP
+    ldr     x0, [x5]           // receiver
+    and     x6, x0, #TAG_MASK
+    cbnz    x6, .Lprim_receiver_type_error
+    bl      _prim_class_name
+    ldr     x5, [x19]          // SP
+    str     x0, [x5]           // replace receiver with result
+    b       .Ldispatch
+
+.Lprim_class_includes_selector:
+    cmp     x22, #1
+    b.ne    .Lprimitive_failed
+    ldr     x5, [x19]          // SP
+    ldr     x1, [x5]           // arg
+    ldr     x0, [x5, #8]       // receiver
+    and     x6, x0, #TAG_MASK
+    cbnz    x6, .Lprim_receiver_type_error
+    bl      _prim_class_includes_selector
+    ldr     x5, [x19]          // SP
+    add     x5, x5, #8         // pop arg, result replaces receiver
+    str     x0, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_smalltalk_globals:
+    cmp     x22, #0
+    b.ne    .Lprimitive_failed
+    bl      _prim_smalltalk_globals
+    ldr     x5, [x19]          // SP
+    str     x0, [x5]           // replace receiver with result
+    b       .Ldispatch
+
+.Lprim_method_source_for_class_selector:
+    cmp     x22, #2
+    b.ne    .Lprimitive_failed
+    ldr     x5, [x19]          // SP
+    ldr     x1, [x5, #8]       // arg0 = class_name
+    ldr     x2, [x5]           // arg1 = selector
+    mov     x0, x1
+    mov     x1, x2
+    mov     x2, x26            // om
+    bl      _prim_method_source_for_class_selector
+    ldr     x5, [x19]          // SP
+    add     x5, x5, #16        // pop two args, result replaces receiver
+    str     x0, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_read_fd_count:
+    cmp     x22, #2
+    b.ne    .Lprimitive_failed
+    ldr     x5, [x19]          // SP
+    ldr     x1, [x5, #8]       // arg0 = fd
+    ldr     x2, [x5]           // arg1 = count
+    mov     x0, x1
+    mov     x1, x2
+    mov     x2, x26            // om
+    bl      _prim_read_fd_count
+    ldr     x5, [x19]          // SP
+    add     x5, x5, #16        // pop two args, result replaces receiver
+    str     x0, [x5]
+    str     x5, [x19]
+    b       .Ldispatch
+
+.Lprim_write_fd_string:
+    cmp     x22, #2
+    b.ne    .Lprimitive_failed
+    ldr     x5, [x19]          // SP
+    ldr     x1, [x5, #8]       // arg0 = fd
+    ldr     x2, [x5]           // arg1 = string
+    mov     x0, x1
+    mov     x1, x2
+    bl      _prim_write_fd_string
+    ldr     x5, [x19]          // SP
+    add     x5, x5, #16        // pop two args, result replaces receiver
+    str     x0, [x5]
+    str     x5, [x19]
     b       .Ldispatch
 
 .Lprim_error:

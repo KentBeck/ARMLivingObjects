@@ -1106,7 +1106,7 @@ void test_smalltalk_runtime(TestContext *ctx)
         ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(context_test_class),
                                     intern_cstring_symbol(world.om, "selfTest")) != 0,
                   1, "runtime: ContextTest inherits class-side selfTest runner");
-        run_smalltalk_self_test(ctx, &world, "ContextTest", 2);
+        run_smalltalk_self_test(ctx, &world, "ContextTest", 6);
     }
 
 #ifdef ALO_INTERPRETER_C
