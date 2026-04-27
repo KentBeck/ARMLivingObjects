@@ -1109,6 +1109,19 @@ void test_smalltalk_runtime(TestContext *ctx)
         run_smalltalk_self_test(ctx, &world, "ContextTest", 6);
     }
 
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/BlockActivationTest.st") != NULL,
+              1, "runtime: BlockActivationTest.st defines class and installs methods");
+    {
+        uint64_t *block_activation_test_class = smalltalk_world_lookup_class(&world, "BlockActivationTest");
+        ASSERT_EQ(ctx, block_activation_test_class != NULL, 1, "runtime: BlockActivationTest in Smalltalk dict");
+        ASSERT_EQ(ctx, class_lookup(block_activation_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+                  1, "runtime: BlockActivationTest inherits runOn:");
+        ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(block_activation_test_class),
+                                    intern_cstring_symbol(world.om, "selfTest")) != 0,
+                  1, "runtime: BlockActivationTest inherits class-side selfTest runner");
+        run_smalltalk_self_test(ctx, &world, "BlockActivationTest", 4);
+    }
+
 #ifdef ALO_INTERPRETER_C
     if (have_method_gen_root)
     {

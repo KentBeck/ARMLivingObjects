@@ -77,6 +77,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char test_suite_src[4096];
     char tokenizer_src[32768];
     char expression_spec_test_src[2048];
+    char block_activation_test_src[4096];
     char lsp_document_src[4096];
     char lsp_method_span_src[4096];
     char lsp_source_index_src[4096];
@@ -315,6 +316,18 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, bc_compile_source_methods(test_suite_src, methods, 64, &method_count), 1,
               "TestSuite.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 11, "TestSuite.st method count");
+
+    ASSERT_EQ(ctx, read_file("tests/fixtures/BlockActivationTest.st", block_activation_test_src,
+                             sizeof(block_activation_test_src)), 1,
+              "tests/fixtures/BlockActivationTest.st exists");
+    ASSERT_EQ(ctx, strstr(block_activation_test_src, "testSimpleBlockActivation") != NULL, 1,
+              "BlockActivationTest has simple activation coverage");
+    ASSERT_EQ(ctx, strstr(block_activation_test_src, "testNestedBlockActivation") != NULL, 1,
+              "BlockActivationTest has nested activation coverage");
+    ASSERT_EQ(ctx, strstr(block_activation_test_src, "testBlockStoredInTempInsideBlock") != NULL, 1,
+              "BlockActivationTest covers temp-held blocks inside blocks");
+    ASSERT_EQ(ctx, strstr(block_activation_test_src, "testNestedBlockUsesOuterTempBlock") != NULL, 1,
+              "BlockActivationTest covers nested blocks invoking outer temp blocks");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
               "src/smalltalk/Tokenizer.st exists");
