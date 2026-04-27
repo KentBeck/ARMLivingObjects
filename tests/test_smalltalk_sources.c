@@ -350,6 +350,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "ExceptionHandlingTest isolates nested handler evaluation in a helper");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testEnsureRunsOnNormalCompletion") != NULL, 1,
               "ExceptionHandlingTest covers ensure: on normal completion");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testEnsureRunsOnExceptionalExit") != NULL, 1,
+              "ExceptionHandlingTest covers ensure: during unwinding");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "exceptionClass") != NULL, 1,
               "ExceptionHandlingTest isolates future exception globals behind helpers");
 

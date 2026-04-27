@@ -122,7 +122,16 @@ typedef struct ExceptionHandlerFrame
     volatile Oop *signaled_exception_slot;
 } ExceptionHandlerFrame;
 
+typedef struct EnsureFrame
+{
+    jmp_buf env;
+    struct EnsureFrame *previous;
+    volatile Oop *signaled_class_slot;
+    volatile Oop *signaled_payload_slot;
+} EnsureFrame;
+
 static ExceptionHandlerFrame *current_exception_handler = NULL;
+static EnsureFrame *current_ensure_frame = NULL;
 
 static int is_smallint_value(Oop value)
 {
@@ -211,6 +220,7 @@ static uint64_t block_copied_count(Oop block);
 static void mark_block_frame(ObjPtr fp, Oop block);
 static void populate_block_copied_values(ObjPtr fp, Oop block, uint64_t copied_count);
 static uint64_t block_num_args(Oop block);
+static void propagate_signal(Oop signal_class, Oop signal_payload);
 
 static int activate_block_call(Oop **sp_ptr, ObjPtr *fp_ptr,
                                uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
@@ -285,6 +295,25 @@ static uint64_t block_num_args(Oop block)
 
     block_method = (ObjPtr)OBJ_FIELD((ObjPtr)block, BLOCK_CM);
     return (uint64_t)untag_smallint(OBJ_FIELD(block_method, CM_NUM_ARGS));
+}
+
+static void propagate_signal(Oop signal_class, Oop signal_payload)
+{
+    if (current_ensure_frame != NULL)
+    {
+        *current_ensure_frame->signaled_class_slot = signal_class;
+        *current_ensure_frame->signaled_payload_slot = signal_payload;
+        longjmp(current_ensure_frame->env, 1);
+    }
+
+    if (current_exception_handler != NULL &&
+        current_exception_handler->exception_class == signal_class)
+    {
+        *current_exception_handler->signaled_exception_slot = signal_payload;
+        longjmp(current_exception_handler->env, 1);
+    }
+
+    raise(SIGTRAP);
 }
 
 static void initialize_word_fields(ObjPtr object, uint64_t size)
@@ -642,20 +671,41 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
         ObjPtr saved_fp = *fp_ptr;
         uint64_t ensure_arg_count = block_num_args(ensure_block);
         Oop protected_result;
+        EnsureFrame ensure_frame;
+        EnsureFrame *previous_ensure = current_ensure_frame;
+        volatile Oop signaled_class = TAGGED_NIL;
+        volatile Oop signaled_payload = TAGGED_NIL;
 
         if (ensure_arg_count != 0)
         {
             return PRIMITIVE_FAILED;
         }
 
-        protected_result = invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL,
-                                                class_table, om, txn_log);
+        ensure_frame.previous = previous_ensure;
+        ensure_frame.signaled_class_slot = &signaled_class;
+        ensure_frame.signaled_payload_slot = &signaled_payload;
+        current_ensure_frame = &ensure_frame;
+
+        if (setjmp(ensure_frame.env) == 0)
+        {
+            protected_result = invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL,
+                                                    class_table, om, txn_log);
+            current_ensure_frame = previous_ensure;
+            *sp_ptr = saved_sp;
+            *fp_ptr = saved_fp;
+            (void)invoke_block_closure(sp_ptr, fp_ptr, ensure_block, 0, TAGGED_NIL,
+                                       class_table, om, txn_log);
+            *sp_ptr = saved_sp - 1;
+            **sp_ptr = protected_result;
+            return PRIMITIVE_SUCCEEDED;
+        }
+
+        current_ensure_frame = previous_ensure;
         *sp_ptr = saved_sp;
         *fp_ptr = saved_fp;
         (void)invoke_block_closure(sp_ptr, fp_ptr, ensure_block, 0, TAGGED_NIL,
                                    class_table, om, txn_log);
-        *sp_ptr = saved_sp - 1;
-        **sp_ptr = protected_result;
+        propagate_signal(signaled_class, signaled_payload);
         return PRIMITIVE_SUCCEEDED;
     }
 
@@ -826,11 +876,11 @@ static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
         {
             return PRIMITIVE_FAILED;
         }
-        if (current_exception_handler != NULL &&
-            current_exception_handler->exception_class == receiver)
+        if (current_ensure_frame != NULL ||
+            (current_exception_handler != NULL &&
+             current_exception_handler->exception_class == receiver))
         {
-            *current_exception_handler->signaled_exception_slot = sp[0];
-            longjmp(current_exception_handler->env, 1);
+            propagate_signal(receiver, sp[0]);
         }
         raise(SIGTRAP);
         return PRIMITIVE_UNSUPPORTED;
