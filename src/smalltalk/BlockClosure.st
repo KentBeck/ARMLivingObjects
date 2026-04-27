@@ -16,6 +16,11 @@ on: exceptionClass do: handlerBlock
     self error: 'on:do: primitive failed'
 !
 
+ensure: ensureBlock
+    <primitive: 39>
+    self error: 'ensure: primitive failed'
+!
+
 cannotReturn: aValue
     self error: 'cannot return from terminated block'
 !

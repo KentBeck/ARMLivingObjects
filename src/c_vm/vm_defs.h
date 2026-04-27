@@ -145,6 +145,7 @@ typedef uint64_t *Om;     // Object-memory allocator or semispace GC context.
 #define PRIM_WRITE_FD_STRING 36
 #define PRIM_SIGNAL 37
 #define PRIM_BLOCK_ON_DO 38
+#define PRIM_BLOCK_ENSURE 39
 
 // BlockClosure fields.
 #define BLOCK_HOME_CONTEXT 0

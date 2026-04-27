@@ -619,6 +619,7 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
     case PRIM_BLOCK_VALUE:
     case PRIM_BLOCK_VALUE_ARG:
     case PRIM_BLOCK_ON_DO:
+    case PRIM_BLOCK_ENSURE:
         break;
     default:
         return PRIMITIVE_UNSUPPORTED;
@@ -626,13 +627,38 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
 
     if ((primitive == PRIM_BLOCK_VALUE && arg_count != 0) ||
         (primitive == PRIM_BLOCK_VALUE_ARG && arg_count != 1) ||
-        (primitive == PRIM_BLOCK_ON_DO && arg_count != 2))
+        (primitive == PRIM_BLOCK_ON_DO && arg_count != 2) ||
+        (primitive == PRIM_BLOCK_ENSURE && arg_count != 1))
     {
         return PRIMITIVE_FAILED;
     }
 
     Oop *sp = *sp_ptr;
     Oop block = sp[arg_count];
+    if (primitive == PRIM_BLOCK_ENSURE)
+    {
+        Oop ensure_block = sp[0];
+        Oop *saved_sp = sp + 2;
+        ObjPtr saved_fp = *fp_ptr;
+        uint64_t ensure_arg_count = block_num_args(ensure_block);
+        Oop protected_result;
+
+        if (ensure_arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        protected_result = invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL,
+                                                class_table, om, txn_log);
+        *sp_ptr = saved_sp;
+        *fp_ptr = saved_fp;
+        (void)invoke_block_closure(sp_ptr, fp_ptr, ensure_block, 0, TAGGED_NIL,
+                                   class_table, om, txn_log);
+        *sp_ptr = saved_sp - 1;
+        **sp_ptr = protected_result;
+        return PRIMITIVE_SUCCEEDED;
+    }
+
     if (primitive == PRIM_BLOCK_ON_DO)
     {
         Oop exception_class = sp[1];

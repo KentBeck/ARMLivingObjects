@@ -9,9 +9,10 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 2.
+    selectors := Array new: 3.
     selectors at: 1 put: #testOnDoCatchesSignaledException.
     selectors at: 2 put: #testInnerHandlerWins.
+    selectors at: 3 put: #testEnsureRunsOnNormalCompletion.
     ^ selectors
 !
 
@@ -66,4 +67,18 @@ testOnDoCatchesSignaledException
 
 testInnerHandlerWins
     ^ self assert: self nestedHandledValue equals: 2
+!
+
+testEnsureRunsOnNormalCompletion
+    | steps value |
+    steps := Array new: 2.
+    value := [
+        steps at: 1 put: #body.
+        11
+    ] ensure: [
+        steps at: 2 put: #ensure
+    ].
+    ^ self assert:
+        (value = 11 and: [
+            (steps at: 1) = #body and: [(steps at: 2) = #ensure]])
 !
