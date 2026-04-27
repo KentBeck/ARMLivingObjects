@@ -1098,28 +1098,32 @@ void test_smalltalk_runtime(TestContext *ctx)
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ContextTest.st") != NULL,
               1, "runtime: ContextTest.st defines class and installs methods");
-    {
-        uint64_t *context_test_class = smalltalk_world_lookup_class(&world, "ContextTest");
-        ASSERT_EQ(ctx, context_test_class != NULL, 1, "runtime: ContextTest in Smalltalk dict");
-        ASSERT_EQ(ctx, class_lookup(context_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
-                  1, "runtime: ContextTest inherits runOn:");
-        ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(context_test_class),
-                                    intern_cstring_symbol(world.om, "selfTest")) != 0,
-                  1, "runtime: ContextTest inherits class-side selfTest runner");
-        run_smalltalk_self_test(ctx, &world, "ContextTest", 6);
-    }
-
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/BlockActivationTest.st") != NULL,
               1, "runtime: BlockActivationTest.st defines class and installs methods");
     {
+        uint64_t *context_test_class = smalltalk_world_lookup_class(&world, "ContextTest");
         uint64_t *block_activation_test_class = smalltalk_world_lookup_class(&world, "BlockActivationTest");
+        ASSERT_EQ(ctx, context_test_class != NULL, 1, "runtime: ContextTest in Smalltalk dict");
         ASSERT_EQ(ctx, block_activation_test_class != NULL, 1, "runtime: BlockActivationTest in Smalltalk dict");
+        ASSERT_EQ(ctx, class_lookup(context_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+                  1, "runtime: ContextTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(block_activation_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: BlockActivationTest inherits runOn:");
-        ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(block_activation_test_class),
+    }
+
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/SmalltalkSelfTestSuite.st") != NULL,
+              1, "runtime: SmalltalkSelfTestSuite.st defines class and installs methods");
+    {
+        uint64_t *smalltalk_self_test_suite_class = smalltalk_world_lookup_class(&world, "SmalltalkSelfTestSuite");
+        ASSERT_EQ(ctx, smalltalk_self_test_suite_class != NULL, 1,
+                  "runtime: SmalltalkSelfTestSuite in Smalltalk dict");
+        ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(smalltalk_self_test_suite_class),
                                     intern_cstring_symbol(world.om, "selfTest")) != 0,
-                  1, "runtime: BlockActivationTest inherits class-side selfTest runner");
-        run_smalltalk_self_test(ctx, &world, "BlockActivationTest", 4);
+                  1, "runtime: SmalltalkSelfTestSuite has class-side selfTest runner");
+        ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(smalltalk_self_test_suite_class),
+                                    intern_cstring_symbol(world.om, "suite")) != 0,
+                  1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
+        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 10);
     }
 
 #ifdef ALO_INTERPRETER_C

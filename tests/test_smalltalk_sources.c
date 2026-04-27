@@ -78,6 +78,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char tokenizer_src[32768];
     char expression_spec_test_src[2048];
     char block_activation_test_src[4096];
+    char smalltalk_self_test_suite_src[4096];
     char lsp_document_src[4096];
     char lsp_method_span_src[4096];
     char lsp_source_index_src[4096];
@@ -328,6 +329,16 @@ void test_smalltalk_sources(TestContext *ctx)
               "BlockActivationTest covers temp-held blocks inside blocks");
     ASSERT_EQ(ctx, strstr(block_activation_test_src, "testNestedBlockUsesOuterTempBlock") != NULL, 1,
               "BlockActivationTest covers nested blocks invoking outer temp blocks");
+
+    ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,
+                             sizeof(smalltalk_self_test_suite_src)), 1,
+              "tests/fixtures/SmalltalkSelfTestSuite.st exists");
+    ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self suite runOn: result") != NULL, 1,
+              "SmalltalkSelfTestSuite runs one aggregate TestSuite");
+    ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: ContextTest to: suite startingAt: 1.") != NULL, 1,
+              "SmalltalkSelfTestSuite includes ContextTest");
+    ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: BlockActivationTest to: suite startingAt: 1.") != NULL, 1,
+              "SmalltalkSelfTestSuite includes BlockActivationTest");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
               "src/smalltalk/Tokenizer.st exists");
