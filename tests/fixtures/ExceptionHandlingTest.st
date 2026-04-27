@@ -9,8 +9,9 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 1.
+    selectors := Array new: 2.
     selectors at: 1 put: #testOnDoCatchesSignaledException.
+    selectors at: 2 put: #testInnerHandlerWins.
     ^ selectors
 !
 
@@ -44,6 +45,15 @@ signalTestErrorWith: aString
     ^ self errorClass signal: aString
 !
 
+nestedHandledValue
+    ^ [
+        [
+            self signalTestError.
+            1
+        ] on: self errorClass do: [2]
+    ] on: self exceptionClass do: [3]
+!
+
 !ExceptionHandlingTest methodsFor: 'tests'!
 testOnDoCatchesSignaledException
     | value |
@@ -52,4 +62,8 @@ testOnDoCatchesSignaledException
         1
     ] on: self errorClass do: [2].
     ^ self assert: value equals: 2
+!
+
+testInnerHandlerWins
+    ^ self assert: self nestedHandledValue equals: 2
 !

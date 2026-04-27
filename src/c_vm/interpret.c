@@ -119,7 +119,7 @@ typedef struct ExceptionHandlerFrame
     jmp_buf env;
     struct ExceptionHandlerFrame *previous;
     Oop exception_class;
-    Oop signaled_exception;
+    volatile Oop *signaled_exception_slot;
 } ExceptionHandlerFrame;
 
 static ExceptionHandlerFrame *current_exception_handler = NULL;
@@ -640,11 +640,13 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
         Oop *saved_sp = sp + 3;
         ObjPtr saved_fp = *fp_ptr;
         ExceptionHandlerFrame handler;
+        ExceptionHandlerFrame *previous_handler = current_exception_handler;
         uint64_t handler_arg_count = block_num_args(handler_block);
+        volatile Oop signaled_exception = TAGGED_NIL;
 
-        handler.previous = current_exception_handler;
+        handler.previous = previous_handler;
         handler.exception_class = exception_class;
-        handler.signaled_exception = TAGGED_NIL;
+        handler.signaled_exception_slot = &signaled_exception;
         current_exception_handler = &handler;
 
         if (setjmp(handler.env) == 0)
@@ -658,14 +660,14 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
             *fp_ptr = saved_fp;
             if (handler_arg_count > 1)
             {
-                current_exception_handler = handler.previous;
+                current_exception_handler = previous_handler;
                 return PRIMITIVE_FAILED;
             }
             (void)invoke_block_closure(sp_ptr, fp_ptr, handler_block, handler_arg_count,
-                                       handler.signaled_exception, class_table, om, txn_log);
+                                       signaled_exception, class_table, om, txn_log);
         }
 
-        current_exception_handler = handler.previous;
+        current_exception_handler = previous_handler;
         return PRIMITIVE_SUCCEEDED;
     }
 
@@ -801,7 +803,7 @@ static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
         if (current_exception_handler != NULL &&
             current_exception_handler->exception_class == receiver)
         {
-            current_exception_handler->signaled_exception = sp[0];
+            *current_exception_handler->signaled_exception_slot = sp[0];
             longjmp(current_exception_handler->env, 1);
         }
         raise(SIGTRAP);
@@ -1325,7 +1327,7 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, Oop primitive,
         if (current_exception_handler != NULL &&
             current_exception_handler->exception_class == receiver)
         {
-            current_exception_handler->signaled_exception = sp[0];
+            *current_exception_handler->signaled_exception_slot = sp[0];
             longjmp(current_exception_handler->env, 1);
         }
         raise(SIGTRAP);

@@ -344,6 +344,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "ExceptionHandlingTest starts with zero-argument handler coverage");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testOnDoCatchesSignaledException") != NULL, 1,
               "ExceptionHandlingTest installs one initial exception test");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testInnerHandlerWins") != NULL, 1,
+              "ExceptionHandlingTest covers nested handler precedence");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "nestedHandledValue") != NULL, 1,
+              "ExceptionHandlingTest isolates nested handler evaluation in a helper");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "exceptionClass") != NULL, 1,
               "ExceptionHandlingTest isolates future exception globals behind helpers");
 
