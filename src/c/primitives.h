@@ -23,6 +23,7 @@ Oop prim_symbol_eq(Oop receiver, Oop arg) LO_NO_ALLOC;
 Oop intern_cstring_symbol(Om om, const char *text) LO_ALLOCATES;
 Oop lookup_cstring_symbol(const char *text) LO_NO_ALLOC;
 ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class) LO_ALLOCATES;
+ObjPtr ensure_frame_context_with_sp(ObjPtr fp, Oop *sp, Om om, Oop context_class) LO_ALLOCATES;
 ObjPtr ensure_frame_context_global(ObjPtr fp, Om om) LO_ALLOCATES;
 Oop cannot_return_selector_oop(void) LO_NO_ALLOC;
 

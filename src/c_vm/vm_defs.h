@@ -165,7 +165,8 @@ typedef uint64_t *Om;     // Object-memory allocator or semispace GC context.
 #define CONTEXT_FLAGS 6
 #define CONTEXT_NUM_ARGS 7
 #define CONTEXT_NUM_TEMPS 8
-#define CONTEXT_VAR_BASE 9
+#define CONTEXT_STACK_SIZE 9
+#define CONTEXT_VAR_BASE 10
 
 #define CONTEXT_RECEIVER_OFS 48
 #define CONTEXT_HOME_OFS 56

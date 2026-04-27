@@ -183,6 +183,7 @@ void test_stack(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_CLOSURE), tagged_nil(), "method context has nil closure");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_ARGS), tag_smallint(2), "context stores arg count");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_NUM_TEMPS), tag_smallint(1), "context stores temp count");
+        ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_STACK_SIZE), tag_smallint(0), "context stores empty eval stack size");
         ASSERT_EQ(ctx, OBJ_SIZE(frame_ctx), CONTEXT_VAR_BASE + 3, "context stores fixed fields plus args and temps");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 0), arg0, "context stores arg 0 in source order");
         ASSERT_EQ(ctx, OBJ_FIELD(frame_ctx, CONTEXT_VAR_BASE + 1), arg1, "context stores arg 1 in source order");
@@ -223,12 +224,57 @@ void test_stack(TestContext *ctx)
         ASSERT_EQ(ctx, OBJ_FIELD(inner_ctx, CONTEXT_RECEIVER), inner_receiver, "child context stores child receiver");
         ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_RECEIVER), outer_receiver, "sender context stores outer receiver");
         ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_NUM_TEMPS), tag_smallint(1), "sender context preserves temp count");
+        ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_STACK_SIZE), tag_smallint(0), "sender context preserves quiescent eval stack size");
         ASSERT_EQ(ctx, OBJ_SIZE(outer_ctx), CONTEXT_VAR_BASE + 1, "sender context stores temps even when there are no args");
         ASSERT_EQ(ctx, OBJ_FIELD(outer_ctx, CONTEXT_VAR_BASE), tag_smallint(99), "sender context stores temp 0 at first variable slot");
     }
 
+    // Test: materializing with an active stack captures pushed values, and
+    // rehydration restores temps plus operand stack.
+    {
+        uint64_t local_stack[STACK_WORDS];
+        uint64_t *ctx_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+        uint64_t *ctx_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(ctx_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(ctx_cm, CM_NUM_ARGS) = tag_smallint(1);
+        OBJ_FIELD(ctx_cm, CM_NUM_TEMPS) = tag_smallint(1);
+        OBJ_FIELD(ctx_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(ctx_cm, CM_BYTECODES) = (uint64_t)ctx_bc;
+
+        uint64_t *active_sp = (uint64_t *)((uint8_t *)local_stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *active_fp = 0;
+        stack_push(&active_sp, local_stack, receiver);
+        stack_push(&active_sp, local_stack, arg0);
+        activate_method(&active_sp, &active_fp, 0x2222, (uint64_t)ctx_cm, 1, 1);
+        frame_store_temp(active_fp, 0, tag_smallint(12));
+        stack_push(&active_sp, local_stack, tag_smallint(21));
+        stack_push(&active_sp, local_stack, tag_smallint(34));
+
+        uint64_t *captured = ensure_frame_context_with_sp(active_fp, active_sp, om, (uint64_t)ctx->context_class);
+        ASSERT_EQ(ctx, captured != NULL, 1, "ensure_frame_context_with_sp captures an active frame");
+        ASSERT_EQ(ctx, OBJ_FIELD(captured, CONTEXT_STACK_SIZE), tag_smallint(2), "captured context records operand stack depth");
+        ASSERT_EQ(ctx, OBJ_FIELD(captured, CONTEXT_VAR_BASE + 2), tag_smallint(34), "captured context stores stack top first");
+        ASSERT_EQ(ctx, OBJ_FIELD(captured, CONTEXT_VAR_BASE + 3), tag_smallint(21), "captured context stores older stack values after top");
+
+        uint64_t *rehydrate_sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *rehydrate_fp = 0;
+        activate_context(&rehydrate_sp, &rehydrate_fp, 0, captured);
+        ASSERT_EQ(ctx, rehydrate_fp[FRAME_CONTEXT], (uint64_t)captured, "activate_context reuses the captured context");
+        ASSERT_EQ(ctx, frame_temp(rehydrate_fp, 0), tag_smallint(12), "activate_context restores temp values");
+        ASSERT_EQ(ctx, stack_top(&rehydrate_sp), tag_smallint(34), "activate_context restores the operand stack top");
+        ASSERT_EQ(ctx, rehydrate_sp[1], tag_smallint(21), "activate_context restores deeper operand stack values");
+    }
+
     // --- Section 4: Temporary Variable Access ---
-    // Use the 2-arg, 1-temp frame from above (still in fp)
+    // Rebuild the 2-arg, 1-temp frame used by the original temp/arg assertions.
+    sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+    fp = 0;
+    stack_push(&sp, stack, receiver);
+    stack_push(&sp, stack, arg0);
+    stack_push(&sp, stack, arg1);
+    activate_method(&sp, &fp, fake_ip, method, 2, 1);
+
+    // Use the 2-arg, 1-temp frame from above (now restored in fp)
 
     // Test: access temp 0 at FP - 5*W
     ASSERT_EQ(ctx, frame_temp(fp, 0), 0, "frame_temp(0) reads temp 0 (was 0)");
@@ -291,6 +337,94 @@ void test_stack(TestContext *ctx)
     ASSERT_EQ(ctx, (uint64_t)fp, caller_fp_val, "return 2-arg: FP restored");
     ASSERT_EQ(ctx, (uint64_t)sp, (uint64_t)(sp_before_send + 2),
               "return 2-arg: SP at receiver slot (both args popped)");
+
+    // Test: a rehydrated callee can return directly to a live caller frame.
+    {
+        uint64_t *caller_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+        uint64_t *caller_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        uint64_t *callee_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+        uint64_t *callee_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(callee_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(callee_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(callee_cm, CM_NUM_TEMPS) = tag_smallint(1);
+        OBJ_FIELD(callee_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(callee_cm, CM_BYTECODES) = (uint64_t)callee_bc;
+
+        sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
+        fp = 0;
+        ip = 0xD00D;
+        stack_push(&sp, stack, receiver);
+        activate_method(&sp, &fp, caller_ip_val, (uint64_t)caller_cm, 0, 0);
+        uint64_t *live_caller_fp = fp;
+        uint64_t *live_caller_ctx = ensure_frame_context(live_caller_fp, om, (uint64_t)ctx->context_class);
+
+        uint64_t callee_stack[STACK_WORDS];
+        uint64_t *callee_sp = (uint64_t *)((uint8_t *)callee_stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *callee_fp = 0;
+        stack_push(&callee_sp, callee_stack, receiver);
+        activate_method(&callee_sp, &callee_fp, 0, (uint64_t)callee_cm, 0, 1);
+        frame_store_temp(callee_fp, 0, tag_smallint(55));
+        uint64_t *callee_ctx = ensure_frame_context(callee_fp, om, (uint64_t)ctx->context_class);
+        OBJ_FIELD(callee_ctx, CONTEXT_SENDER) = (uint64_t)live_caller_ctx;
+
+        activate_context(&sp, &fp, ip, callee_ctx);
+        frame_return(&sp, &fp, &ip, tag_smallint(77));
+        ASSERT_EQ(ctx, (uint64_t)fp, (uint64_t)live_caller_fp, "rehydrated callee returns to the live caller frame");
+        ASSERT_EQ(ctx, ip, 0xD00D, "rehydrated callee restores the live caller IP");
+        ASSERT_EQ(ctx, stack_top(&sp), tag_smallint(77), "rehydrated callee leaves the return value on the live caller stack");
+    }
+
+    // Test: a live frame with no stack caller can return into a materialized sender context.
+    {
+        uint64_t *sender_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+        uint64_t *sender_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(sender_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(sender_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(sender_cm, CM_NUM_TEMPS) = tag_smallint(1);
+        OBJ_FIELD(sender_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(sender_cm, CM_BYTECODES) = (uint64_t)sender_bc;
+
+        uint64_t local_stack[STACK_WORDS];
+        uint64_t *sender_sp = (uint64_t *)((uint8_t *)local_stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *sender_fp = 0;
+        stack_push(&sender_sp, local_stack, receiver);
+        activate_method(&sender_sp, &sender_fp, 0, (uint64_t)sender_cm, 0, 1);
+        frame_store_temp(sender_fp, 0, tag_smallint(61));
+        uint64_t *sender_ctx = ensure_frame_context(sender_fp, om, (uint64_t)ctx->context_class);
+        OBJ_FIELD(sender_ctx, CONTEXT_IP) = 0xABCD;
+
+        uint64_t *child_bc = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+        uint64_t *child_cm = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(child_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(child_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(child_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(child_cm, CM_LITERALS) = tagged_nil();
+        OBJ_FIELD(child_cm, CM_BYTECODES) = (uint64_t)child_bc;
+
+        uint64_t *child_sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        uint64_t *child_fp = 0;
+        stack_push(&child_sp, ctx->stack, receiver);
+        activate_method(&child_sp, &child_fp, 0, (uint64_t)child_cm, 0, 0);
+        uint64_t *child_ctx = ensure_frame_context(child_fp, om, (uint64_t)ctx->context_class);
+        OBJ_FIELD(child_ctx, CONTEXT_SENDER) = (uint64_t)sender_ctx;
+
+        uint64_t return_ip = 0;
+        child_sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        child_fp = 0;
+        activate_context(&child_sp, &child_fp, 0, child_ctx);
+        frame_return(&child_sp, &child_fp, &return_ip, tag_smallint(88));
+        ASSERT_EQ(ctx, child_fp != NULL, 1, "return to materialized sender rehydrates a live frame");
+        ASSERT_EQ(ctx, child_fp[FRAME_CONTEXT], (uint64_t)sender_ctx, "return to materialized sender resumes that sender context");
+        ASSERT_EQ(ctx, return_ip, 0xABCD, "return to materialized sender restores the sender IP");
+        ASSERT_EQ(ctx, frame_temp(child_fp, 0), tag_smallint(61), "return to materialized sender restores sender temps");
+        ASSERT_EQ(ctx, stack_top(&child_sp), tag_smallint(88), "return to materialized sender pushes the return value");
+    }
 
     // --- Section 6: Bytecode Implementations ---
 

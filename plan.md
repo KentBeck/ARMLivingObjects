@@ -424,6 +424,20 @@ C bootstrap compiler, then able to compile itself.
 
 ### D2. Stack Pages & Overflow
 
+Current first slice for context spilling/rehydration in the C runtime:
+
+- `Context` objects now retain the current frame's operand-stack depth and values,
+  not just args and temps, when materialized from the active frame.
+- A materialized `Context` can be rehydrated back into a live C-interpreter frame.
+- Return paths now support:
+  - rehydrated callee -> live stack caller
+  - live/rehydrated frame -> materialized sender context
+- This is still explicit rehydration support, not automatic stack-overflow
+  spilling. `activate_method` still traps on overflow today.
+- Recursive sender capture is only trustworthy for frames materialized at
+  quiescent boundaries; fully general arbitrary-bytecode spilling remains future
+  work.
+
 ### D3. Context Marriage/Widowhood/Divorce
 
 ### D4. Object Header Compaction

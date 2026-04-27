@@ -523,6 +523,11 @@ static uint64_t context_ip_for_frame(uint64_t *fp)
 
 ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class)
 {
+    return ensure_frame_context_with_sp(fp, NULL, om, context_class);
+}
+
+ObjPtr ensure_frame_context_with_sp(ObjPtr fp, Oop *sp, Om om, Oop context_class)
+{
     uint64_t closure_oop = 0;
 
     if (fp == NULL || fp == (uint64_t *)0xCAFE)
@@ -545,7 +550,12 @@ ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class)
     uint64_t num_temps = is_object_ptr((uint64_t)method) && is_smallint(OBJ_FIELD(method, CM_NUM_TEMPS))
                              ? (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS))
                              : 0;
-    uint64_t field_count = CONTEXT_VAR_BASE + num_args + num_temps;
+    Oop *base_sp = num_temps == 0
+                       ? fp + FRAME_RECEIVER
+                       : fp - (FP_TEMP_BASE_WORDS + (num_temps - 1));
+    Oop *effective_sp = sp == NULL || sp > base_sp ? base_sp : sp;
+    uint64_t stack_depth = (uint64_t)(base_sp - effective_sp);
+    uint64_t field_count = CONTEXT_VAR_BASE + num_args + num_temps + stack_depth;
     uint64_t *context = om_alloc(om, context_class, FORMAT_FIELDS, field_count);
     if (context == NULL)
     {
@@ -564,6 +574,7 @@ ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class)
     OBJ_FIELD(context, CONTEXT_FLAGS) = tag_smallint((int64_t)fp[FRAME_FLAGS]);
     OBJ_FIELD(context, CONTEXT_NUM_ARGS) = tag_smallint((int64_t)num_args);
     OBJ_FIELD(context, CONTEXT_NUM_TEMPS) = tag_smallint((int64_t)num_temps);
+    OBJ_FIELD(context, CONTEXT_STACK_SIZE) = tag_smallint((int64_t)stack_depth);
 
     for (uint64_t i = 0; i < num_args; i++)
     {
@@ -572,6 +583,10 @@ ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class)
     for (uint64_t i = 0; i < num_temps; i++)
     {
         OBJ_FIELD(context, CONTEXT_VAR_BASE + num_args + i) = frame_temp(fp, i);
+    }
+    for (uint64_t i = 0; i < stack_depth; i++)
+    {
+        OBJ_FIELD(context, CONTEXT_VAR_BASE + num_args + num_temps + i) = effective_sp[i];
     }
 
     fp[FRAME_CONTEXT] = (uint64_t)context;

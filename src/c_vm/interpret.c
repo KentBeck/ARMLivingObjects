@@ -11,6 +11,9 @@ extern Oop oop_class(Oop oop, ObjPtr class_table);
 extern Oop class_lookup(ObjPtr klass, Oop selector);
 extern void activate_method(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t saved_ip,
                             Oop method, uint64_t num_args, uint64_t num_temps);
+extern void frame_return(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t *ip_ptr, Oop return_value);
+extern void activate_context(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t saved_ip,
+                             ObjPtr context);
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
 extern Oop prim_string_as_symbol(Oop receiver);
@@ -29,6 +32,7 @@ extern void gc_collect(Oop *roots, uint64_t num_roots,
 extern uint64_t gc_collect_stack_slots(Oop *sp, ObjPtr fp,
                                        Oop **slot_buf, uint64_t max_slots);
 extern ObjPtr ensure_frame_context_global(ObjPtr fp, Om om);
+extern ObjPtr ensure_frame_context_with_sp(ObjPtr fp, Oop *sp, Om om, Oop context_class);
 extern ObjPtr global_context_class;
 extern Oop cannot_return_selector_oop(void);
 extern void txn_log_write(Oop *log, Oop obj, uint64_t field_index, Oop value);
@@ -297,7 +301,12 @@ static ObjPtr ensure_frame_context_with_retry(Oop **sp_ptr, ObjPtr *fp_ptr,
                                               uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
                                               ObjPtr *class_table_ptr, Om om)
 {
-    ObjPtr context = ensure_frame_context_global(*fp_ptr, om);
+    if (global_context_class == NULL)
+    {
+        return NULL;
+    }
+
+    ObjPtr context = ensure_frame_context_with_sp(*fp_ptr, *sp_ptr, om, (Oop)global_context_class);
     if (context != NULL)
     {
         return context;
@@ -308,7 +317,37 @@ static ObjPtr ensure_frame_context_with_retry(Oop **sp_ptr, ObjPtr *fp_ptr,
         return NULL;
     }
 
-    return ensure_frame_context_global(*fp_ptr, om);
+    return ensure_frame_context_with_sp(*fp_ptr, *sp_ptr, om, (Oop)global_context_class);
+}
+
+static int resume_sender_context(Oop **sp_ptr, ObjPtr *fp_ptr, uint8_t **ip_ptr,
+                                 uint8_t **bytecode_base_ptr, Oop return_value,
+                                 Oop sender_context)
+{
+    if (!is_object_value(sender_context))
+    {
+        return 0;
+    }
+
+    *fp_ptr = NULL;
+    activate_context(sp_ptr, fp_ptr, 0, (ObjPtr)sender_context);
+    push(sp_ptr, return_value);
+    *ip_ptr = (uint8_t *)OBJ_FIELD((ObjPtr)sender_context, CONTEXT_IP);
+
+    ObjPtr method = (ObjPtr)OBJ_FIELD((ObjPtr)sender_context, CONTEXT_METHOD);
+    if (!is_object_value((Oop)method))
+    {
+        raise(SIGTRAP);
+        return 0;
+    }
+    ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
+    if (!is_object_value((Oop)bytecodes))
+    {
+        raise(SIGTRAP);
+        return 0;
+    }
+    *bytecode_base_ptr = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+    return 1;
 }
 
 static uint8_t cannot_return_after_bytecodes[] = {BC_RETURN_STACK_TOP};
@@ -1363,24 +1402,23 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
         {
             Oop return_value = **sp_ptr;
             ObjPtr fp = (ObjPtr)*fp_ptr;
-            uint64_t num_args = frame_num_args_local(fp);
-            Oop *new_sp = fp + FP_ARG_BASE_WORDS + num_args;
             ObjPtr caller_fp = (ObjPtr)fp[FRAME_SAVED_FP];
-            uint8_t *caller_ip = (uint8_t *)fp[FRAME_SAVED_IP];
 
-            *new_sp = return_value;
-            *sp_ptr = new_sp;
-            *fp_ptr = caller_fp;
+            frame_return(sp_ptr, fp_ptr, (uint64_t *)&ip, return_value);
 
-            if (fp == entry_fp)
+            if (fp == entry_fp && caller_fp != NULL)
             {
                 return return_value;
             }
 
-            ip = caller_ip;
-            if (caller_fp != 0 && caller_fp != (ObjPtr)0xCAFE)
+            if (*fp_ptr == NULL)
             {
-                ObjPtr caller_method = (ObjPtr)caller_fp[FRAME_METHOD];
+                return return_value;
+            }
+
+            if (*fp_ptr != (ObjPtr)0xCAFE)
+            {
+                ObjPtr caller_method = (ObjPtr)(*fp_ptr)[FRAME_METHOD];
                 ObjPtr bytecodes = (ObjPtr)OBJ_FIELD(caller_method, CM_BYTECODES);
                 bytecode_base = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
             }
@@ -1444,7 +1482,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
             ObjPtr literals = (ObjPtr)OBJ_FIELD(current_method, CM_LITERALS);
             Oop block_method = OBJ_FIELD(literals, literal_index);
             Oop block_class = OBJ_FIELD(class_table, CLASS_TABLE_BLOCK);
-            if (ensure_frame_context_global(fp, om) == NULL)
+            if (ensure_frame_context_with_retry(sp_ptr, fp_ptr, &ip, &bytecode_base, &class_table, om) == NULL)
             {
                 if (global_context_class != NULL &&
                     !collect_and_retry_allocation(sp_ptr, fp_ptr, &ip, &bytecode_base, &class_table, om))
@@ -1464,7 +1502,8 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 }
                 copied_count = num_args + num_temps;
 
-                if (global_context_class != NULL && ensure_frame_context_global(fp, om) == NULL)
+                if (global_context_class != NULL &&
+                    ensure_frame_context_with_sp(fp, *sp_ptr, om, (Oop)global_context_class) == NULL)
                 {
                     unsupported_bytecode(opcode);
                     break;
@@ -1587,6 +1626,19 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
             if (home_fp != NULL && home_fp != (ObjPtr)0xCAFE)
             {
                 break;
+            }
+
+            if (is_object_value(home_context))
+            {
+                Oop sender_context = OBJ_FIELD((ObjPtr)home_context, CONTEXT_SENDER);
+                if (sender_context == TAGGED_NIL)
+                {
+                    return return_value;
+                }
+                if (resume_sender_context(sp_ptr, fp_ptr, &ip, &bytecode_base, return_value, sender_context))
+                {
+                    break;
+                }
             }
 
             if (closure == TAGGED_NIL)

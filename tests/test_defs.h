@@ -55,8 +55,11 @@ extern Oop prim_string_hash_fnv(Oop receiver) LO_NO_ALLOC;
 extern Oop prim_string_as_symbol(Oop receiver) LO_NO_ALLOC;
 extern Oop prim_symbol_eq(Oop receiver, Oop arg) LO_NO_ALLOC;
 extern ObjPtr ensure_frame_context(ObjPtr fp, Om om, Oop context_class) LO_ALLOCATES;
+extern ObjPtr ensure_frame_context_with_sp(ObjPtr fp, Oop *sp, Om om, Oop context_class) LO_ALLOCATES;
 extern ObjPtr ensure_frame_context_global(ObjPtr fp, Om om) LO_ALLOCATES;
 extern Oop cannot_return_selector_oop(void) LO_NO_ALLOC;
+extern void activate_context(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t saved_ip,
+                             ObjPtr context);
 extern uint64_t *global_symbol_table; // Declare global symbol table
 extern uint64_t *global_symbol_class;
 extern uint64_t *global_context_class;
