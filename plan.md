@@ -329,21 +329,24 @@ Smalltalk compiler itself.
 
 Source files compiled by the C bootstrap compiler into heap objects.
 
-- [ ] Object (base class: `=`, `~=`, `hash`, `printString`, `class`, `yourself`)
-- [ ] UndefinedObject (nil: `isNil`, `ifNil:ifNotNil:`)
-- [ ] Boolean, True, False (`ifTrue:ifFalse:`, `and:`, `or:`, `not`)
-- [ ] SmallInteger (`+`, `-`, `*`, `/`, `<`, `>`, `=`, `to:do:`, `to:by:do:`, `printString`)
+- [~] Core object model is present and exercised end-to-end:
+  - `Object`, `UndefinedObject`, `True`, `False`, `SmallInteger`, `String`, `Array`, `Association`, `Dictionary`, `ReadStream`, `WriteStream`, `Context`
+  - enough behavior exists to support the parser/compiler pipeline, Smalltalk tests, and the live-image LSP path
+- [~] The checklist below should now be treated as completion/performance polish, not “does this class exist at all?”
+- [~] Object (`class`, `yourself`, `perform:`, `halt`, `error:` present; equality/printing still incomplete)
+- [~] UndefinedObject (`isNil` present; `ifNil:ifNotNil:` still incomplete)
+- [~] Boolean / True / False (`ifTrue:ifFalse:` present; broader boolean protocol still incomplete)
+- [~] SmallInteger arithmetic/comparison present enough for compiler/runtime work; iteration and printing still incomplete
+- [~] Character primitives exist; Smalltalk-side protocol is partial
+- [~] String supports indexed access, concatenation, equality, hashing, symbol conversion; printing still incomplete
+- [~] Symbol is live and interned; symbol protocol remains minimal
+- [~] Array supports `size`, `at:`, `at:put:` and key enumeration helpers used by current code
+- [ ] OrderedCollection
+- [~] Association and Dictionary exist and are used by the live image; broader convenience protocol remains incomplete
+- [~] ReadStream and WriteStream exist and support parser / JSON / LSP groundwork
 - [ ] Arbitrary-precision integers (`LargePositiveInteger` / `LargeNegativeInteger`) with promotion out of `SmallInteger`
 - [ ] Fraction with normalized numerator/denominator arithmetic and comparison
-- [ ] Character (`isLetter`, `isDigit`, `value`, `asString`)
-- [ ] String (`size`, `at:`, `,`, `=`, `hash`, `asSymbol`, `printString`)
-- [ ] Symbol (interned String, `=` is `==`)
-- [ ] Array (`size`, `at:`, `at:put:`, `do:`, `collect:`, `copyFrom:to:`)
-- [ ] OrderedCollection (`add:`, `size`, `do:`, `collect:`, `select:`)
-- [ ] Association (`key`, `value`, `key:value:`)
-- [ ] Dictionary (`at:put:`, `at:`, `at:ifAbsent:`, `do:`, `keysDo:`)
-- [ ] ReadStream (`on:`, `next`, `peek`, `atEnd`, `upToEnd`)
-- [ ] WriteStream (`on:`, `nextPut:`, `nextPutAll:`, `contents`)
+- [ ] Finish `printString` / collection protocol / iteration protocol so the library is pleasant rather than merely sufficient
 - [ ] Compiler-related: see section 27
 
 ### 25b. SUnit (minimal, no exceptions)
@@ -352,12 +355,15 @@ Minimal xUnit framework. Tests that pass print `.`, tests that
 fail crash the VM (no exception handling yet). Good enough to
 bootstrap — you see how far you get.
 
-- [ ] TestCase class with `assert:` and `assert:equals:` (crash on failure via primitive)
-- [ ] TestCase>>runTest: send the test selector to self
-- [ ] TestRunner: iterate test selectors, send each, print `.` on success
-- [ ] First Smalltalk test: SmallIntegerTest>>testAddition
-- [ ] Test String, Array, OrderedCollection, Dictionary using SUnit
-- [ ] Later: add `on:do:` exceptions, TestResult, proper failure reporting
+- [~] `TestCase`, `TestSuite`, and `TestResult` exist in Smalltalk
+- [~] `make test` now invokes a Smalltalk-owned example suite and prints live progress
+- [~] Current example: `ContextTest`, exercised from the C harness through one class-side `selfTest` entrypoint
+- [~] Current limitation: the example runner records directly into `TestResult` rather than using a finished `perform:`/selector-driven test protocol end to end
+- [ ] Finish the generic `TestCase` runner path so subclasses only provide selectors/tests and do not need custom `selfTest` recording logic
+- [ ] Add `SmallIntegerTest>>testAddition` as the first normal library test
+- [ ] Move String / Array / Dictionary / OrderedCollection confidence from C into Smalltalk-owned tests
+- [ ] Add failure printing/backtrace formatting in Smalltalk rather than only C-side summary output
+- [ ] Later: add `on:do:` exceptions, proper failure signalling, and resumable test execution
   - After exceptions exist, move backtrace capture out of `TestCase` and into `TestResult`; `TestCase` should only signal failure and let the result object record the unwind state
 
 ### 26. Smalltalk Compiler (in Smalltalk)
@@ -385,15 +391,21 @@ C bootstrap compiler, then able to compile itself.
 
 ### 28. LSP Server (in Smalltalk)
 
-- [ ] I/O primitives: read/write file descriptors (stdin/stdout)
+- [~] I/O primitives: read/write file descriptors (stdin/stdout) exist
+- [~] `Stdio` exists in Smalltalk on top of those primitives
+- [~] Live-image source is retained on `CompiledMethod`, so method source no longer depends on chunk files
+- [~] A working live-image LSP tool path exists today, but too much of it still lives in C
+- [~] Current behavior is enough to connect VS Code to a live image in a limited way (`workspace/symbol`, `hover`, `definition` via the existing tool)
+- [ ] Move protocol logic out of C and into Smalltalk as the primary implementation
 - [ ] JSON parser (in Smalltalk, using Scanner/Stream)
 - [ ] JSON emitter (in Smalltalk, using WriteStream)
 - [ ] LSP message framing: Content-Length header parsing
-- [ ] LSP initialize / initialized / shutdown handshake
-- [ ] textDocument/didOpen, didChange — maintain source buffers
+- [ ] LSP initialize / initialized / shutdown handshake in Smalltalk
+- [ ] textDocument/didOpen, didChange — maintain source buffers / overlays where needed
 - [ ] textDocument/completion — method names from class hierarchy
-- [ ] textDocument/hover — method source and class info
-- [ ] textDocument/definition — find method definition
+- [ ] textDocument/hover — method source and class info from the live image
+- [ ] textDocument/definition — find method definition in the live image
+- [ ] Replace temp-file materialization / C-heavy plumbing with a Smalltalk-first server plus a thin editor integration layer
 
 ### 29. MCP Server (in Smalltalk)
 
