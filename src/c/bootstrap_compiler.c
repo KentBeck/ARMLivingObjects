@@ -711,6 +711,7 @@ static int cg_literal_index(CgState *state, BToken literal)
 }
 
 static int cg_parse_binary_expression(CgState *state);
+static int cg_parse_block_header(CgState *state, BMethodHeader *header);
 
 static int cg_emit_selector_send(CgState *state, const char *selector, uint32_t argc)
 {
@@ -721,6 +722,43 @@ static int cg_emit_selector_send(CgState *state, const char *selector, uint32_t 
     cg_emit_u32(state, (uint32_t)selector_index);
     cg_emit_u32(state, argc);
     return 1;
+}
+
+static int cg_parse_block_header(CgState *state, BMethodHeader *header)
+{
+    BToken token;
+
+    memset(header, 0, sizeof(*header));
+    token = bp_next(&state->parser);
+    if (token.type != BTOK_SPECIAL || strcmp(token.text, ":") != 0)
+    {
+        bp_unread(&state->parser, token);
+        return 1;
+    }
+
+    while (1)
+    {
+        BToken arg = bp_next(&state->parser);
+        if (arg.type != BTOK_IDENTIFIER || header->arg_count >= 8)
+        {
+            return 0;
+        }
+
+        strncpy(header->arg_names[header->arg_count], arg.text,
+                sizeof(header->arg_names[header->arg_count]) - 1);
+        header->arg_count++;
+
+        token = bp_next(&state->parser);
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, ":") == 0)
+        {
+            continue;
+        }
+        if (token.type == BTOK_SPECIAL && strcmp(token.text, "|") == 0)
+        {
+            return 1;
+        }
+        return 0;
+    }
 }
 
 static void cg_emit_push_literal_token(CgState *state, BToken token)
@@ -1073,6 +1111,8 @@ static int cg_compile_and_store_block(CgState *state, const char *raw_source, in
     // so nested blocks can be referenced by flat index from any depth.
     BCompiledBody *root = state->root_compiled;
     root->blocks[block_index].bytecode_count = compiled_block.bytecode_count;
+    root->blocks[block_index].arg_count = compiled_block.arg_count;
+    root->blocks[block_index].temp_count = compiled_block.temp_count;
     memcpy(root->blocks[block_index].bytecodes, compiled_block.bytecodes,
            sizeof(root->blocks[block_index].bytecodes));
     root->blocks[block_index].literal_count = compiled_block.literal_count;
@@ -1120,13 +1160,8 @@ static int cg_emit_primary_token(CgState *state, BToken token)
         index = cg_arg_index(state->header, token.text);
         if (index >= 0)
         {
-            cg_emit_byte(state, state->in_block ? BC_CG_PUSH_TEMP : BC_CG_PUSH_ARG);
-            // In a block, the same `state->header` is the outer method's header.
-            // The block's "args" lookup actually finds the OUTER method's args,
-            // which are copied at slot 0..arg_count-1 of the OUTERMOST frame
-            // (and accessed via PUSH_TEMP at the same slot offset within nested
-            // closures because the chain copies args first).
-            int slot = state->in_block ? index : index;
+            cg_emit_byte(state, BC_CG_PUSH_ARG);
+            int slot = index;
             cg_emit_u32(state, (uint32_t)slot);
             return 1;
         }
@@ -1697,6 +1732,7 @@ static int bc_codegen_body_with_outer_state(const char *source, BCompiledBody *c
                                             CgState *outer_state, int closure_offset)
 {
     CgState state;
+    BMethodHeader block_header;
     memset(compiled, 0, sizeof(*compiled));
     memset(&state, 0, sizeof(state));
     state.compiled = compiled;
@@ -1706,9 +1742,21 @@ static int bc_codegen_body_with_outer_state(const char *source, BCompiledBody *c
     state.target_class = target_class;
     state.outer_state = outer_state;
     state.closure_offset = closure_offset;
-    // Top-level methods own their args; blocks have 0 args (no [:x|] support yet).
-    state.local_arg_count = (in_block || header == NULL) ? 0 : header->arg_count;
     bp_init(&state.parser, source);
+
+    if (in_block)
+    {
+        if (!cg_parse_block_header(&state, &block_header))
+        {
+            return 0;
+        }
+        state.header = &block_header;
+        state.local_arg_count = block_header.arg_count;
+    }
+    else
+    {
+        state.local_arg_count = header == NULL ? 0 : header->arg_count;
+    }
 
     if (!cg_parse_temp_decls(&state))
     {
@@ -1729,6 +1777,7 @@ static int bc_codegen_body_with_outer_state(const char *source, BCompiledBody *c
         state.saw_return = 1;
     }
 
+    compiled->arg_count = state.local_arg_count;
     compiled->temp_count = state.body.temp_count;
 
     return state.saw_return;
@@ -2498,8 +2547,8 @@ static uint64_t *bc_materialize_compiled_block(uint64_t *om, uint64_t *class_cla
         return NULL;
     }
     BC_OBJ_FIELD(compiled_method, BC_CM_PRIMITIVE) = tag_smallint(0);
-    BC_OBJ_FIELD(compiled_method, BC_CM_NUM_ARGS) = tag_smallint(0);
-    BC_OBJ_FIELD(compiled_method, BC_CM_NUM_TEMPS) = tag_smallint(0);
+    BC_OBJ_FIELD(compiled_method, BC_CM_NUM_ARGS) = tag_smallint(block->arg_count);
+    BC_OBJ_FIELD(compiled_method, BC_CM_NUM_TEMPS) = tag_smallint(block->temp_count);
     BC_OBJ_FIELD(compiled_method, BC_CM_LITERALS) = literals ? (uint64_t)literals : tagged_nil();
     BC_OBJ_FIELD(compiled_method, BC_CM_BYTECODES) = (uint64_t)bytecodes;
     BC_OBJ_FIELD(compiled_method, BC_CM_SOURCE) = tagged_nil();

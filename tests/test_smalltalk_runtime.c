@@ -1123,7 +1123,7 @@ void test_smalltalk_runtime(TestContext *ctx)
         ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(smalltalk_self_test_suite_class),
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
-        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 10);
+        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 11);
     }
 
 #ifdef ALO_INTERPRETER_C

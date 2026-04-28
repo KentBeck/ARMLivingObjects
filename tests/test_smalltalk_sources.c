@@ -334,6 +334,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "BlockActivationTest covers temp-held blocks inside blocks");
     ASSERT_EQ(ctx, strstr(block_activation_test_src, "testNestedBlockUsesOuterTempBlock") != NULL, 1,
               "BlockActivationTest covers nested blocks invoking outer temp blocks");
+    ASSERT_EQ(ctx, strstr(block_activation_test_src, "testOneArgumentBlockActivation") != NULL, 1,
+              "BlockActivationTest covers one-argument block activation");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/ExceptionHandlingTest.st", exception_handling_test_src,
                              sizeof(exception_handling_test_src)), 1,

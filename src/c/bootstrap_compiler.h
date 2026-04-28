@@ -72,6 +72,8 @@ typedef struct
 {
     uint8_t bytecodes[512];
     int bytecode_count;
+    int arg_count;
+    int temp_count;
     int literal_count;
     BToken literals[32];
 } BCompiledBlock;
@@ -80,6 +82,7 @@ typedef struct
 {
     uint8_t bytecodes[512];
     int bytecode_count;
+    int arg_count;
     int temp_count;
     int literal_count;
     BToken literals[32];
