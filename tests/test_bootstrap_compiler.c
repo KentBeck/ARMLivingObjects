@@ -524,6 +524,8 @@ void test_bootstrap_compiler(TestContext *ctx)
         ASSERT_EQ(ctx, bc_codegen_method_body("^ [ [ 1 ] value ] value", &compiled), 1,
                   "codegen nested block literal balancing");
         ASSERT_EQ(ctx, compiled.block_count >= 1, 1, "nested block creates at least outer block body");
+        ASSERT_EQ(ctx, compiled.blocks[0].bytecodes[compiled.blocks[0].bytecode_count - 1], BC_RETURN,
+                  "outer nested block returns locally");
     }
 
     {

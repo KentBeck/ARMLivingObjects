@@ -1612,9 +1612,29 @@ static int cg_parse_statements(CgState *state)
 
         if (token.type == BTOK_SPECIAL && strcmp(token.text, "[") == 0)
         {
+            BParser saved = state->parser;
             if (!cg_parse_while_true_statement(state))
             {
-                return 0;
+                state->parser = saved;
+                bp_unread(&state->parser, token);
+                if (!cg_parse_expression(state))
+                {
+                    return 0;
+                }
+
+                BToken separator = bp_next(&state->parser);
+                if (separator.type == BTOK_EOF)
+                {
+                    cg_emit_byte(state, BC_CG_RETURN);
+                    state->saw_return = 1;
+                    return 1;
+                }
+                if (separator.type != BTOK_SPECIAL || strcmp(separator.text, ".") != 0)
+                {
+                    return 0;
+                }
+                cg_emit_byte(state, BC_CG_POP);
+                continue;
             }
 
             BToken separator = bp_next(&state->parser);
@@ -2476,6 +2496,10 @@ static int bc_literal_token_to_oop(uint64_t *om, uint64_t *string_class, uint64_
     if (token->type == BTOK_CLASS_REF)
     {
         uint64_t *klass = bc_lookup_class_named(bc_active_class_bindings, bc_active_class_count, token->text);
+        if (klass == NULL)
+        {
+            klass = bc_lookup_smalltalk_global(token->text);
+        }
         if (klass == NULL || association_class == NULL)
         {
             return 0;
