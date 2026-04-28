@@ -1183,15 +1183,27 @@ void test_smalltalk_runtime(TestContext *ctx)
         uint64_t *context_test_class = smalltalk_world_lookup_class(&world, "ContextTest");
         uint64_t *block_activation_test_class = smalltalk_world_lookup_class(&world, "BlockActivationTest");
         uint64_t *exception_handling_test_class = smalltalk_world_lookup_class(&world, "ExceptionHandlingTest");
+        uint64_t *exception_class = smalltalk_world_lookup_class(&world, "Exception");
+        uint64_t *error_class = smalltalk_world_lookup_class(&world, "Error");
         ASSERT_EQ(ctx, context_test_class != NULL, 1, "runtime: ContextTest in Smalltalk dict");
         ASSERT_EQ(ctx, block_activation_test_class != NULL, 1, "runtime: BlockActivationTest in Smalltalk dict");
         ASSERT_EQ(ctx, exception_handling_test_class != NULL, 1, "runtime: ExceptionHandlingTest in Smalltalk dict");
+        ASSERT_EQ(ctx, exception_class != NULL, 1, "runtime: Exception in Smalltalk dict");
+        ASSERT_EQ(ctx, error_class != NULL, 1, "runtime: Error in Smalltalk dict");
         ASSERT_EQ(ctx, class_lookup(context_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: ContextTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(block_activation_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: BlockActivationTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(exception_handling_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: ExceptionHandlingTest inherits runOn:");
+#ifdef ALO_INTERPRETER_C
+        ASSERT_EQ(ctx, sw_send1(&world, ctx, (Oop)exception_class, world.class_class,
+                                "handlesSignalClass:", (Oop)error_class), TAGGED_TRUE,
+                  "runtime: Exception matches Error through Smalltalk protocol");
+        ASSERT_EQ(ctx, sw_send1(&world, ctx, (Oop)error_class, world.class_class,
+                                "handlesSignalClass:", (Oop)exception_class), TAGGED_FALSE,
+                  "runtime: Error does not match Exception through Smalltalk protocol");
+#endif
     }
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/SmalltalkSelfTestSuite.st") != NULL,
               1, "runtime: SmalltalkSelfTestSuite.st defines class and installs methods");
@@ -1206,7 +1218,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
 #ifdef ALO_INTERPRETER_C
-        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 19);
+        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 21);
 #else
         run_smalltalk_direct_tests(ctx, &world, "ContextTest", 6);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);

@@ -115,23 +115,32 @@ void test_smalltalk_sources(TestContext *ctx)
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Exception.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Exception.st exists");
-    ASSERT_EQ(ctx, strstr(class_src, "Object subclass: #Exception instanceVariableNames: 'messageText'") != NULL, 1,
-              "Exception.st declares Exception with messageText state");
+    ASSERT_EQ(ctx, strstr(class_src, "Object subclass: #Exception instanceVariableNames: 'messageText signalContext signaler'") != NULL, 1,
+              "Exception.st declares Exception with messageText, signalContext, and signaler state");
     ASSERT_EQ(ctx, strstr(class_src, "messageText: aString") != NULL, 1,
               "Exception.st sets messageText");
+    ASSERT_EQ(ctx, strstr(class_src, "signalContext: aContext") != NULL, 1,
+              "Exception.st sets signalContext");
+    ASSERT_EQ(ctx, strstr(class_src, "signaler: anObject") != NULL, 1,
+              "Exception.st sets signaler");
+    ASSERT_EQ(ctx, strstr(class_src, "signal\n    <primitive: 37>") != NULL, 1,
+              "Exception>>signal uses primitive 37");
+    ASSERT_EQ(ctx, strstr(class_src, "defaultAction\n    ^ self halt") != NULL, 1,
+              "Exception>>defaultAction stays in Smalltalk");
     ASSERT_EQ(ctx, strstr(class_src, "signal: aString") != NULL, 1,
               "Exception class>>signal: exists");
-    ASSERT_EQ(ctx, strstr(class_src, "<primitive: 37>") != NULL, 1,
-              "Exception class>>signal: uses primitive 37");
-
+    ASSERT_EQ(ctx, strstr(class_src, "exception := self new.") != NULL, 1,
+              "Exception class>>signal: constructs exception in Smalltalk");
+    ASSERT_EQ(ctx, strstr(class_src, "exception signalContext: thisContext sender.") != NULL, 1,
+              "Exception class>>signal: records signalContext in Smalltalk");
+    ASSERT_EQ(ctx, strstr(class_src, "exception signaler: thisContext receiver.") != NULL, 1,
+              "Exception class>>signal: records signaler in Smalltalk");
     ASSERT_EQ(ctx, read_file("src/smalltalk/Error.st", symbol_src, sizeof(symbol_src)), 1,
               "src/smalltalk/Error.st exists");
     ASSERT_EQ(ctx, strstr(symbol_src, "Exception subclass: #Error instanceVariableNames: ''") != NULL, 1,
               "Error.st declares Error as Exception subclass");
-    ASSERT_EQ(ctx, strstr(symbol_src, "signal: aString") != NULL, 1,
-              "Error class>>signal: exists");
-    ASSERT_EQ(ctx, strstr(symbol_src, "<primitive: 37>") != NULL, 1,
-              "Error class>>signal: uses primitive 37");
+    ASSERT_EQ(ctx, strstr(symbol_src, "signal: aString") == NULL, 1,
+              "Error inherits Exception class>>signal: without an override");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Class.st exists");
@@ -145,6 +154,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "Class>>name uses live-image primitive");
     ASSERT_EQ(ctx, strstr(class_src, "includesSelector: aSelector\n    <primitive: 32>") != NULL, 1,
               "Class>>includesSelector: uses live-image primitive");
+    ASSERT_EQ(ctx, strstr(class_src, "handlesSignalClass: aClass") != NULL, 1,
+              "Class defines Smalltalk-side exception handler matching");
+    ASSERT_EQ(ctx, strstr(class_src, "self handlesSignalClass: aClass superclass") != NULL, 1,
+              "Class handler matching recurses through superclass chain");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Stdio.st", stdio_src, sizeof(stdio_src)), 1,
               "src/smalltalk/Stdio.st exists");
@@ -156,7 +169,7 @@ void test_smalltalk_sources(TestContext *ctx)
               "Class>>sourceAtSelector: exists");
     ASSERT_EQ(ctx, bc_compile_source_methods(class_src, methods, 64, &method_count), 1,
               "Class.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 8, "Class.st method count");
+    ASSERT_EQ(ctx, method_count, 9, "Class.st method count");
     ASSERT_EQ(ctx, strcmp(methods[0].class_name, "Class"), 0, "Class.st compiled class name");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/String.st", string_src, sizeof(string_src)), 1,
@@ -384,6 +397,14 @@ void test_smalltalk_sources(TestContext *ctx)
               "ExceptionHandlingTest covers Error not catching Exception");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "Exception signal: 'boom'.") != NULL, 1,
               "ExceptionHandlingTest inlines Exception signaling for hierarchy coverage");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testExceptionCarriesSignalContext") != NULL, 1,
+              "ExceptionHandlingTest covers signalContext on raised exceptions");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "ex signalContext == nil") != NULL, 1,
+              "ExceptionHandlingTest checks signalContext is non-nil");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testExceptionCarriesSignaler") != NULL, 1,
+              "ExceptionHandlingTest covers signaler on raised exceptions");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "ex signaler == Error") != NULL, 1,
+              "ExceptionHandlingTest checks signaler identity");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,
                              sizeof(smalltalk_self_test_suite_src)), 1,

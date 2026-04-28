@@ -9,7 +9,7 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 7.
+    selectors := Array new: 9.
     selectors at: 1 put: #testOnDoCatchesSignaledException.
     selectors at: 2 put: #testInnerHandlerWins.
     selectors at: 3 put: #testEnsureRunsOnNormalCompletion.
@@ -17,6 +17,8 @@ testSelectors
     selectors at: 5 put: #testExceptionCarriesMessageText.
     selectors at: 6 put: #testResumeReturnsHandlerValue.
     selectors at: 7 put: #testErrorHandlerDoesNotCatchException.
+    selectors at: 8 put: #testExceptionCarriesSignalContext.
+    selectors at: 9 put: #testExceptionCarriesSignaler.
     ^ selectors
 !
 
@@ -121,4 +123,20 @@ testErrorHandlerDoesNotCatchException
         ] on: Error do: [2]
     ] on: Exception do: [3].
     ^ self assert: value equals: 3
+!
+
+testExceptionCarriesSignalContext
+    | value |
+    value := [
+        self signalTestError
+    ] on: Error do: [:ex | ex signalContext == nil].
+    ^ self deny: value
+!
+
+testExceptionCarriesSignaler
+    | value |
+    value := [
+        self signalTestError
+    ] on: Error do: [:ex | ex signaler == Error].
+    ^ self assert: value
 !

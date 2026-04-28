@@ -795,6 +795,225 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
+        uint64_t *saved_smalltalk = global_smalltalk_dictionary;
+        uint64_t *array_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        uint64_t *association_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        uint64_t *dictionary_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        uint64_t *meta_parent_class;
+        uint64_t *meta_child_class;
+        uint64_t *meta_child_meta;
+        uint64_t *lookup_cm;
+        uint64_t *caller_bc;
+        uint64_t *caller_lits;
+        uint64_t *caller_cm;
+        uint64_t *sp;
+        uint64_t *fp;
+        uint64_t result;
+
+        OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        OBJ_FIELD(array_class, CLASS_INST_VARS) = tagged_nil();
+
+        OBJ_FIELD(association_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(association_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(association_class, CLASS_INST_VARS) = tagged_nil();
+
+        OBJ_FIELD(dictionary_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(dictionary_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(dictionary_class, CLASS_INST_VARS) = tagged_nil();
+
+        global_smalltalk_dictionary = om_alloc(ctx->om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+
+        smalltalk_at_put(ctx->om, array_class, association_class, "String", (uint64_t)ctx->string_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Array", (uint64_t)array_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Association", (uint64_t)association_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Symbol", (uint64_t)ctx->symbol_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Character", (uint64_t)ctx->character_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "SmallInteger", (uint64_t)ctx->smallint_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Integer", (uint64_t)ctx->smallint_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Object", (uint64_t)ctx->test_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Class", (uint64_t)ctx->class_class);
+
+        meta_parent_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                            array_class, association_class,
+                                            "MetaParent", ctx->test_class,
+                                            NULL, 0, BC_CLASS_FORMAT_FIELDS);
+        meta_child_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                           array_class, association_class,
+                                           "MetaChild", meta_parent_class,
+                                           NULL, 0, BC_CLASS_FORMAT_FIELDS);
+        ASSERT_EQ(ctx, meta_parent_class != NULL, 1, "define MetaParent");
+        ASSERT_EQ(ctx, meta_child_class != NULL, 1, "define MetaChild");
+
+        {
+            BClassBinding bindings[] = {
+                {"MetaParent", meta_parent_class},
+                {"MetaChild", meta_child_class},
+            };
+            const char *source =
+                "!MetaParent class methodsFor: 'testing'!\n"
+                "answer\n"
+                "    ^ 42\n"
+                "!\n";
+            ASSERT_EQ(ctx,
+                      bc_compile_and_install_source_methods(ctx->om, ctx->class_class, bindings, 2, source),
+                      1, "compile parent class-side answer");
+        }
+
+        meta_child_meta = (uint64_t *)OBJ_CLASS(meta_child_class);
+        lookup_cm = (uint64_t *)class_lookup(meta_child_meta, intern_cstring_symbol(ctx->om, "answer"));
+        ASSERT_EQ(ctx, lookup_cm != NULL, 1, "subclass metaclass inherits parent class-side methods");
+
+        caller_bc = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_BYTES, 12);
+        {
+            uint8_t *bytes = (uint8_t *)&OBJ_FIELD(caller_bc, 0);
+            bytes[0] = BC_PUSH_SELF;
+            bytes[1] = BC_SEND_MESSAGE;
+            WRITE_U32(&bytes[2], 0);
+            WRITE_U32(&bytes[6], 0);
+            bytes[10] = BC_RETURN;
+            bytes[11] = BC_HALT;
+        }
+
+        caller_lits = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_INDEXABLE, 1);
+        OBJ_FIELD(caller_lits, 0) = intern_cstring_symbol(ctx->om, "answer");
+
+        caller_cm = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        OBJ_FIELD(caller_cm, CM_PRIMITIVE) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_ARGS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_NUM_TEMPS) = tag_smallint(0);
+        OBJ_FIELD(caller_cm, CM_LITERALS) = (uint64_t)caller_lits;
+        OBJ_FIELD(caller_cm, CM_BYTECODES) = (uint64_t)caller_bc;
+
+        sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, ctx->stack, (uint64_t)meta_child_class);
+        activate_method(&sp, &fp, 0, (uint64_t)caller_cm, 0, 0);
+        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(caller_bc, 0), ctx->class_table, ctx->om, NULL);
+        ASSERT_EQ(ctx, result, tag_smallint(42), "subclass class object executes inherited class-side method");
+
+        global_smalltalk_dictionary = saved_smalltalk;
+    }
+
+    {
+        uint64_t *saved_smalltalk = global_smalltalk_dictionary;
+        uint64_t *array_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        uint64_t *association_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        uint64_t *dictionary_class = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        uint64_t *exception_meta;
+        uint64_t *exception_class;
+        uint64_t *error_class;
+        uint64_t *handler_test_class;
+        uint64_t *handler_test_instance;
+        uint64_t *handler_cm;
+        uint64_t *handler_bc;
+        uint64_t *sp;
+        uint64_t *fp;
+        uint64_t result;
+
+        OBJ_FIELD(array_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(array_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(array_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_INDEXABLE);
+        OBJ_FIELD(array_class, CLASS_INST_VARS) = tagged_nil();
+
+        OBJ_FIELD(association_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(association_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(association_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(association_class, CLASS_INST_VARS) = tagged_nil();
+
+        OBJ_FIELD(dictionary_class, CLASS_SUPERCLASS) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(dictionary_class, CLASS_INST_SIZE) = tag_smallint(2);
+        OBJ_FIELD(dictionary_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(dictionary_class, CLASS_INST_VARS) = tagged_nil();
+
+        global_smalltalk_dictionary = om_alloc(ctx->om, (uint64_t)dictionary_class, FORMAT_FIELDS, 2);
+        OBJ_FIELD(global_smalltalk_dictionary, 0) = tagged_nil();
+        OBJ_FIELD(global_smalltalk_dictionary, 1) = tag_smallint(0);
+
+        smalltalk_at_put(ctx->om, array_class, association_class, "String", (uint64_t)ctx->string_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Array", (uint64_t)array_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Association", (uint64_t)association_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Dictionary", (uint64_t)dictionary_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Symbol", (uint64_t)ctx->symbol_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Character", (uint64_t)ctx->character_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "SmallInteger", (uint64_t)ctx->smallint_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Integer", (uint64_t)ctx->smallint_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Object", (uint64_t)ctx->test_class);
+
+        exception_meta = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 5);
+        exception_class = om_alloc(ctx->om, (uint64_t)exception_meta, FORMAT_FIELDS, 5);
+        error_class = om_alloc(ctx->om, (uint64_t)exception_meta, FORMAT_FIELDS, 5);
+
+        OBJ_FIELD(exception_meta, CLASS_SUPERCLASS) = (uint64_t)ctx->class_class;
+        OBJ_FIELD(exception_meta, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(exception_meta, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(exception_meta, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(exception_meta, CLASS_INST_VARS) = tagged_nil();
+
+        OBJ_FIELD(exception_class, CLASS_SUPERCLASS) = (uint64_t)ctx->test_class;
+        OBJ_FIELD(exception_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(exception_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(exception_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(exception_class, CLASS_INST_VARS) = tagged_nil();
+
+        OBJ_FIELD(error_class, CLASS_SUPERCLASS) = (uint64_t)exception_class;
+        OBJ_FIELD(error_class, CLASS_METHOD_DICT) = tagged_nil();
+        OBJ_FIELD(error_class, CLASS_INST_SIZE) = tag_smallint(0);
+        OBJ_FIELD(error_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+        OBJ_FIELD(error_class, CLASS_INST_VARS) = tagged_nil();
+
+        smalltalk_at_put(ctx->om, array_class, association_class, "Exception", (uint64_t)exception_class);
+        smalltalk_at_put(ctx->om, array_class, association_class, "Error", (uint64_t)error_class);
+
+        handler_test_class = bc_define_class(ctx->om, ctx->class_class, ctx->string_class,
+                                             array_class, association_class,
+                                             "HandlerGlobalRefTest", ctx->test_class,
+                                             NULL, 0, BC_CLASS_FORMAT_FIELDS);
+        ASSERT_EQ(ctx, handler_test_class != NULL, 1, "define HandlerGlobalRefTest");
+
+        {
+            BClassBinding bindings[] = {
+                {"HandlerGlobalRefTest", handler_test_class},
+                {"Exception", exception_class},
+                {"Error", error_class},
+            };
+            const char *source =
+                "!HandlerGlobalRefTest methodsFor: 'testing'!\n"
+                "blockReferencesGlobal\n"
+                "    ^ [Error] value\n"
+                "!\n";
+            ASSERT_EQ(ctx,
+                      bc_compile_and_install_source_methods(ctx->om, ctx->class_class, bindings, 3, source),
+                      1, "compile global reference inside block");
+        }
+
+        handler_cm = (uint64_t *)class_lookup(handler_test_class, intern_cstring_symbol(ctx->om, "blockReferencesGlobal"));
+        ASSERT_EQ(ctx, handler_cm != NULL, 1, "HandlerGlobalRefTest>>blockReferencesGlobal installed");
+        handler_bc = (uint64_t *)OBJ_FIELD(handler_cm, CM_BYTECODES);
+        handler_test_instance = om_alloc(ctx->om, (uint64_t)handler_test_class, FORMAT_FIELDS, 0);
+        sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, ctx->stack, (uint64_t)handler_test_instance);
+        activate_method(&sp, &fp, 0, (uint64_t)handler_cm, 0, 0);
+        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(handler_bc, 0), ctx->class_table, ctx->om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)error_class, "global references resolve correctly inside blocks");
+
+        global_smalltalk_dictionary = saved_smalltalk;
+    }
+
+    {
         uint64_t *sample_meta = om_alloc(ctx->om, (uint64_t)ctx->class_class, FORMAT_FIELDS, 4);
         OBJ_FIELD(sample_meta, CLASS_SUPERCLASS) = tagged_nil();
         OBJ_FIELD(sample_meta, CLASS_METHOD_DICT) = tagged_nil();

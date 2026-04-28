@@ -2966,14 +2966,15 @@ ObjPtr bc_define_class(Om om, ObjPtr class_class, ObjPtr string_class,
                           BClassFormat format)
 {
     int64_t inherited_inst_size = 0;
-    // Metaclass holds class-side methods. It inherits from Class so
-    // Class>>new/basicNew stay reachable from user-defined classes.
+    // Metaclass holds class-side methods. It inherits from the superclass's
+    // metaclass when a superclass exists, otherwise from Class itself.
     uint64_t *metaclass = om_alloc(om, (uint64_t)class_class, 0, 5);
     if (metaclass == NULL)
     {
         return NULL;
     }
-    BC_OBJ_FIELD(metaclass, BC_CLASS_SUPERCLASS) = (uint64_t)class_class;
+    BC_OBJ_FIELD(metaclass, BC_CLASS_SUPERCLASS) =
+        superclass != NULL ? OBJ_CLASS(superclass) : (uint64_t)class_class;
     BC_OBJ_FIELD(metaclass, BC_CLASS_METHOD_DICT) = tagged_nil();
     BC_OBJ_FIELD(metaclass, BC_CLASS_INST_SIZE) = tag_smallint(0);
     BC_OBJ_FIELD(metaclass, BC_CLASS_INST_FORMAT) = tag_smallint(0);

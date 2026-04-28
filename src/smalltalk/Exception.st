@@ -1,4 +1,4 @@
-Object subclass: #Exception instanceVariableNames: 'messageText'
+Object subclass: #Exception instanceVariableNames: 'messageText signalContext signaler'
 
 !Exception methodsFor: 'accessing'!
 messageText
@@ -10,13 +10,44 @@ messageText: aString
     ^ aString
 !
 
+signalContext
+    ^ signalContext
+!
+
+signalContext: aContext
+    signalContext := aContext.
+    ^ aContext
+!
+
+signaler
+    ^ signaler
+!
+
+signaler: anObject
+    signaler := anObject.
+    ^ anObject
+!
+
 !Exception methodsFor: 'exceptions'!
+signal
+    <primitive: 37>
+    ^ self
+!
+
 resume: aValue
     ^ aValue
 !
 
+defaultAction
+    ^ self halt
+!
+
 !Exception class methodsFor: 'exceptions'!
 signal: aString
-    <primitive: 37>
-    ^ nil
+    | exception |
+    exception := self new.
+    exception messageText: aString.
+    exception signalContext: thisContext sender.
+    exception signaler: thisContext receiver.
+    ^ exception signal
 !

@@ -39,3 +39,14 @@ includesSelector: aSelector
 sourceAtSelector: aSelector
     ^ Dictionary smalltalk methodSourceForClass: self name selector: aSelector
 !
+
+!Class methodsFor: 'matching'!
+handlesSignalClass: aClass
+    aClass == nil
+        ifTrue: [^ false]
+        ifFalse: [
+            self == aClass
+                ifTrue: [^ true]
+                ifFalse: [^ self handlesSignalClass: aClass superclass]
+        ]
+!

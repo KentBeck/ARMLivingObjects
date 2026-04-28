@@ -18,6 +18,7 @@ extern void activate_context(Oop **sp_ptr, ObjPtr *fp_ptr, uint64_t saved_ip,
 extern uint64_t tag_smallint(int64_t value);
 extern int64_t untag_smallint(uint64_t tagged);
 extern Oop prim_string_as_symbol(Oop receiver);
+extern Oop intern_cstring_symbol(Om om, const char *text);
 extern Oop prim_class_superclass(Oop receiver);
 extern Oop prim_class_name(Oop receiver);
 extern Oop prim_class_includes_selector(Oop receiver, Oop selector);
@@ -228,8 +229,13 @@ static uint64_t block_copied_count(Oop block);
 static void mark_block_frame(ObjPtr fp, Oop block);
 static void populate_block_copied_values(ObjPtr fp, Oop block, uint64_t copied_count);
 static uint64_t block_num_args(Oop block);
-static void propagate_signal(Oop signal_class, Oop signal_payload);
-static int class_matches_exception(Oop handler_class, Oop signal_class);
+static Oop invoke_message_with_one_arg(Oop **sp_ptr, ObjPtr *fp_ptr, Oop receiver,
+                                       Oop selector, Oop arg, ObjPtr class_table,
+                                       Om om, Oop *txn_log);
+static void propagate_signal(Oop **sp_ptr, ObjPtr *fp_ptr, Oop signal_class,
+                             Oop signal_payload, ObjPtr class_table, Om om, Oop *txn_log);
+static int class_matches_exception(Oop **sp_ptr, ObjPtr *fp_ptr, Oop handler_class,
+                                   Oop signal_class, ObjPtr class_table, Om om, Oop *txn_log);
 
 static int activate_block_call(Oop **sp_ptr, ObjPtr *fp_ptr,
                                uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
@@ -307,7 +313,48 @@ static uint64_t block_num_args(Oop block)
     return (uint64_t)untag_smallint(OBJ_FIELD(block_method, CM_NUM_ARGS));
 }
 
-static void propagate_signal(Oop signal_class, Oop signal_payload)
+static Oop invoke_message_with_one_arg(Oop **sp_ptr, ObjPtr *fp_ptr, Oop receiver,
+                                       Oop selector, Oop arg, ObjPtr class_table,
+                                       Om om, Oop *txn_log)
+{
+    ObjPtr dispatch_class;
+    Oop method_oop;
+    ObjPtr method;
+    ObjPtr bytecodes;
+    uint64_t num_args;
+    uint64_t num_temps;
+    Oop *saved_sp = *sp_ptr;
+    ObjPtr saved_fp = *fp_ptr;
+    Oop *call_sp = saved_sp;
+    ObjPtr call_fp = saved_fp;
+
+    dispatch_class = (ObjPtr)oop_class(receiver, class_table);
+    method_oop = class_lookup(dispatch_class, selector);
+    if (!is_object_value(method_oop))
+    {
+        raise(SIGTRAP);
+        return TAGGED_NIL;
+    }
+
+    method = (ObjPtr)method_oop;
+    bytecodes = (ObjPtr)OBJ_FIELD(method, CM_BYTECODES);
+    num_args = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_ARGS));
+    num_temps = (uint64_t)untag_smallint(OBJ_FIELD(method, CM_NUM_TEMPS));
+
+    push(&call_sp, receiver);
+    push(&call_sp, arg);
+    activate_method(&call_sp, &call_fp, 0, method_oop, num_args, num_temps);
+
+    Oop result = interpret(&call_sp, (Oop **)&call_fp,
+                           (uint8_t *)&OBJ_FIELD(bytecodes, 0),
+                           class_table, om, txn_log);
+    *sp_ptr = saved_sp;
+    *fp_ptr = saved_fp;
+    return result;
+}
+
+static void propagate_signal(Oop **sp_ptr, ObjPtr *fp_ptr, Oop signal_class,
+                             Oop signal_payload, ObjPtr class_table, Om om, Oop *txn_log)
 {
     if (current_ensure_frame != NULL)
     {
@@ -320,7 +367,8 @@ static void propagate_signal(Oop signal_class, Oop signal_payload)
         ExceptionHandlerFrame *handler = current_exception_handler;
         while (handler != NULL)
         {
-            if (class_matches_exception(handler->exception_class, signal_class))
+            if (class_matches_exception(sp_ptr, fp_ptr, handler->exception_class, signal_class,
+                                        class_table, om, txn_log))
             {
                 *handler->signaled_exception_slot = signal_payload;
                 longjmp(handler->env, 1);
@@ -332,21 +380,28 @@ static void propagate_signal(Oop signal_class, Oop signal_payload)
     raise(SIGTRAP);
 }
 
-static int class_matches_exception(Oop handler_class, Oop signal_class)
+static int class_matches_exception(Oop **sp_ptr, ObjPtr *fp_ptr, Oop handler_class,
+                                   Oop signal_class, ObjPtr class_table, Om om, Oop *txn_log)
 {
-    Oop current = signal_class;
+    Oop selector;
+    Oop match;
 
-    while (is_object_value(current) && current != TAGGED_NIL)
+    if (!is_object_value(handler_class))
     {
-        if (current == handler_class)
-        {
-            return 1;
-        }
-        current = OBJ_FIELD((ObjPtr)current, CLASS_SUPERCLASS);
+        return 0;
     }
 
-    return 0;
+    selector = intern_cstring_symbol(om, "handlesSignalClass:");
+    if (selector == TAGGED_NIL)
+    {
+        return 0;
+    }
+
+    match = invoke_message_with_one_arg(sp_ptr, fp_ptr, handler_class, selector,
+                                        signal_class, class_table, om, txn_log);
+    return match == TAGGED_TRUE;
 }
+
 
 static Oop allocate_signaled_exception(Oop exception_class, Oop message_text, Om om)
 {
@@ -886,7 +941,8 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                                    class_table, om, txn_log);
         *sp_ptr = saved_sp;
         *fp_ptr = saved_fp;
-        propagate_signal(signaled_class, signaled_payload);
+        propagate_signal(sp_ptr, fp_ptr, signaled_class, signaled_payload,
+                         class_table, om, txn_log);
         return PRIMITIVE_SUCCEEDED;
     }
 
@@ -1582,16 +1638,34 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
         }
 
     case PRIM_SIGNAL:
-        if (arg_count != 1)
-        {
-            return PRIMITIVE_FAILED;
-        }
+        if (arg_count == 1)
         {
             Oop exception = allocate_signaled_exception(receiver, sp[0], om);
             if (current_ensure_frame != NULL || current_exception_handler != NULL)
             {
-                propagate_signal(receiver, exception);
+                propagate_signal(sp_ptr, fp_ptr, receiver, exception,
+                                 *class_table_ptr, om, txn_log);
             }
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        {
+            if (!is_object_value(receiver))
+            {
+                return PRIMITIVE_FAILED;
+            }
+            if (current_ensure_frame != NULL || current_exception_handler != NULL)
+            {
+                propagate_signal(sp_ptr, fp_ptr, OBJ_CLASS((ObjPtr)receiver), receiver,
+                                 *class_table_ptr, om, txn_log);
+            }
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
         }
         raise(SIGTRAP);
         return PRIMITIVE_UNSUPPORTED;
