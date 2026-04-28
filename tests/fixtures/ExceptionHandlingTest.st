@@ -9,12 +9,13 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 5.
+    selectors := Array new: 6.
     selectors at: 1 put: #testOnDoCatchesSignaledException.
     selectors at: 2 put: #testInnerHandlerWins.
     selectors at: 3 put: #testEnsureRunsOnNormalCompletion.
     selectors at: 4 put: #testEnsureRunsOnExceptionalExit.
     selectors at: 5 put: #testExceptionCarriesMessageText.
+    selectors at: 6 put: #testResumeReturnsHandlerValue.
     ^ selectors
 !
 
@@ -108,4 +109,12 @@ testExceptionCarriesMessageText
         self signalTestErrorWith: 'kapow'
     ] on: self errorClass do: [:ex | ex messageText].
     ^ self assert: value equals: 'kapow'
+!
+
+testResumeReturnsHandlerValue
+    | value |
+    value := [
+        self signalTestError
+    ] on: self errorClass do: [:ex | ex resume: 41].
+    ^ self assert: value equals: 41
 !

@@ -1137,7 +1137,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                   "runtime: ExceptionHandlingTest in Smalltalk dict");
         ASSERT_EQ(ctx, class_lookup(exception_handling_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: ExceptionHandlingTest inherits runOn:");
-        run_smalltalk_self_test(ctx, &world, "ExceptionHandlingTest", 5);
+        run_smalltalk_self_test(ctx, &world, "ExceptionHandlingTest", 6);
     }
 
     if (have_method_gen_root)

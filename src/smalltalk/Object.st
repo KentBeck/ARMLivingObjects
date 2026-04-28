@@ -55,6 +55,10 @@ messageText
     ^ self
 !
 
+resume: aValue
+    ^ aValue
+!
+
 !Object methodsFor: 'convenience'!
 yourself
     ^ self
