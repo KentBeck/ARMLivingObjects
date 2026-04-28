@@ -9,13 +9,14 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 6.
+    selectors := Array new: 7.
     selectors at: 1 put: #testOnDoCatchesSignaledException.
     selectors at: 2 put: #testInnerHandlerWins.
     selectors at: 3 put: #testEnsureRunsOnNormalCompletion.
     selectors at: 4 put: #testEnsureRunsOnExceptionalExit.
     selectors at: 5 put: #testExceptionCarriesMessageText.
     selectors at: 6 put: #testResumeReturnsHandlerValue.
+    selectors at: 7 put: #testErrorHandlerDoesNotCatchException.
     ^ selectors
 !
 
@@ -34,11 +35,11 @@ runExceptionHandlingTestsOn: aResult selectors: selectors startingAt: index
 
 !ExceptionHandlingTest methodsFor: 'helpers'!
 exceptionClass
-    ^ Object
+    ^ Exception
 !
 
 errorClass
-    ^ Object
+    ^ Error
 !
 
 signalTestError
@@ -47,6 +48,10 @@ signalTestError
 
 signalTestErrorWith: aString
     ^ self errorClass signal: aString
+!
+
+signalTestException
+    ^ self exceptionClass signal: 'boom'
 !
 
 nestedHandledValue
@@ -117,4 +122,15 @@ testResumeReturnsHandlerValue
         self signalTestError
     ] on: self errorClass do: [:ex | ex resume: 41].
     ^ self assert: value equals: 41
+!
+
+testErrorHandlerDoesNotCatchException
+    | value |
+    value := [
+        [
+            self signalTestException.
+            1
+        ] on: self errorClass do: [2]
+    ] on: self exceptionClass do: [3].
+    ^ self assert: value equals: 3
 !

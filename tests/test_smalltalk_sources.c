@@ -32,6 +32,8 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/Collection.st", "Collection.st corpus compile", 0},
         {"src/smalltalk/Context.st", "Context.st corpus compile", 1},
         {"src/smalltalk/Dictionary.st", "Dictionary.st corpus compile", 1},
+        {"src/smalltalk/Error.st", "Error.st corpus compile", 1},
+        {"src/smalltalk/Exception.st", "Exception.st corpus compile", 1},
         {"src/smalltalk/ExpressionSpecTest.st", "ExpressionSpecTest.st corpus compile", 1},
         {"src/smalltalk/False.st", "False.st corpus compile", 1},
         {"src/smalltalk/LSPDocument.st", "LSPDocument.st corpus compile", 1},
@@ -107,17 +109,25 @@ void test_smalltalk_sources(TestContext *ctx)
               "Object>>== has explicit fallback body");
     ASSERT_EQ(ctx, strstr(object_src, "isNil\n    ^ false") != NULL, 1,
               "Object>>isNil exists");
-    ASSERT_EQ(ctx, strstr(object_src, "signal: aString") != NULL, 1,
-              "Object class>>signal: exists");
-    ASSERT_EQ(ctx, strstr(object_src, "<primitive: 37>") != NULL, 1,
-              "Object class>>signal: uses primitive 37");
-    ASSERT_EQ(ctx, strstr(object_src, "messageText\n    ^ self") != NULL, 1,
-              "Object>>messageText exists as minimal exception payload protocol");
-    ASSERT_EQ(ctx, strstr(object_src, "resume: aValue\n    ^ aValue") != NULL, 1,
-              "Object>>resume: exists as minimal handler-return protocol");
     ASSERT_EQ(ctx, bc_compile_source_methods(object_src, methods, 64, &method_count), 1,
               "Object.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 12, "Object.st method count");
+    ASSERT_EQ(ctx, method_count, 9, "Object.st method count");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Exception.st", class_src, sizeof(class_src)), 1,
+              "src/smalltalk/Exception.st exists");
+    ASSERT_EQ(ctx, strstr(class_src, "Object subclass: #Exception instanceVariableNames: 'messageText'") != NULL, 1,
+              "Exception.st declares Exception with messageText state");
+    ASSERT_EQ(ctx, strstr(class_src, "messageText: aString") != NULL, 1,
+              "Exception.st sets messageText");
+    ASSERT_EQ(ctx, strstr(class_src, "signal: aString") != NULL, 1,
+              "Exception class>>signal: exists");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Error.st", symbol_src, sizeof(symbol_src)), 1,
+              "src/smalltalk/Error.st exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Exception subclass: #Error instanceVariableNames: ''") != NULL, 1,
+              "Error.st declares Error as Exception subclass");
+    ASSERT_EQ(ctx, strstr(symbol_src, "signal: aString") != NULL, 1,
+              "Error class>>signal: exists");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Class.st exists");
@@ -362,6 +372,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "ExceptionHandlingTest covers exception payload access");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testResumeReturnsHandlerValue") != NULL, 1,
               "ExceptionHandlingTest covers handler resume values");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testErrorHandlerDoesNotCatchException") != NULL, 1,
+              "ExceptionHandlingTest covers Error not catching Exception");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "exceptionClass") != NULL, 1,
               "ExceptionHandlingTest isolates future exception globals behind helpers");
 

@@ -221,6 +221,7 @@ static void mark_block_frame(ObjPtr fp, Oop block);
 static void populate_block_copied_values(ObjPtr fp, Oop block, uint64_t copied_count);
 static uint64_t block_num_args(Oop block);
 static void propagate_signal(Oop signal_class, Oop signal_payload);
+static int class_matches_exception(Oop handler_class, Oop signal_class);
 
 static int activate_block_call(Oop **sp_ptr, ObjPtr *fp_ptr,
                                uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
@@ -306,14 +307,79 @@ static void propagate_signal(Oop signal_class, Oop signal_payload)
         longjmp(current_ensure_frame->env, 1);
     }
 
-    if (current_exception_handler != NULL &&
-        current_exception_handler->exception_class == signal_class)
     {
-        *current_exception_handler->signaled_exception_slot = signal_payload;
-        longjmp(current_exception_handler->env, 1);
+        ExceptionHandlerFrame *handler = current_exception_handler;
+        while (handler != NULL)
+        {
+            if (class_matches_exception(handler->exception_class, signal_class))
+            {
+                *handler->signaled_exception_slot = signal_payload;
+                longjmp(handler->env, 1);
+            }
+            handler = handler->previous;
+        }
     }
 
     raise(SIGTRAP);
+}
+
+static int class_matches_exception(Oop handler_class, Oop signal_class)
+{
+    Oop current = signal_class;
+
+    while (is_object_value(current) && current != TAGGED_NIL)
+    {
+        if (current == handler_class)
+        {
+            return 1;
+        }
+        current = OBJ_FIELD((ObjPtr)current, CLASS_SUPERCLASS);
+    }
+
+    return 0;
+}
+
+static Oop allocate_signaled_exception(Oop exception_class, Oop message_text, Om om)
+{
+    ObjPtr klass;
+    ObjPtr exception;
+    Oop inst_size_oop;
+    int64_t inst_size;
+
+    if (!is_object_value(exception_class))
+    {
+        return message_text;
+    }
+
+    klass = (ObjPtr)exception_class;
+    inst_size_oop = OBJ_FIELD(klass, CLASS_INST_SIZE);
+    if (!is_smallint_value(inst_size_oop))
+    {
+        return message_text;
+    }
+
+    inst_size = untag_smallint(inst_size_oop);
+    if (inst_size < 0)
+    {
+        return message_text;
+    }
+
+    exception = om_alloc(om, exception_class, FORMAT_FIELDS, (uint64_t)inst_size);
+    if (exception == NULL)
+    {
+        return message_text;
+    }
+
+    for (int64_t index = 0; index < inst_size; index++)
+    {
+        OBJ_FIELD(exception, (uint64_t)index) = TAGGED_NIL;
+    }
+    if (inst_size > 0)
+    {
+        OBJ_FIELD(exception, 0) = message_text;
+    }
+
+    return (Oop)exception;
 }
 
 static void initialize_word_fields(ObjPtr object, uint64_t size)
@@ -833,7 +899,7 @@ static PrimitiveResult try_smallint_primitive(Oop **sp_ptr, Oop primitive,
 }
 
 static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
-                                           uint64_t arg_count, ObjPtr class_table)
+                                           uint64_t arg_count, ObjPtr class_table, Om om)
 {
     Oop *sp = *sp_ptr;
     Oop receiver = sp[arg_count];
@@ -876,11 +942,12 @@ static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
         {
             return PRIMITIVE_FAILED;
         }
-        if (current_ensure_frame != NULL ||
-            (current_exception_handler != NULL &&
-             current_exception_handler->exception_class == receiver))
         {
-            propagate_signal(receiver, sp[0]);
+            Oop exception = allocate_signaled_exception(receiver, sp[0], om);
+            if (current_ensure_frame != NULL || current_exception_handler != NULL)
+            {
+                propagate_signal(receiver, exception);
+            }
         }
         raise(SIGTRAP);
         return PRIMITIVE_UNSUPPORTED;
@@ -1556,7 +1623,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
-                    result = try_object_primitive(sp_ptr, primitive_id, arg_count, class_table);
+                    result = try_object_primitive(sp_ptr, primitive_id, arg_count, class_table, om);
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {

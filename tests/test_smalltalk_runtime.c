@@ -1129,6 +1129,10 @@ void test_smalltalk_runtime(TestContext *ctx)
 #ifdef ALO_INTERPRETER_C
     ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/BlockClosure.st"), 1,
               "runtime: BlockClosure.st installs methods onto the existing BlockClosure class");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Exception.st") != NULL,
+              1, "runtime: Exception.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Error.st") != NULL,
+              1, "runtime: Error.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ExceptionHandlingTest.st") != NULL,
               1, "runtime: ExceptionHandlingTest.st defines class and installs methods");
     {
@@ -1137,7 +1141,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                   "runtime: ExceptionHandlingTest in Smalltalk dict");
         ASSERT_EQ(ctx, class_lookup(exception_handling_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: ExceptionHandlingTest inherits runOn:");
-        run_smalltalk_self_test(ctx, &world, "ExceptionHandlingTest", 6);
+        run_smalltalk_self_test(ctx, &world, "ExceptionHandlingTest", 7);
     }
 
     if (have_method_gen_root)

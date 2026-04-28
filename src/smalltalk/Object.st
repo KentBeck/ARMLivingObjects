@@ -45,20 +45,6 @@ error: aString
 !
 
 !Object class methodsFor: 'exceptions'!
-signal: aString
-    <primitive: 37>
-    ^ nil
-!
-
-!Object methodsFor: 'exceptions'!
-messageText
-    ^ self
-!
-
-resume: aValue
-    ^ aValue
-!
-
 !Object methodsFor: 'convenience'!
 yourself
     ^ self
