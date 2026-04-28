@@ -34,24 +34,12 @@ runExceptionHandlingTestsOn: aResult selectors: selectors startingAt: index
 !
 
 !ExceptionHandlingTest methodsFor: 'helpers'!
-exceptionClass
-    ^ Exception
-!
-
-errorClass
-    ^ Error
-!
-
 signalTestError
-    ^ self errorClass signal: 'boom'
+    ^ Error signal: 'boom'
 !
 
 signalTestErrorWith: aString
-    ^ self errorClass signal: aString
-!
-
-signalTestException
-    ^ self exceptionClass signal: 'boom'
+    ^ Error signal: aString
 !
 
 nestedHandledValue
@@ -59,8 +47,8 @@ nestedHandledValue
         [
             self signalTestError.
             1
-        ] on: self errorClass do: [2]
-    ] on: self exceptionClass do: [3]
+        ] on: Error do: [2]
+    ] on: Exception do: [3]
 !
 
 !ExceptionHandlingTest methodsFor: 'tests'!
@@ -69,7 +57,7 @@ testOnDoCatchesSignaledException
     value := [
         self signalTestError.
         1
-    ] on: self errorClass do: [2].
+    ] on: Error do: [2].
     ^ self assert: value equals: 2
 !
 
@@ -102,7 +90,7 @@ testEnsureRunsOnExceptionalExit
         ] ensure: [
             steps at: 2 put: #ensure
         ]
-    ] on: self errorClass do: [2].
+    ] on: Error do: [2].
     ^ self assert:
         (value = 2 and: [
             (steps at: 1) = #body and: [(steps at: 2) = #ensure]])
@@ -112,7 +100,7 @@ testExceptionCarriesMessageText
     | value |
     value := [
         self signalTestErrorWith: 'kapow'
-    ] on: self errorClass do: [:ex | ex messageText].
+    ] on: Error do: [:ex | ex messageText].
     ^ self assert: value equals: 'kapow'
 !
 
@@ -120,7 +108,7 @@ testResumeReturnsHandlerValue
     | value |
     value := [
         self signalTestError
-    ] on: self errorClass do: [:ex | ex resume: 41].
+    ] on: Error do: [:ex | ex resume: 41].
     ^ self assert: value equals: 41
 !
 
@@ -128,9 +116,9 @@ testErrorHandlerDoesNotCatchException
     | value |
     value := [
         [
-            self signalTestException.
+            Exception signal: 'boom'.
             1
-        ] on: self errorClass do: [2]
-    ] on: self exceptionClass do: [3].
+        ] on: Error do: [2]
+    ] on: Exception do: [3].
     ^ self assert: value equals: 3
 !

@@ -354,7 +354,7 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, read_file("tests/fixtures/ExceptionHandlingTest.st", exception_handling_test_src,
                              sizeof(exception_handling_test_src)), 1,
               "tests/fixtures/ExceptionHandlingTest.st exists");
-    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "on: self errorClass do:") != NULL, 1,
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "on: Error do:") != NULL, 1,
               "ExceptionHandlingTest covers handler activation");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "do: [2]") != NULL, 1,
               "ExceptionHandlingTest starts with zero-argument handler coverage");
@@ -374,8 +374,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "ExceptionHandlingTest covers handler resume values");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testErrorHandlerDoesNotCatchException") != NULL, 1,
               "ExceptionHandlingTest covers Error not catching Exception");
-    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "exceptionClass") != NULL, 1,
-              "ExceptionHandlingTest isolates future exception globals behind helpers");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "Exception signal: 'boom'.") != NULL, 1,
+              "ExceptionHandlingTest inlines Exception signaling for hierarchy coverage");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,
                              sizeof(smalltalk_self_test_suite_src)), 1,
