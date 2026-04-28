@@ -9,12 +9,13 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 5.
+    selectors := Array new: 6.
     selectors at: 1 put: #testSimpleBlockActivation.
     selectors at: 2 put: #testNestedBlockActivation.
     selectors at: 3 put: #testBlockStoredInTempInsideBlock.
     selectors at: 4 put: #testNestedBlockUsesOuterTempBlock.
     selectors at: 5 put: #testOneArgumentBlockActivation.
+    selectors at: 6 put: #testNestedZeroArgumentBlocks.
     ^ selectors
 !
 
@@ -56,6 +57,10 @@ activateOneArgumentBlockWith: aValue
     ^ [:arg | arg] value: aValue
 !
 
+activateNestedZeroArgumentBlocks
+    ^ [[2] value] value
+!
+
 !BlockActivationTest methodsFor: 'tests'!
 testSimpleBlockActivation
     ^ self assert: self activateSimpleBlock equals: 1
@@ -75,4 +80,8 @@ testNestedBlockUsesOuterTempBlock
 
 testOneArgumentBlockActivation
     ^ self assert: (self activateOneArgumentBlockWith: 19) equals: 19
+!
+
+testNestedZeroArgumentBlocks
+    ^ self assert: self activateNestedZeroArgumentBlocks equals: 2
 !

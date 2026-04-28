@@ -90,6 +90,63 @@ static void run_smalltalk_self_test(TestContext *ctx, SmalltalkWorld *world,
     ASSERT_EQ(ctx, last_backtrace, tagged_nil(), "runtime: passing Smalltalk suite leaves lastBacktrace nil");
 }
 
+static int copy_symbol_to_cstring(Oop symbol_oop, char *buffer, size_t capacity)
+{
+    ObjPtr symbol;
+    uint64_t size;
+
+    if (!is_object_ptr(symbol_oop) || capacity == 0)
+    {
+        return 0;
+    }
+
+    symbol = (ObjPtr)symbol_oop;
+    size = OBJ_SIZE(symbol);
+    if (size + 1 > capacity)
+    {
+        return 0;
+    }
+
+    memcpy(buffer, &OBJ_FIELD(symbol, 0), (size_t)size);
+    buffer[size] = '\0';
+    return 1;
+}
+
+static void run_smalltalk_direct_tests(TestContext *ctx, SmalltalkWorld *world,
+                                       const char *class_name, int expected_tests)
+{
+    uint64_t *test_class = smalltalk_world_lookup_class(world, class_name);
+    Oop selectors;
+    Oop selector_count;
+    int pass_count = 0;
+
+    ASSERT_EQ(ctx, test_class != NULL, 1, "runtime: direct Smalltalk test class available");
+    selectors = sw_send0(world, ctx, (Oop)test_class, world->class_class, "testSelectors");
+    ASSERT_EQ(ctx, is_object_ptr(selectors), 1, "runtime: direct Smalltalk selectors array exists");
+    selector_count = sw_send0(world, ctx, selectors, NULL, "size");
+    ASSERT_EQ(ctx, selector_count, tag_smallint(expected_tests),
+              "runtime: direct Smalltalk test selector count");
+
+    for (int index = 1; index <= expected_tests; index++)
+    {
+        Oop selector = sw_send1(world, ctx, selectors, NULL, "at:", tag_smallint(index));
+        Oop test_case = sw_send0(world, ctx, (Oop)test_class, world->class_class, "new");
+        char selector_name[128];
+        Oop result;
+
+        ASSERT_EQ(ctx, is_object_ptr(selector), 1, "runtime: direct Smalltalk test selector exists");
+        ASSERT_EQ(ctx, is_object_ptr(test_case), 1, "runtime: direct Smalltalk test instance exists");
+        ASSERT_EQ(ctx, copy_symbol_to_cstring(selector, selector_name, sizeof(selector_name)), 1,
+                  "runtime: direct Smalltalk selector name copied");
+
+        result = sw_send0(world, ctx, test_case, NULL, selector_name);
+        ASSERT_EQ(ctx, result, TAGGED_TRUE, "runtime: direct Smalltalk test passes");
+        pass_count++;
+    }
+
+    print_smalltalk_suite_progress(class_name, pass_count, 0);
+}
+
 #ifdef ALO_INTERPRETER_C
 static SmalltalkWorld *trap_world = NULL;
 
@@ -1066,6 +1123,8 @@ void test_smalltalk_runtime(TestContext *ctx)
               1, "runtime: Context.st installs methods onto the existing Context class");
     ASSERT_EQ(ctx, class_lookup(world.context_class, intern_cstring_symbol(world.om, "sender")) != 0,
               1, "runtime: Context.st installs sender");
+    ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/Object.st") != NULL,
+              1, "runtime: Object.st installs methods onto the existing Object class");
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestResult.st") != NULL,
               1, "runtime: TestResult.st defines class and installs methods");
@@ -1076,12 +1135,27 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, class_lookup(test_result_class, intern_cstring_symbol(world.om, "failureBacktraces")) != 0,
               1, "runtime: TestResult.st installs failureBacktraces");
 
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Exception.st") != NULL,
+              1, "runtime: Exception.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Error.st") != NULL,
+              1, "runtime: Error.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/True.st") != NULL,
+              1, "runtime: True.st installs methods onto the existing True class");
+    ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/False.st") != NULL,
+              1, "runtime: False.st installs methods onto the existing False class");
+    {
+        ASSERT_EQ(ctx, class_lookup(world.true_class, intern_cstring_symbol(world.om, "ifTrue:ifFalse:")) != 0, 1,
+                  "runtime: True class handles ifTrue:ifFalse:");
+        ASSERT_EQ(ctx, class_lookup(world.false_class, intern_cstring_symbol(world.om, "ifTrue:ifFalse:")) != 0, 1,
+                  "runtime: False class handles ifTrue:ifFalse:");
+    }
+
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestCase.st") != NULL,
               1, "runtime: TestCase.st defines class and installs methods");
     uint64_t *test_case_class = smalltalk_world_lookup_class(&world, "TestCase");
     ASSERT_EQ(ctx, test_case_class != NULL, 1, "runtime: TestCase in Smalltalk dict");
-    ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_case_class, CLASS_INST_SIZE)), 5,
-              "runtime: TestCase.st class declaration has five instance variables");
+    ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(test_case_class, CLASS_INST_SIZE)), 2,
+              "runtime: TestCase.st class declaration has two instance variables");
     ASSERT_EQ(ctx, class_lookup(test_case_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
               1, "runtime: TestCase.st installs runOn:");
 
@@ -1096,21 +1170,29 @@ void test_smalltalk_runtime(TestContext *ctx)
     ASSERT_EQ(ctx, class_lookup(test_suite_class, intern_cstring_symbol(world.om, "add:")) != 0,
               1, "runtime: TestSuite.st installs add:");
 
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/BlockClosure.st"), 1,
+              "runtime: BlockClosure.st installs methods onto the existing BlockClosure class");
+
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ContextTest.st") != NULL,
               1, "runtime: ContextTest.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/BlockActivationTest.st") != NULL,
               1, "runtime: BlockActivationTest.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ExceptionHandlingTest.st") != NULL,
+              1, "runtime: ExceptionHandlingTest.st defines class and installs methods");
     {
         uint64_t *context_test_class = smalltalk_world_lookup_class(&world, "ContextTest");
         uint64_t *block_activation_test_class = smalltalk_world_lookup_class(&world, "BlockActivationTest");
+        uint64_t *exception_handling_test_class = smalltalk_world_lookup_class(&world, "ExceptionHandlingTest");
         ASSERT_EQ(ctx, context_test_class != NULL, 1, "runtime: ContextTest in Smalltalk dict");
         ASSERT_EQ(ctx, block_activation_test_class != NULL, 1, "runtime: BlockActivationTest in Smalltalk dict");
+        ASSERT_EQ(ctx, exception_handling_test_class != NULL, 1, "runtime: ExceptionHandlingTest in Smalltalk dict");
         ASSERT_EQ(ctx, class_lookup(context_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: ContextTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(block_activation_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: BlockActivationTest inherits runOn:");
+        ASSERT_EQ(ctx, class_lookup(exception_handling_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+                  1, "runtime: ExceptionHandlingTest inherits runOn:");
     }
-
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/SmalltalkSelfTestSuite.st") != NULL,
               1, "runtime: SmalltalkSelfTestSuite.st defines class and installs methods");
     {
@@ -1123,27 +1205,14 @@ void test_smalltalk_runtime(TestContext *ctx)
         ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(smalltalk_self_test_suite_class),
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
-        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 11);
-    }
-
 #ifdef ALO_INTERPRETER_C
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/BlockClosure.st"), 1,
-              "runtime: BlockClosure.st installs methods onto the existing BlockClosure class");
-    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Exception.st") != NULL,
-              1, "runtime: Exception.st defines class and installs methods");
-    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Error.st") != NULL,
-              1, "runtime: Error.st defines class and installs methods");
-    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ExceptionHandlingTest.st") != NULL,
-              1, "runtime: ExceptionHandlingTest.st defines class and installs methods");
-    {
-        uint64_t *exception_handling_test_class = smalltalk_world_lookup_class(&world, "ExceptionHandlingTest");
-        ASSERT_EQ(ctx, exception_handling_test_class != NULL, 1,
-                  "runtime: ExceptionHandlingTest in Smalltalk dict");
-        ASSERT_EQ(ctx, class_lookup(exception_handling_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
-                  1, "runtime: ExceptionHandlingTest inherits runOn:");
-        run_smalltalk_self_test(ctx, &world, "ExceptionHandlingTest", 7);
+        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 19);
+#else
+        run_smalltalk_direct_tests(ctx, &world, "ContextTest", 6);
+        run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);
+#endif
     }
-
+#ifdef ALO_INTERPRETER_C
     if (have_method_gen_root)
     {
         static uint8_t compiler_gc_buf[32 * 1024 * 1024] __attribute__((aligned(8)));

@@ -121,6 +121,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Exception.st sets messageText");
     ASSERT_EQ(ctx, strstr(class_src, "signal: aString") != NULL, 1,
               "Exception class>>signal: exists");
+    ASSERT_EQ(ctx, strstr(class_src, "<primitive: 37>") != NULL, 1,
+              "Exception class>>signal: uses primitive 37");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Error.st", symbol_src, sizeof(symbol_src)), 1,
               "src/smalltalk/Error.st exists");
@@ -128,6 +130,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Error.st declares Error as Exception subclass");
     ASSERT_EQ(ctx, strstr(symbol_src, "signal: aString") != NULL, 1,
               "Error class>>signal: exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "<primitive: 37>") != NULL, 1,
+              "Error class>>signal: uses primitive 37");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Class.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Class.st exists");
@@ -321,13 +325,15 @@ void test_smalltalk_sources(TestContext *ctx)
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/TestCase.st", test_case_src, sizeof(test_case_src)), 1,
               "src/smalltalk/TestCase.st exists");
-    ASSERT_EQ(ctx, strstr(test_case_src, "backtraceFrom: aContext") != NULL, 1,
-              "TestCase captures failure backtraces");
     ASSERT_EQ(ctx, strstr(test_case_src, "selfTest") != NULL, 1,
               "TestCase has class-side selfTest entrypoint");
     ASSERT_EQ(ctx, bc_compile_source_methods(test_case_src, methods, 64, &method_count), 1,
               "TestCase.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 23, "TestCase.st method count");
+    ASSERT_EQ(ctx, method_count, 16, "TestCase.st method count");
+    ASSERT_EQ(ctx, strstr(test_case_src, "failureCountBefore := aResult failureCount.") != NULL, 1,
+              "TestCase snapshots failure count before running a selector");
+    ASSERT_EQ(ctx, strstr(test_case_src, "result recordFailure: self selector: selector reason: aSymbol.") != NULL, 1,
+              "TestCase records failures directly on TestResult");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/TestSuite.st", test_suite_src, sizeof(test_suite_src)), 1,
               "src/smalltalk/TestSuite.st exists");
@@ -350,6 +356,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "BlockActivationTest covers nested blocks invoking outer temp blocks");
     ASSERT_EQ(ctx, strstr(block_activation_test_src, "testOneArgumentBlockActivation") != NULL, 1,
               "BlockActivationTest covers one-argument block activation");
+    ASSERT_EQ(ctx, strstr(block_activation_test_src, "testNestedZeroArgumentBlocks") != NULL, 1,
+              "BlockActivationTest covers nested zero-argument block activation");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/ExceptionHandlingTest.st", exception_handling_test_src,
                              sizeof(exception_handling_test_src)), 1,
@@ -386,6 +394,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "SmalltalkSelfTestSuite includes ContextTest");
     ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: BlockActivationTest to: suite startingAt: 1.") != NULL, 1,
               "SmalltalkSelfTestSuite includes BlockActivationTest");
+    ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: ExceptionHandlingTest to: suite startingAt: 1.") != NULL, 1,
+              "SmalltalkSelfTestSuite includes ExceptionHandlingTest");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
               "src/smalltalk/Tokenizer.st exists");

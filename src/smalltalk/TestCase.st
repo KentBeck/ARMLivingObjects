@@ -1,7 +1,7 @@
-"TestCase — minimal xUnit test case without exceptions"
-"Instance variables: selector, result, failed, failureReason, failureBacktrace"
+"TestCase — minimal xUnit test case"
+"Instance variables: selector, result"
 
-Object subclass: #TestCase instanceVariableNames: 'selector result failed failureReason failureBacktrace'
+Object subclass: #TestCase instanceVariableNames: 'selector result'
 
 !TestCase class methodsFor: 'instance creation'!
 selector: aSelector
@@ -44,14 +44,6 @@ result
     ^ result
 !
 
-failureReason
-    ^ failureReason
-!
-
-failureBacktrace
-    ^ failureBacktrace
-!
-
 !TestCase methodsFor: 'running'!
 setUp
     ^ self
@@ -62,79 +54,43 @@ tearDown
 !
 
 runOn: aResult
+    | failureCountBefore |
     result := aResult.
-    failed := false.
-    failureReason := nil.
-    failureBacktrace := nil.
+    failureCountBefore := aResult failureCount.
     self setUp.
     self perform: selector.
     self tearDown.
-    failed
-        ifTrue: [aResult recordFailure: self selector: selector reason: failureReason backtrace: failureBacktrace]
-        ifFalse: [aResult recordPass: self selector: selector].
-    ^ aResult
+    ^ (aResult failureCount = failureCountBefore)
+        ifTrue: [aResult recordPass: self selector: selector]
+        ifFalse: [self]
 !
 
 !TestCase methodsFor: 'asserting'!
 assert: aBoolean
-    ^ self assert: aBoolean description: #assertionFailed context: thisContext sender
+    ^ self assert: aBoolean description: #assertionFailed
 !
 
 assert: aBoolean description: aSymbol
-    ^ self assert: aBoolean description: aSymbol context: thisContext sender
-!
-
-assert: aBoolean description: aSymbol context: aContext
     aBoolean
         ifTrue: [^ true]
-        ifFalse: [^ self failWith: aSymbol context: aContext]
+        ifFalse: [^ self failWith: aSymbol]
 !
 
-failWith: aSymbol context: aContext
-    failed := true.
-    failureReason := aSymbol.
-    failureBacktrace == nil
-        ifTrue: [failureBacktrace := self backtraceFrom: aContext]
-        ifFalse: [failureBacktrace].
+failWith: aSymbol
+    result recordFailure: self selector: selector reason: aSymbol.
     ^ false
 !
 
 assert: actual equals: expected
-    ^ self assert: (actual = expected) description: #equalityFailed context: thisContext sender
+    ^ self assert: (actual = expected) description: #equalityFailed
 !
 
 deny: aBoolean
-    ^ self deny: aBoolean description: #denialFailed context: thisContext sender
+    ^ self deny: aBoolean description: #denialFailed
 !
 
 deny: aBoolean description: aSymbol
-    ^ self deny: aBoolean description: aSymbol context: thisContext sender
-!
-
-deny: aBoolean description: aSymbol context: aContext
     aBoolean
-        ifTrue: [^ self failWith: aSymbol context: aContext]
+        ifTrue: [^ self failWith: aSymbol]
         ifFalse: [^ true]
-!
-
-backtraceFrom: aContext
-    | result size |
-    size := self backtraceSizeOf: aContext.
-    result := Array new: size.
-    ^ self writeBacktrace: aContext into: result at: 1
-!
-
-backtraceSizeOf: aContext
-    ^ (aContext == nil)
-        ifTrue: [0]
-        ifFalse: [1 + (self backtraceSizeOf: aContext sender)]
-!
-
-writeBacktrace: aContext into: anArray at: index
-    ^ (aContext == nil)
-        ifTrue: [anArray]
-        ifFalse: [
-            anArray at: index put: aContext.
-            self writeBacktrace: aContext sender into: anArray at: index + 1
-        ]
 !

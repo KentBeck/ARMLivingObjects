@@ -13,6 +13,7 @@ suite
     suite := TestSuite new.
     self addTestsFrom: ContextTest to: suite startingAt: 1.
     self addTestsFrom: BlockActivationTest to: suite startingAt: 1.
+    self addTestsFrom: ExceptionHandlingTest to: suite startingAt: 1.
     ^ suite
 !
 

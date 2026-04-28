@@ -119,6 +119,12 @@ typedef struct ExceptionHandlerFrame
     jmp_buf env;
     struct ExceptionHandlerFrame *previous;
     Oop exception_class;
+    Oop handler_block;
+    Oop *saved_sp;
+    ObjPtr saved_fp;
+    uint8_t *saved_ip;
+    uint8_t *saved_bytecode_base;
+    uint64_t handler_arg_count;
     volatile Oop *signaled_exception_slot;
 } ExceptionHandlerFrame;
 
@@ -126,6 +132,8 @@ typedef struct EnsureFrame
 {
     jmp_buf env;
     struct EnsureFrame *previous;
+    uint8_t *saved_ip;
+    uint8_t *saved_bytecode_base;
     volatile Oop *signaled_class_slot;
     volatile Oop *signaled_payload_slot;
 } EnsureFrame;
@@ -265,10 +273,11 @@ static int activate_block_call(Oop **sp_ptr, ObjPtr *fp_ptr,
 
 static Oop invoke_block_closure(Oop **sp_ptr, ObjPtr *fp_ptr, Oop block,
                                 uint64_t arg_count, Oop arg,
+                                uint8_t *caller_ip, uint8_t *caller_bytecode_base,
                                 ObjPtr class_table, Om om, Oop *txn_log)
 {
-    uint8_t *block_ip = NULL;
-    uint8_t *block_bytecode_base = NULL;
+    uint8_t *block_ip = caller_ip;
+    uint8_t *block_bytecode_base = caller_bytecode_base;
 
     push(sp_ptr, block);
     if (arg_count == 1)
@@ -416,6 +425,92 @@ static int has_gc_context_layout(Om om)
            to_free <= to_end;
 }
 
+static uint64_t count_exception_handler_roots(void)
+{
+    uint64_t count = 0;
+    ExceptionHandlerFrame *handler = current_exception_handler;
+
+    while (handler != NULL)
+    {
+        count += 3;
+        handler = handler->previous;
+    }
+
+    return count;
+}
+
+static uint64_t count_ensure_roots(void)
+{
+    uint64_t count = 0;
+    EnsureFrame *ensure = current_ensure_frame;
+
+    while (ensure != NULL)
+    {
+        count += 2;
+        ensure = ensure->previous;
+    }
+
+    return count;
+}
+
+static uint64_t collect_exception_handler_roots(Oop *roots, uint64_t index)
+{
+    ExceptionHandlerFrame *handler = current_exception_handler;
+
+    while (handler != NULL)
+    {
+        roots[index++] = handler->exception_class;
+        roots[index++] = handler->handler_block;
+        roots[index++] = *handler->signaled_exception_slot;
+        handler = handler->previous;
+    }
+
+    return index;
+}
+
+static uint64_t collect_ensure_roots(Oop *roots, uint64_t index)
+{
+    EnsureFrame *ensure = current_ensure_frame;
+
+    while (ensure != NULL)
+    {
+        roots[index++] = *ensure->signaled_class_slot;
+        roots[index++] = *ensure->signaled_payload_slot;
+        ensure = ensure->previous;
+    }
+
+    return index;
+}
+
+static uint64_t restore_exception_handler_roots(Oop *roots, uint64_t index)
+{
+    ExceptionHandlerFrame *handler = current_exception_handler;
+
+    while (handler != NULL)
+    {
+        handler->exception_class = roots[index++];
+        handler->handler_block = roots[index++];
+        *handler->signaled_exception_slot = roots[index++];
+        handler = handler->previous;
+    }
+
+    return index;
+}
+
+static uint64_t restore_ensure_roots(Oop *roots, uint64_t index)
+{
+    EnsureFrame *ensure = current_ensure_frame;
+
+    while (ensure != NULL)
+    {
+        *ensure->signaled_class_slot = roots[index++];
+        *ensure->signaled_payload_slot = roots[index++];
+        ensure = ensure->previous;
+    }
+
+    return index;
+}
+
 static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
                                         uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
                                         ObjPtr *class_table_ptr, Om om)
@@ -426,6 +521,8 @@ static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
     }
 
     uint64_t slot_count = gc_collect_stack_slots(*sp_ptr, *fp_ptr, NULL, 0);
+    uint64_t exception_root_count = count_exception_handler_roots();
+    uint64_t ensure_root_count = count_ensure_roots();
     Oop **slots = NULL;
     Oop *roots = NULL;
 
@@ -438,7 +535,7 @@ static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
         }
     }
 
-    roots = (Oop *)malloc((size_t)((slot_count + 1) * sizeof(Oop)));
+    roots = (Oop *)malloc((size_t)((slot_count + exception_root_count + ensure_root_count + 1) * sizeof(Oop)));
     if (roots == NULL)
     {
         free(slots);
@@ -450,16 +547,22 @@ static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
     {
         roots[index] = *slots[index];
     }
-    roots[slot_count] = (uint64_t)*class_table_ptr;
+    uint64_t root_index = slot_count;
+    root_index = collect_exception_handler_roots(roots, root_index);
+    root_index = collect_ensure_roots(roots, root_index);
+    roots[root_index] = (uint64_t)*class_table_ptr;
 
-    gc_collect(roots, slot_count + 1, om, om + GC_TO_FREE,
+    gc_collect(roots, root_index + 1, om, om + GC_TO_FREE,
                om[GC_FROM_START], om[GC_FROM_END]);
 
     for (uint64_t index = 0; index < slot_count; index++)
     {
         *slots[index] = roots[index];
     }
-    *class_table_ptr = (ObjPtr)roots[slot_count];
+    root_index = slot_count;
+    root_index = restore_exception_handler_roots(roots, root_index);
+    root_index = restore_ensure_roots(roots, root_index);
+    *class_table_ptr = (ObjPtr)roots[root_index];
 
     uint64_t from_free = om[GC_FROM_FREE];
     uint64_t from_end = om[GC_FROM_END];
@@ -748,6 +851,8 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
         }
 
         ensure_frame.previous = previous_ensure;
+        ensure_frame.saved_ip = *ip_ptr;
+        ensure_frame.saved_bytecode_base = *bytecode_base_ptr;
         ensure_frame.signaled_class_slot = &signaled_class;
         ensure_frame.signaled_payload_slot = &signaled_payload;
         current_ensure_frame = &ensure_frame;
@@ -755,12 +860,18 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
         if (setjmp(ensure_frame.env) == 0)
         {
             protected_result = invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL,
+                                                    ensure_frame.saved_ip,
+                                                    ensure_frame.saved_bytecode_base,
                                                     class_table, om, txn_log);
             current_ensure_frame = previous_ensure;
             *sp_ptr = saved_sp;
             *fp_ptr = saved_fp;
             (void)invoke_block_closure(sp_ptr, fp_ptr, ensure_block, 0, TAGGED_NIL,
+                                       ensure_frame.saved_ip,
+                                       ensure_frame.saved_bytecode_base,
                                        class_table, om, txn_log);
+            *sp_ptr = saved_sp;
+            *fp_ptr = saved_fp;
             *sp_ptr = saved_sp - 1;
             **sp_ptr = protected_result;
             return PRIMITIVE_SUCCEEDED;
@@ -770,46 +881,65 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
         *sp_ptr = saved_sp;
         *fp_ptr = saved_fp;
         (void)invoke_block_closure(sp_ptr, fp_ptr, ensure_block, 0, TAGGED_NIL,
+                                   ensure_frame.saved_ip,
+                                   ensure_frame.saved_bytecode_base,
                                    class_table, om, txn_log);
+        *sp_ptr = saved_sp;
+        *fp_ptr = saved_fp;
         propagate_signal(signaled_class, signaled_payload);
         return PRIMITIVE_SUCCEEDED;
     }
 
     if (primitive == PRIM_BLOCK_ON_DO)
     {
+        sp = *sp_ptr;
         Oop exception_class = sp[1];
-        Oop handler_block = sp[0];
-        Oop *saved_sp = sp + 3;
-        ObjPtr saved_fp = *fp_ptr;
         ExceptionHandlerFrame handler;
-        ExceptionHandlerFrame *previous_handler = current_exception_handler;
-        uint64_t handler_arg_count = block_num_args(handler_block);
         volatile Oop signaled_exception = TAGGED_NIL;
+        Oop block_result;
 
-        handler.previous = previous_handler;
+        handler.previous = current_exception_handler;
         handler.exception_class = exception_class;
+        handler.handler_block = sp[0];
+        handler.saved_sp = sp + 3;
+        handler.saved_fp = *fp_ptr;
+        handler.saved_ip = *ip_ptr;
+        handler.saved_bytecode_base = *bytecode_base_ptr;
+        handler.handler_arg_count = block_num_args(handler.handler_block);
         handler.signaled_exception_slot = &signaled_exception;
         current_exception_handler = &handler;
 
         if (setjmp(handler.env) == 0)
         {
-            *sp_ptr = saved_sp;
-            (void)invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL, class_table, om, txn_log);
+            *sp_ptr = handler.saved_sp;
+            *fp_ptr = handler.saved_fp;
+            block_result = invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL,
+                                                handler.saved_ip, handler.saved_bytecode_base,
+                                                class_table, om, txn_log);
+            *fp_ptr = handler.saved_fp;
+            *sp_ptr = handler.saved_sp - 1;
+            **sp_ptr = block_result;
         }
         else
         {
-            *sp_ptr = saved_sp;
-            *fp_ptr = saved_fp;
-            if (handler_arg_count > 1)
+            *sp_ptr = handler.saved_sp;
+            *fp_ptr = handler.saved_fp;
+            if (handler.handler_arg_count > 1)
             {
-                current_exception_handler = previous_handler;
+                current_exception_handler = handler.previous;
                 return PRIMITIVE_FAILED;
             }
-            (void)invoke_block_closure(sp_ptr, fp_ptr, handler_block, handler_arg_count,
-                                       signaled_exception, class_table, om, txn_log);
+            current_exception_handler = handler.previous;
+            block_result = invoke_block_closure(sp_ptr, fp_ptr, handler.handler_block, handler.handler_arg_count,
+                                                signaled_exception, handler.saved_ip,
+                                                handler.saved_bytecode_base,
+                                                class_table, om, txn_log);
+            *fp_ptr = handler.saved_fp;
+            *sp_ptr = handler.saved_sp - 1;
+            **sp_ptr = block_result;
         }
 
-        current_exception_handler = previous_handler;
+        current_exception_handler = handler.previous;
         return PRIMITIVE_SUCCEEDED;
     }
 
@@ -898,7 +1028,9 @@ static PrimitiveResult try_smallint_primitive(Oop **sp_ptr, Oop primitive,
     }
 }
 
-static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
+static PrimitiveResult try_object_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
+                                           uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
+                                           ObjPtr *class_table_ptr, Oop primitive,
                                            uint64_t arg_count, ObjPtr class_table, Om om)
 {
     Oop *sp = *sp_ptr;
@@ -936,21 +1068,6 @@ static PrimitiveResult try_object_primitive(Oop **sp_ptr, Oop primitive,
             replace_receiver(sp_ptr, tag_smallint((int64_t)((receiver >> 3) & 0x3FFFFFFF)));
         }
         return PRIMITIVE_SUCCEEDED;
-
-    case PRIM_SIGNAL:
-        if (arg_count != 1)
-        {
-            return PRIMITIVE_FAILED;
-        }
-        {
-            Oop exception = allocate_signaled_exception(receiver, sp[0], om);
-            if (current_ensure_frame != NULL || current_exception_handler != NULL)
-            {
-                propagate_signal(receiver, exception);
-            }
-        }
-        raise(SIGTRAP);
-        return PRIMITIVE_UNSUPPORTED;
 
     default:
         return PRIMITIVE_UNSUPPORTED;
@@ -1304,8 +1421,10 @@ static PrimitiveResult try_string_symbol_primitive(Oop **sp_ptr, Oop primitive,
     }
 }
 
-static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, Oop primitive,
-                                            uint64_t arg_count, Oop *txn_log)
+static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
+                                            uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
+                                            ObjPtr *class_table_ptr, Oop primitive,
+                                            uint64_t arg_count, Om om, Oop *txn_log)
 {
     Oop *sp = *sp_ptr;
     Oop receiver = sp[arg_count];
@@ -1467,11 +1586,12 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, Oop primitive,
         {
             return PRIMITIVE_FAILED;
         }
-        if (current_exception_handler != NULL &&
-            current_exception_handler->exception_class == receiver)
         {
-            *current_exception_handler->signaled_exception_slot = sp[0];
-            longjmp(current_exception_handler->env, 1);
+            Oop exception = allocate_signaled_exception(receiver, sp[0], om);
+            if (current_ensure_frame != NULL || current_exception_handler != NULL)
+            {
+                propagate_signal(receiver, exception);
+            }
         }
         raise(SIGTRAP);
         return PRIMITIVE_UNSUPPORTED;
@@ -1623,7 +1743,9 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
-                    result = try_object_primitive(sp_ptr, primitive_id, arg_count, class_table, om);
+                    result = try_object_primitive(sp_ptr, fp_ptr, &ip, &bytecode_base,
+                                                  &class_table, primitive_id, arg_count,
+                                                  class_table, om);
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
@@ -1641,7 +1763,9 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {
-                    result = try_indexed_primitive(sp_ptr, primitive_id, arg_count, txn_log);
+                    result = try_indexed_primitive(sp_ptr, fp_ptr, &ip, &bytecode_base,
+                                                   &class_table, primitive_id, arg_count,
+                                                   om, txn_log);
                 }
                 if (result == PRIMITIVE_SUCCEEDED)
                 {
