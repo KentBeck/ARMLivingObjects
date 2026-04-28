@@ -50,6 +50,11 @@ signal: aString
     ^ nil
 !
 
+!Object methodsFor: 'exceptions'!
+messageText
+    ^ self
+!
+
 !Object methodsFor: 'convenience'!
 yourself
     ^ self
