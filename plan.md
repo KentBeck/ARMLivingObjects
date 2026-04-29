@@ -478,6 +478,60 @@ C bootstrap compiler, then able to compile itself.
 - [ ] tool: modify object fields (within a transaction)
 - [ ] resource: expose live object graph as browsable context
 
+### 30. Big Goals Status
+
+High-level status of the long-range system goals, so the roadmap reflects the
+current repository rather than only the intended destination.
+
+Persistence
+
+- [~] Real save/load and relocation substrate exists
+- [~] Persistence tests cover image reload, method survival, and log replay
+- [ ] Page-based object storage is not implemented yet
+- [ ] Persistent layout / paging architecture is not settled yet
+
+Reliability / Transaction Log
+
+- [~] Transaction-log substrate exists in both interpreters
+- [~] Transaction-aware reads/writes are real
+- [~] Replay tests exist
+- [ ] Crash-consistency / write-ahead / recovery semantics are not finished
+- [ ] Reliability guarantees are not yet a product-level story
+
+In-Memory Transactions
+
+- [~] Active transactions already redirect field and indexed reads/writes through the txn log
+- [ ] Nested transactions are still deferred
+- [ ] Isolation/commit semantics are still incomplete
+
+Programming Environment
+
+- [~] Live-image source is retained on `CompiledMethod`
+- [~] The Smalltalk test framework is live and exception-based
+- [~] A limited live-image VS Code / LSP path exists today
+- [~] Smalltalk-side LSP document/index scaffolding exists
+- [ ] The programming environment is not yet Smalltalk-first end to end
+- [ ] Browser / inspector / debugger quality tooling is still future work
+
+JIT / Performance
+
+- [ ] No real JIT implementation yet
+- [~] Some prerequisite cleanup exists:
+  - C interpreter is default
+  - bytecode coverage and smoke discipline exist
+  - jump/control-flow and context groundwork are improving
+- [ ] JIT work should begin only after current semantic/runtime boundaries stabilize
+
+Multi-threading
+
+- [ ] No threading / scheduling / concurrent object semantics are implemented yet
+- [ ] This remains a future architectural topic, not active implementation work
+
+MCP
+
+- [ ] Still planned only
+- [ ] No live Smalltalk MCP server or exposed tool/resource surface exists yet
+
 ---
 
 ## Deferred
