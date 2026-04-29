@@ -349,22 +349,84 @@ Source files compiled by the C bootstrap compiler into heap objects.
 - [ ] Finish `printString` / collection protocol / iteration protocol so the library is pleasant rather than merely sufficient
 - [ ] Compiler-related: see section 27
 
-### 25b. SUnit (minimal, no exceptions)
+### 25b. SUnit / Smalltalk Test Framework
 
-Minimal xUnit framework. Tests that pass print `.`, tests that
-fail crash the VM (no exception handling yet). Good enough to
-bootstrap — you see how far you get.
+The Smalltalk test framework is now exception-based and good enough to
+be part of the normal development loop.
 
-- [~] `TestCase`, `TestSuite`, and `TestResult` exist in Smalltalk
-- [~] `make test` now invokes a Smalltalk-owned example suite and prints live progress
-- [~] Current example: `ContextTest`, exercised from the C harness through one class-side `selfTest` entrypoint
-- [~] Current limitation: the example runner records directly into `TestResult` rather than using a finished `perform:`/selector-driven test protocol end to end
-- [ ] Finish the generic `TestCase` runner path so subclasses only provide selectors/tests and do not need custom `selfTest` recording logic
-- [ ] Add `SmallIntegerTest>>testAddition` as the first normal library test
+- [x] `TestCase`, `TestSuite`, and `TestResult` exist in Smalltalk
+- [x] `TestFailure` exists as a separate signalable test-framework class
+- [x] `make test` runs a real aggregate Smalltalk suite and prints live progress
+- [x] `SmalltalkSelfTestSuite` currently covers:
+  - `ContextTest`
+  - `BlockActivationTest`
+  - `ExceptionHandlingTest`
+  - `MultipleFailureTest`
+- [x] `TestCase>>runOn:` is selector-driven and continues after `TestFailure`
+- [x] `MultipleFailureTest` proves the framework records multiple failures correctly
+- [~] Current harness boundary:
+  - `INTERPRETER=c` runs the aggregate exception-based Smalltalk suite
+  - `INTERPRETER=asm` still runs only the non-exception Smalltalk suites directly
+  - the C harness currently drives the aggregate suite by building the suite and iterating its tests from C, rather than trusting a pure Smalltalk top-level runner end to end
 - [ ] Move String / Array / Dictionary / OrderedCollection confidence from C into Smalltalk-owned tests
-- [ ] Add failure printing/backtrace formatting in Smalltalk rather than only C-side summary output
-- [ ] Later: add `on:do:` exceptions, proper failure signalling, and resumable test execution
-  - After exceptions exist, move backtrace capture out of `TestCase` and into `TestResult`; `TestCase` should only signal failure and let the result object record the unwind state
+- [ ] Add SmallInteger, Boolean, and stream regression suites as normal library tests
+- [ ] Add failure printing / backtrace formatting in Smalltalk rather than only C-side summary output
+- [ ] After exception semantics settle, move backtrace capture out of `TestCase` and into `TestResult`; `TestCase` should only signal failure and let the result object record the unwind state
+
+### 25c. Exceptions
+
+Exceptions are now good enough for normal development and for the
+Smalltalk test framework, but they are not yet Pharo-like or complete.
+
+Current threshold reached:
+
+- [x] `Exception` and `Error` exist as standard Smalltalk classes
+- [x] Exception objects are constructed in Smalltalk, not C
+- [x] `messageText`, `description`, `signaler`, and `signalContext` are present
+- [x] `on:do:` works for the current Smalltalk tests, including nested handlers
+- [x] `ensure:` works for normal completion and unwinding in the current tests
+- [x] handler matching policy lives in Smalltalk (`Class>>handlesSignalClass:`)
+- [x] unhandled exception policy goes through `Exception>>defaultAction`
+- [x] the Smalltalk test framework now uses exceptions again
+- [~] Current implementation boundary:
+  - control transfer, handler stacks, and ensure unwinding still live mostly in C
+  - exception-heavy Smalltalk tests are still `INTERPRETER=c` only
+  - `resume:` is still minimal and does not resume at the original signal site
+
+Finish exceptions in this order:
+
+1. Solidify current semantics
+- [ ] Add explicit tests for `pass`, `return:`, and true resumable behavior before implementing them
+- [ ] Add tests for handler/ensure interaction across materialized contexts
+- [ ] Add tests for unhandled exception behavior beyond the current `defaultAction` case
+
+2. Move more protocol into Smalltalk
+- [ ] Add `pass`
+- [ ] Add `outer`
+- [ ] Add `return:`
+- [ ] Add a clearer handler/introspection protocol on `Exception`
+- [ ] Keep object construction, policy, and default behavior in Smalltalk; reserve C for non-local control transfer only
+
+3. Make `resume:` real
+- [ ] Implement `resume:` so it returns to the original signal site rather than just yielding the handler value
+- [ ] Back that with focused Smalltalk tests, not only C probes
+- [ ] Reuse the context rehydration work rather than adding a second control-transfer mechanism
+
+4. Shrink the C exception machinery
+- [ ] Move more handler-search / policy code out of `src/c_vm/interpret.c`
+- [ ] Make the C side a substrate for unwind/return only
+- [ ] Remove obsolete compatibility paths as each Smalltalk-side protocol slice lands
+
+5. Restore broader interpreter parity
+- [ ] Either port the final exception substrate to `INTERPRETER=asm` or retire the current asm path from exception-sensitive development
+- [ ] Do not port transitional exception designs into asm just for parity
+
+Definition of done for this phase:
+
+- Smalltalk owns exception object protocol and handler policy
+- C only owns the hard stack/context transfer mechanics
+- `resume:`, `pass`, and `return:` have honest Smalltalk tests
+- the test framework no longer needs exception-specific harness caveats
 
 ### 26. Smalltalk Compiler (in Smalltalk)
 
