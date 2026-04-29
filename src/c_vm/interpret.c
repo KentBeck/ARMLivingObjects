@@ -47,7 +47,11 @@ extern uint64_t om_registered_end(Om om);
 extern void txn_log_write(Oop *log, Oop obj, uint64_t field_index, Oop value);
 extern Oop txn_log_read(Oop *log, Oop obj, uint64_t field_index, uint64_t *found);
 extern void txn_commit(Oop *log);
+extern void txn_commit_durable(Oop *log);
 extern void txn_abort(Oop *log);
+extern int txn_log_append_fsync(const Oop *log, uint64_t heap_start, uint64_t heap_limit);
+extern int txn_log_replay(uint64_t heap_start, uint64_t heap_used);
+extern int txn_durable_log_clear(void);
 extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table, Om om, Oop *txn_log);
 extern void image_pointers_to_offsets(uint8_t *buf, uint64_t size, uint64_t heap_base);
 extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_base);
@@ -1169,7 +1173,8 @@ static PrimitiveResult try_transaction_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                                                  ObjPtr class_table, Om om, Oop *txn_log)
 {
     if (primitive != PRIM_TRANSACTION_ATOMIC &&
-        primitive != PRIM_TRANSACTION_DURABLE)
+        primitive != PRIM_TRANSACTION_DURABLE &&
+        primitive != PRIM_TRANSACTION_READ_ONLY)
     {
         return PRIMITIVE_UNSUPPORTED;
     }
@@ -1189,6 +1194,7 @@ static PrimitiveResult try_transaction_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
     EnsureFrame *previous_ensure = current_ensure_frame;
     TransactionLogFrame transaction_frame;
     TransactionLogFrame *previous_transaction_frame = current_transaction_log_frame;
+    Oop *active_txn_log = previous_transaction_frame == NULL ? NULL : previous_transaction_frame->log;
     volatile Oop signaled_class = TAGGED_NIL;
     volatile Oop signaled_payload = TAGGED_NIL;
     Oop local_txn_log[TRANSACTION_LOG_WORD_CAPACITY];
@@ -1196,6 +1202,17 @@ static PrimitiveResult try_transaction_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
     if (block_arg_count != 0)
     {
         return PRIMITIVE_FAILED;
+    }
+
+    if (active_txn_log != NULL)
+    {
+        block_result = invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL,
+                                            *ip_ptr, *bytecode_base_ptr,
+                                            class_table, om, active_txn_log);
+        *sp_ptr = saved_sp - 1;
+        *fp_ptr = saved_fp;
+        **sp_ptr = block_result;
+        return PRIMITIVE_SUCCEEDED;
     }
 
     memset(local_txn_log, 0, sizeof(local_txn_log));
@@ -1218,7 +1235,25 @@ static PrimitiveResult try_transaction_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                                             ensure_frame.saved_bytecode_base,
                                             class_table, om, local_txn_log);
         current_ensure_frame = previous_ensure;
-        txn_commit(local_txn_log);
+        if (primitive == PRIM_TRANSACTION_READ_ONLY)
+        {
+            txn_abort(local_txn_log);
+        }
+        else if (primitive == PRIM_TRANSACTION_DURABLE)
+        {
+            if (!txn_log_append_fsync(local_txn_log, heap_start_for_om(om), om[0]))
+            {
+                txn_abort(local_txn_log);
+                current_transaction_log_frame = previous_transaction_frame;
+                raise(SIGTRAP);
+                return PRIMITIVE_FAILED;
+            }
+            txn_commit_durable(local_txn_log);
+        }
+        else
+        {
+            txn_commit(local_txn_log);
+        }
         current_transaction_log_frame = previous_transaction_frame;
         *sp_ptr = saved_sp - 1;
         *fp_ptr = saved_fp;
@@ -1294,6 +1329,10 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         }
         fclose(file);
         free(image_copy);
+        if (!txn_durable_log_clear())
+        {
+            return PRIMITIVE_FAILED;
+        }
         replace_receiver_and_arg(sp_ptr, sp[0]);
         return PRIMITIVE_SUCCEEDED;
     }
@@ -1355,6 +1394,16 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         global_symbol_class = (uint64_t *)(loaded_heap + header.symbol_class_offset);
         global_context_class = (uint64_t *)(loaded_heap + header.context_class_offset);
         global_smalltalk_dictionary = (uint64_t *)(loaded_heap + header.smalltalk_dict_offset);
+
+        if (!txn_log_replay((uint64_t)loaded_heap, header.used_size))
+        {
+            global_symbol_table = saved_symbol_table;
+            global_symbol_class = saved_symbol_class;
+            global_context_class = saved_context_class;
+            global_smalltalk_dictionary = saved_smalltalk_dictionary;
+            free(loaded_heap);
+            return PRIMITIVE_FAILED;
+        }
 
         loaded_key = lookup_cstring_symbol(key_text);
         loaded_value = loaded_key == TAGGED_NIL ? TAGGED_NIL : smalltalk_lookup_loaded_global(loaded_key);

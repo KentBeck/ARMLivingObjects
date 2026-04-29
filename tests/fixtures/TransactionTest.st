@@ -9,11 +9,13 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 4.
+    selectors := Array new: 6.
     selectors at: 1 put: #testAtomicCommitsObjectChanges.
     selectors at: 2 put: #testAtomicRollsBackOnError.
     selectors at: 3 put: #testAtomicReturnsBlockValue.
     selectors at: 4 put: #testReadOnlyEvaluatesWithoutMutationProtocol.
+    selectors at: 5 put: #testReadOnlyDiscardsObjectChanges.
+    selectors at: 6 put: #testNestedAtomicRollsBackWithOuterTransaction.
     ^ selectors
 !
 
@@ -77,4 +79,31 @@ testReadOnlyEvaluatesWithoutMutationProtocol
         (pair at: 1) + (pair at: 2)
     ].
     ^ self assert: value equals: 3
+!
+
+testReadOnlyDiscardsObjectChanges
+    | pair value |
+    pair := self newPair.
+    value := Transaction readOnly: [
+        pair at: 1 put: 11.
+        pair at: 1
+    ].
+    ^ self assert:
+        ((value = 11) and: [
+            ((pair at: 1) = 1) and: [(pair at: 2) = 2]])
+!
+
+testNestedAtomicRollsBackWithOuterTransaction
+    | pair |
+    pair := self newPair.
+    [
+        Transaction atomic: [
+            Transaction atomic: [
+                pair at: 1 put: 7
+            ].
+            Error signal: 'rollback'
+        ]
+    ] on: Error do: [nil].
+    ^ self assert:
+        (((pair at: 1) = 1) and: [(pair at: 2) = 2])
 !

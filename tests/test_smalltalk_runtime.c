@@ -1306,12 +1306,16 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
 #ifdef ALO_INTERPRETER_C
-        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 33);
+        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 36);
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicCommitsObjectChanges");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicReturnsBlockValue");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest",
                                       "testReadOnlyEvaluatesWithoutMutationProtocol");
+        run_smalltalk_direct_selector(ctx, &world, "TransactionTest",
+                                      "testReadOnlyDiscardsObjectChanges");
+        run_smalltalk_direct_selector(ctx, &world, "TransactionTest",
+                                      "testNestedAtomicRollsBackWithOuterTransaction");
         run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
                                       "testDurableUsesSameProgrammingModelAsAtomic");
         run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
@@ -1320,6 +1324,8 @@ void test_smalltalk_runtime(TestContext *ctx)
                                       "testDurableRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
                                       "testDurableCommitSurvivesCheckpointAndRestart");
+        run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
+                                      "testDurableCommitReplaysWithoutPostCommitCheckpoint");
 #else
         run_smalltalk_direct_tests(ctx, &world, "ContextTest", 6);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);

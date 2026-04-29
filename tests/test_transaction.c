@@ -1,4 +1,7 @@
 #include "test_defs.h"
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
 
 void test_transaction(TestContext *ctx)
 {
@@ -41,6 +44,91 @@ void test_transaction(TestContext *ctx)
     ASSERT_EQ(ctx, OBJ_FIELD(obj, 0), tag_smallint(99), "after commit: field 0 is 99");
     ASSERT_EQ(ctx, OBJ_FIELD(obj, 1), tag_smallint(20), "after commit: field 1 unchanged");
     ASSERT_EQ(ctx, log[0], (uint64_t)0, "after commit: log is empty");
+
+    // Durable commit currently installs writes through its own entry point.
+    txn_log_write(log, (uint64_t)obj, 1, tag_smallint(123));
+    ASSERT_EQ(ctx, log[0], 1, "txn_log_write: durable log count is 1");
+    txn_commit_durable(log);
+    ASSERT_EQ(ctx, OBJ_FIELD(obj, 0), tag_smallint(99), "after durable commit: field 0 unchanged");
+    ASSERT_EQ(ctx, OBJ_FIELD(obj, 1), tag_smallint(123), "after durable commit: field 1 is 123");
+    ASSERT_EQ(ctx, log[0], (uint64_t)0, "after durable commit: log is empty");
+
+    // Durable append+fsync writes triples to the transaction log file.
+    unlink(txn_durable_log_path());
+    txn_log_write(log, (uint64_t)obj, 0, tag_smallint(321));
+    ASSERT_EQ(ctx, txn_log_append_fsync(log, (uint64_t)om_registered_start(om), om[0]), 1,
+              "txn_log_append_fsync succeeds");
+    {
+        FILE *f = fopen(txn_durable_log_path(), "rb");
+        uint64_t record[6];
+        ASSERT_EQ(ctx, f != NULL, 1, "durable log file created");
+        ASSERT_EQ(ctx, fread(record, sizeof(uint64_t), 6, f), (size_t)6,
+                  "durable log file has framed one-entry commit");
+        fclose(f);
+        ASSERT_EQ(ctx, record[0], UINT64_C(0x41524c4f54584e31),
+                  "durable log stores frame magic");
+        ASSERT_EQ(ctx, record[1], (uint64_t)1,
+                  "durable log stores commit entry count");
+        ASSERT_EQ(ctx, record[3], (uint64_t)((uint8_t *)obj - (uint8_t *)om_registered_start(om)),
+                  "durable log stores object offset");
+        ASSERT_EQ(ctx, record[4], (uint64_t)0,
+                  "durable log stores field index");
+        ASSERT_EQ(ctx, record[5], tag_smallint(321),
+                  "durable log stores tagged value");
+    }
+
+    // Durable replay applies the logged write to a loaded heap image.
+    {
+        uint64_t *replay_obj = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        uint64_t heap_start = om_registered_start(om);
+        ASSERT_EQ(ctx, replay_obj != NULL, 1, "replay object allocated");
+        OBJ_FIELD(replay_obj, 0) = tag_smallint(5);
+
+        txn_log_write(log, (uint64_t)replay_obj, 0, tag_smallint(444));
+        ASSERT_EQ(ctx, txn_log_append_fsync(log, heap_start, om[0]), 1,
+                  "txn_log_append_fsync succeeds for replay");
+        ASSERT_EQ(ctx, OBJ_FIELD(replay_obj, 0), tag_smallint(5),
+                  "replay source object unchanged before replay");
+        ASSERT_EQ(ctx, txn_log_replay(heap_start, om[0] - heap_start), 1,
+                  "txn_log_replay succeeds");
+        ASSERT_EQ(ctx, OBJ_FIELD(replay_obj, 0), tag_smallint(444),
+                  "txn_log_replay applies durable write");
+    }
+
+    // Replay ignores a torn tail and keeps the last complete durable commit.
+    {
+        uint64_t *torn_obj = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        int fd;
+        uint64_t partial = tag_smallint(777);
+        uint64_t heap_start = om_registered_start(om);
+        uint64_t object_offset;
+
+        ASSERT_EQ(ctx, torn_obj != NULL, 1, "torn-tail object allocated");
+        OBJ_FIELD(torn_obj, 0) = tag_smallint(9);
+        txn_durable_log_clear();
+        txn_log_write(log, (uint64_t)torn_obj, 0, tag_smallint(555));
+        ASSERT_EQ(ctx, txn_log_append_fsync(log, heap_start, om[0]), 1,
+                  "txn_log_append_fsync succeeds for torn-tail baseline");
+
+        fd = open(txn_durable_log_path(), O_WRONLY | O_APPEND);
+        ASSERT_EQ(ctx, fd >= 0, 1, "durable log opened for torn-tail append");
+        object_offset = (uint64_t)((uint8_t *)torn_obj - (uint8_t *)heap_start);
+        ASSERT_EQ(ctx, write(fd, &object_offset, sizeof(uint64_t)), (ssize_t)sizeof(uint64_t),
+                  "torn-tail append writes partial object offset");
+        ASSERT_EQ(ctx, write(fd, &partial, sizeof(uint64_t)), (ssize_t)sizeof(uint64_t),
+                  "torn-tail append writes second partial word");
+        close(fd);
+
+        ASSERT_EQ(ctx, txn_log_replay(heap_start, om[0] - heap_start), 1,
+                  "txn_log_replay ignores torn tail");
+        ASSERT_EQ(ctx, OBJ_FIELD(torn_obj, 0), tag_smallint(555),
+                  "torn-tail replay preserves last complete commit only");
+    }
+
+    ASSERT_EQ(ctx, txn_durable_log_clear(), 1, "txn_durable_log_clear succeeds");
+    ASSERT_EQ(ctx, access(txn_durable_log_path(), F_OK), -1,
+              "txn_durable_log_clear removes journal file");
+    unlink(txn_durable_log_path());
 
     // --- STORE_INST_VAR through transaction log ---
     {

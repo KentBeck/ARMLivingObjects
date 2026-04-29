@@ -1,12 +1,17 @@
 #include "primitives.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <string.h> // For memcmp
+#include <sys/stat.h>
 #include <unistd.h>
 
 uint64_t *global_symbol_table; // Define global symbol table
 uint64_t *global_symbol_class;
 uint64_t *global_context_class;
 uint64_t *global_smalltalk_dictionary;
+
+static const char *DURABLE_TXN_LOG_PATH = "/tmp/arlo_transactions.log";
+static const uint64_t DURABLE_TXN_FRAME_MAGIC = UINT64_C(0x41524c4f54584e31);
 
 static uint64_t selector_token_from_cstring(const char *selector)
 {
@@ -50,6 +55,247 @@ static int copy_oop_bytes_to_cstring(Oop oop, char *buffer, uint64_t buffer_size
     }
     buffer[OBJ_SIZE(object)] = '\0';
     return 1;
+}
+
+const char *txn_durable_log_path(void)
+{
+    return DURABLE_TXN_LOG_PATH;
+}
+
+static int write_all(int fd, const void *buffer, size_t size)
+{
+    const uint8_t *bytes = (const uint8_t *)buffer;
+    size_t offset = 0;
+
+    while (offset < size)
+    {
+        ssize_t written = write(fd, bytes + offset, size - offset);
+        if (written < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        if (written <= 0)
+        {
+            return 0;
+        }
+        offset += (size_t)written;
+    }
+
+    return 1;
+}
+
+static uint64_t encode_durable_log_value(Oop value, uint64_t heap_start, uint64_t heap_limit)
+{
+    if (is_object_ptr(value) &&
+        value >= heap_start &&
+        value < heap_limit)
+    {
+        return (value - heap_start) + 8;
+    }
+    return value;
+}
+
+static uint64_t decode_durable_log_value(uint64_t value, uint64_t heap_start, uint64_t heap_used)
+{
+    if ((value & TAG_MASK) == TAG_OBJECT &&
+        value >= 8 &&
+        value <= heap_used)
+    {
+        return heap_start + (value - 8);
+    }
+    return value;
+}
+
+static uint64_t durable_txn_checksum(const uint64_t *words, uint64_t count)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+
+    for (uint64_t index = 0; index < count; index++)
+    {
+        hash ^= words[index];
+        hash *= UINT64_C(1099511628211);
+    }
+
+    return hash;
+}
+
+int txn_log_append_fsync(const Oop *log, uint64_t heap_start, uint64_t heap_limit)
+{
+    int fd;
+    uint64_t count;
+    uint64_t *body;
+    uint64_t header[3];
+
+    if (log == NULL)
+    {
+        return 0;
+    }
+
+    fd = open(DURABLE_TXN_LOG_PATH, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd < 0)
+    {
+        return 0;
+    }
+
+    count = log[0];
+    body = (uint64_t *)malloc((size_t)(count * 3 * sizeof(uint64_t)));
+    if (body == NULL && count != 0)
+    {
+        close(fd);
+        return 0;
+    }
+
+    for (uint64_t entry = 0; entry < count; entry++)
+    {
+        uint64_t object = log[1 + (entry * 3)];
+        uint64_t field_index = log[2 + (entry * 3)];
+        uint64_t value = log[3 + (entry * 3)];
+
+        if (!is_object_ptr(object) || object < heap_start || object >= heap_limit)
+        {
+            free(body);
+            close(fd);
+            return 0;
+        }
+
+        body[entry * 3] = object - heap_start;
+        body[(entry * 3) + 1] = field_index;
+        body[(entry * 3) + 2] = encode_durable_log_value(value, heap_start, heap_limit);
+    }
+
+    header[0] = DURABLE_TXN_FRAME_MAGIC;
+    header[1] = count;
+    header[2] = durable_txn_checksum(body, count * 3);
+
+    if (!write_all(fd, header, sizeof(header)))
+    {
+        free(body);
+        close(fd);
+        return 0;
+    }
+    if (count != 0 && !write_all(fd, body, (size_t)(count * 3 * sizeof(uint64_t))))
+    {
+        free(body);
+        close(fd);
+        return 0;
+    }
+
+    if (fsync(fd) != 0)
+    {
+        free(body);
+        close(fd);
+        return 0;
+    }
+
+    free(body);
+    close(fd);
+    return 1;
+}
+
+int txn_log_replay(uint64_t heap_start, uint64_t heap_used)
+{
+    FILE *file;
+    uint64_t header[3];
+    uint64_t *body = NULL;
+
+    file = fopen(DURABLE_TXN_LOG_PATH, "rb");
+    if (file == NULL)
+    {
+        return errno == ENOENT ? 1 : 0;
+    }
+
+    for (;;)
+    {
+        size_t read_header = fread(header, sizeof(uint64_t), 3, file);
+        uint64_t count;
+
+        if (read_header == 0)
+        {
+            fclose(file);
+            return 1;
+        }
+        if (read_header != 3)
+        {
+            fclose(file);
+            return ferror(file) ? 0 : 1;
+        }
+        if (header[0] != DURABLE_TXN_FRAME_MAGIC)
+        {
+            fclose(file);
+            return 0;
+        }
+
+        count = header[1];
+        if (count > UINT64_MAX / (3 * sizeof(uint64_t)))
+        {
+            fclose(file);
+            return 0;
+        }
+
+        if (count != 0)
+        {
+            body = (uint64_t *)malloc((size_t)(count * 3 * sizeof(uint64_t)));
+            if (body == NULL)
+            {
+                fclose(file);
+                return 0;
+            }
+            if (fread(body, sizeof(uint64_t), (size_t)(count * 3), file) != (size_t)(count * 3))
+            {
+                free(body);
+                fclose(file);
+                return ferror(file) ? 0 : 1;
+            }
+            if (durable_txn_checksum(body, count * 3) != header[2])
+            {
+                free(body);
+                fclose(file);
+                return 1;
+            }
+        }
+
+        for (uint64_t entry = 0; entry < count; entry++)
+        {
+            uint64_t object_offset;
+            uint64_t field_index;
+            uint64_t value;
+            uint64_t *object;
+
+            object_offset = body[entry * 3];
+            field_index = body[(entry * 3) + 1];
+            value = decode_durable_log_value(body[(entry * 3) + 2], heap_start, heap_used);
+
+            if (object_offset >= heap_used)
+            {
+                free(body);
+                fclose(file);
+                return 0;
+            }
+
+            object = (uint64_t *)(heap_start + object_offset);
+            if ((field_index >> 63) != 0)
+            {
+                uint64_t byte_index = field_index & ~(UINT64_C(1) << 63);
+                int64_t byte_value = untag_smallint(value);
+                ((uint8_t *)&OBJ_FIELD(object, 0))[byte_index] = (uint8_t)byte_value;
+            }
+            else
+            {
+                OBJ_FIELD(object, field_index) = value;
+            }
+        }
+        free(body);
+        body = NULL;
+    }
+}
+
+int txn_durable_log_clear(void)
+{
+    if (unlink(DURABLE_TXN_LOG_PATH) == 0)
+    {
+        return 1;
+    }
+    return errno == ENOENT ? 1 : 0;
 }
 
 static uint64_t method_dict_size(Oop method_dict_oop)

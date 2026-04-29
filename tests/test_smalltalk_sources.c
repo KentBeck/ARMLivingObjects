@@ -191,8 +191,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Transaction.st declares Transaction");
     ASSERT_EQ(ctx, strstr(transaction_src, "atomic: aBlock\n    <primitive: 40>\n    ^ aBlock value") != NULL, 1,
               "Transaction class>>atomic: uses primitive 40 with block-eval fallback");
-    ASSERT_EQ(ctx, strstr(transaction_src, "readOnly: aBlock\n    ^ aBlock value") != NULL, 1,
-              "Transaction class>>readOnly: evaluates block");
+    ASSERT_EQ(ctx, strstr(transaction_src, "readOnly: aBlock\n    <primitive: 44>\n    ^ aBlock value") != NULL, 1,
+              "Transaction class>>readOnly: uses its own primitive with block-eval fallback");
     ASSERT_EQ(ctx, strstr(transaction_src, "durable: aBlock\n    <primitive: 41>\n    ^ self atomic: aBlock") != NULL, 1,
               "Transaction class>>durable: uses its own primitive with atomic fallback");
 
@@ -212,6 +212,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "TransactionTest specifies atomic transaction API");
     ASSERT_EQ(ctx, strstr(transaction_test_src, "Transaction readOnly: [") != NULL, 1,
               "TransactionTest specifies readOnly transaction API");
+    ASSERT_EQ(ctx, strstr(transaction_test_src, "testReadOnlyDiscardsObjectChanges") != NULL, 1,
+              "TransactionTest specifies readOnly write-discard semantics");
+    ASSERT_EQ(ctx, strstr(transaction_test_src, "testNestedAtomicRollsBackWithOuterTransaction") != NULL, 1,
+              "TransactionTest specifies nested atomic rollback semantics");
     ASSERT_EQ(ctx, strstr(transaction_test_src, "Error signal: 'rollback'") != NULL, 1,
               "TransactionTest specifies rollback-on-error semantics");
 
@@ -226,6 +230,9 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(durable_transaction_test_src,
                           "Image restartFrom: path valueOfGlobal: key") != NULL, 1,
               "DurableTransactionTest specifies restart verification flow");
+    ASSERT_EQ(ctx, strstr(durable_transaction_test_src,
+                          "testDurableCommitReplaysWithoutPostCommitCheckpoint") != NULL, 1,
+              "DurableTransactionTest specifies journal replay recovery");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/String.st", string_src, sizeof(string_src)), 1,
               "src/smalltalk/String.st exists");

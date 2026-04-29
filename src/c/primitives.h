@@ -15,6 +15,10 @@ Oop prim_smalltalk_globals(void) LO_NO_ALLOC;
 Oop prim_method_source_for_class_selector(Oop class_name, Oop selector, Om om) LO_ALLOCATES;
 Oop prim_read_fd_count(Oop fd, Oop count, Om om) LO_ALLOCATES;
 Oop prim_write_fd_string(Oop fd, Oop string) LO_NO_ALLOC;
+int txn_log_append_fsync(const Oop *log, uint64_t heap_start, uint64_t heap_limit) LO_NO_ALLOC;
+int txn_log_replay(uint64_t heap_start, uint64_t heap_used) LO_NO_ALLOC;
+int txn_durable_log_clear(void) LO_NO_ALLOC;
+const char *txn_durable_log_path(void) LO_NO_ALLOC;
 
 Oop prim_string_eq(Oop receiver, Oop arg) LO_NO_ALLOC;
 Oop prim_string_hash_fnv(Oop receiver) LO_NO_ALLOC;

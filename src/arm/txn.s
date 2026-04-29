@@ -10,6 +10,7 @@
 .global _txn_log_write
 .global _txn_log_read
 .global _txn_commit
+.global _txn_commit_durable
 .global _txn_abort
 
 .align 2
@@ -104,6 +105,14 @@ _txn_commit:
 .Lcommit_done:
     str     xzr, [x0]              // log[0] = 0 (clear)
     ret
+
+// txn_commit_durable(log)
+// x0 = log
+// Durable transactions currently share the same write-install behavior as
+// normal commit, but use a distinct entry point so the VM can grow a separate
+// durability path without changing the Transaction API again.
+_txn_commit_durable:
+    b       _txn_commit
 
 
 // txn_abort(log)

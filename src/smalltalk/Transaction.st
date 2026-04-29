@@ -9,6 +9,7 @@ atomic: aBlock
 !
 
 readOnly: aBlock
+    <primitive: 44>
     ^ aBlock value
 !
 

@@ -160,7 +160,13 @@ extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table
 extern void txn_log_write(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t value);
 extern uint64_t txn_log_read(uint64_t *log, uint64_t obj, uint64_t field_index, uint64_t *found);
 extern void txn_commit(uint64_t *log);
+extern void txn_commit_durable(uint64_t *log);
 extern void txn_abort(uint64_t *log);
+extern int txn_log_append_fsync(const uint64_t *log, uint64_t heap_start, uint64_t heap_limit);
+extern int txn_log_replay(uint64_t heap_start, uint64_t heap_used);
+extern int txn_durable_log_clear(void);
+extern const char *txn_durable_log_path(void);
+extern uint64_t om_registered_start(uint64_t *om);
 
 // GC functions
 // gc_copy_object(obj, to_space) -> new_obj

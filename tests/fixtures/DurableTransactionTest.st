@@ -9,11 +9,12 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 4.
+    selectors := Array new: 5.
     selectors at: 1 put: #testDurableUsesSameProgrammingModelAsAtomic.
     selectors at: 2 put: #testDurableReturnsBlockValue.
     selectors at: 3 put: #testDurableRollsBackOnError.
     selectors at: 4 put: #testDurableCommitSurvivesCheckpointAndRestart.
+    selectors at: 5 put: #testDurableCommitReplaysWithoutPostCommitCheckpoint.
     ^ selectors
 !
 
@@ -86,6 +87,19 @@ testDurableCommitSurvivesCheckpointAndRestart
         Dictionary smalltalk at: key put: 42
     ].
     Image checkpointTo: path.
+    ^ self assert:
+        (Image restartFrom: path valueOfGlobal: key) equals: 42
+!
+
+testDurableCommitReplaysWithoutPostCommitCheckpoint
+    | path key |
+    path := self checkpointPath.
+    key := self durableTransactionKey.
+    Dictionary smalltalk at: key put: 7.
+    Image checkpointTo: path.
+    Transaction durable: [
+        Dictionary smalltalk at: key put: 42
+    ].
     ^ self assert:
         (Image restartFrom: path valueOfGlobal: key) equals: 42
 !
