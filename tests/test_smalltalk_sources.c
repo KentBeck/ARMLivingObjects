@@ -81,6 +81,8 @@ void test_smalltalk_sources(TestContext *ctx)
     char tokenizer_src[32768];
     char expression_spec_test_src[2048];
     char block_activation_test_src[4096];
+    char transaction_test_src[4096];
+    char durable_transaction_test_src[4096];
     char exception_handling_test_src[4096];
     char smalltalk_self_test_suite_src[4096];
     char lsp_document_src[4096];
@@ -178,6 +180,28 @@ void test_smalltalk_sources(TestContext *ctx)
               "Class.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 9, "Class.st method count");
     ASSERT_EQ(ctx, strcmp(methods[0].class_name, "Class"), 0, "Class.st compiled class name");
+
+    ASSERT_EQ(ctx, read_file("tests/fixtures/TransactionTest.st", transaction_test_src,
+                             sizeof(transaction_test_src)), 1,
+              "tests/fixtures/TransactionTest.st exists");
+    ASSERT_EQ(ctx, strstr(transaction_test_src, "Transaction atomic: [") != NULL, 1,
+              "TransactionTest specifies atomic transaction API");
+    ASSERT_EQ(ctx, strstr(transaction_test_src, "Transaction readOnly: [") != NULL, 1,
+              "TransactionTest specifies readOnly transaction API");
+    ASSERT_EQ(ctx, strstr(transaction_test_src, "Error signal: 'rollback'") != NULL, 1,
+              "TransactionTest specifies rollback-on-error semantics");
+
+    ASSERT_EQ(ctx, read_file("tests/fixtures/DurableTransactionTest.st",
+                             durable_transaction_test_src,
+                             sizeof(durable_transaction_test_src)), 1,
+              "tests/fixtures/DurableTransactionTest.st exists");
+    ASSERT_EQ(ctx, strstr(durable_transaction_test_src, "Transaction durable: [") != NULL, 1,
+              "DurableTransactionTest specifies durable transaction API");
+    ASSERT_EQ(ctx, strstr(durable_transaction_test_src, "Image checkpointTo: path") != NULL, 1,
+              "DurableTransactionTest specifies checkpoint API");
+    ASSERT_EQ(ctx, strstr(durable_transaction_test_src,
+                          "restartFromCheckpoint: path verify: [") != NULL, 1,
+              "DurableTransactionTest specifies restart verification flow");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/String.st", string_src, sizeof(string_src)), 1,
               "src/smalltalk/String.st exists");
