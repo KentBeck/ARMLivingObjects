@@ -639,3 +639,84 @@ void test_transaction(TestContext *ctx)
                   "txn byte at:put: writes byte on commit");
     }
 }
+
+// Additional durability hardening regressions.
+// Intentionally not wired into test_main yet; these are for focused manual runs
+// while recovery policy is still being decided.
+void test_transaction_reliability_extra(TestContext *ctx)
+{
+    uint64_t *om = ctx->om;
+    uint64_t *class_class = ctx->class_class;
+    uint64_t log[1 + 64 * 3];
+    uint64_t heap_start;
+
+    txn_durable_log_clear();
+
+    // Multiple durable commits replay in append order, with later commits
+    // overwriting earlier values for the same slot.
+    {
+        uint64_t *obj = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ASSERT_EQ(ctx, obj != NULL, 1, "extra durability: multi-commit object allocated");
+        OBJ_FIELD(obj, 0) = tag_smallint(1);
+        heap_start = om_registered_start(om);
+
+        log[0] = 0;
+        txn_log_write(log, (uint64_t)obj, 0, tag_smallint(100));
+        ASSERT_EQ(ctx, txn_log_append_fsync(log, heap_start, om[0]), 1,
+                  "extra durability: first framed commit appended");
+
+        log[0] = 0;
+        txn_log_write(log, (uint64_t)obj, 0, tag_smallint(200));
+        ASSERT_EQ(ctx, txn_log_append_fsync(log, heap_start, om[0]), 1,
+                  "extra durability: second framed commit appended");
+
+        OBJ_FIELD(obj, 0) = tag_smallint(1);
+        ASSERT_EQ(ctx, txn_log_replay(heap_start, om[0] - heap_start), 1,
+                  "extra durability: multi-commit replay succeeds");
+        ASSERT_EQ(ctx, OBJ_FIELD(obj, 0), tag_smallint(200),
+                  "extra durability: later commit wins during replay");
+    }
+
+    txn_durable_log_clear();
+
+    // A checksum-corrupted but complete later frame is ignored; replay keeps the
+    // last valid earlier commit and reports success under the current policy.
+    {
+        uint64_t *obj = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        int fd;
+        uint64_t bad_value = tag_smallint(333);
+        off_t bad_value_offset_words = (off_t)11;
+
+        ASSERT_EQ(ctx, obj != NULL, 1, "extra durability: corrupted-frame object allocated");
+        OBJ_FIELD(obj, 0) = tag_smallint(7);
+        heap_start = om_registered_start(om);
+
+        log[0] = 0;
+        txn_log_write(log, (uint64_t)obj, 0, tag_smallint(111));
+        ASSERT_EQ(ctx, txn_log_append_fsync(log, heap_start, om[0]), 1,
+                  "extra durability: baseline valid commit appended");
+
+        log[0] = 0;
+        txn_log_write(log, (uint64_t)obj, 0, tag_smallint(222));
+        ASSERT_EQ(ctx, txn_log_append_fsync(log, heap_start, om[0]), 1,
+                  "extra durability: later valid commit appended before corruption");
+
+        fd = open(txn_durable_log_path(), O_WRONLY);
+        ASSERT_EQ(ctx, fd >= 0, 1, "extra durability: durable log opened for corruption");
+        ASSERT_EQ(ctx, lseek(fd, (off_t)(bad_value_offset_words * (off_t)sizeof(uint64_t)), SEEK_SET),
+                  (off_t)(bad_value_offset_words * (off_t)sizeof(uint64_t)),
+                  "extra durability: seek to second frame value");
+        ASSERT_EQ(ctx, write(fd, &bad_value, sizeof(uint64_t)), (ssize_t)sizeof(uint64_t),
+                  "extra durability: overwrite second frame value without checksum update");
+        close(fd);
+
+        OBJ_FIELD(obj, 0) = tag_smallint(7);
+        ASSERT_EQ(ctx, txn_log_replay(heap_start, om[0] - heap_start), 1,
+                  "extra durability: replay succeeds despite corrupted later frame");
+        ASSERT_EQ(ctx, OBJ_FIELD(obj, 0), tag_smallint(111),
+                  "extra durability: corrupted later frame is ignored, prior commit remains");
+    }
+
+    ASSERT_EQ(ctx, txn_durable_log_clear(), 1,
+              "extra durability: durable log cleared after manual regression checks");
+}

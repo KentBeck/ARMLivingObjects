@@ -492,17 +492,21 @@ Persistence
 
 Reliability / Transaction Log
 
-- [~] Transaction-log substrate exists in both interpreters
-- [~] Transaction-aware reads/writes are real
-- [~] Replay tests exist
-- [ ] Crash-consistency / write-ahead / recovery semantics are not finished
+- [x] Transaction-log substrate exists in both interpreters
+- [x] Transaction-aware reads/writes are real
+- [x] Durable commits append a framed journal record and `fsync` before heap install
+- [x] Restart-time journal replay is real
+- [x] Torn final journal writes are ignored during replay
+- [~] Checksummed commit frames exist, but broader corruption / recovery policy still needs hardening
 - [ ] Reliability guarantees are not yet a product-level story
 
 In-Memory Transactions
 
-- [~] Active transactions already redirect field and indexed reads/writes through the txn log
-- [ ] Nested transactions are still deferred
-- [ ] Isolation/commit semantics are still incomplete
+- [x] Active transactions redirect field and indexed reads/writes through the txn log
+- [x] `Transaction atomic:`, `durable:`, and `readOnly:` exist as real Smalltalk APIs
+- [x] Nested transactions currently join the outer transaction log
+- [x] `readOnly:` discards writes
+- [~] Isolation/commit semantics are real but still minimal: nested transactions are wrappers, not savepoints
 
 Programming Environment
 
@@ -561,3 +565,29 @@ Current first slice for context spilling/rehydration in the C runtime:
 ### D5. Non-local Return from Blocks
 
 ### D6. Nested Transactions
+
+Current transaction threshold reached:
+
+- [x] Unified Smalltalk API exists: `Transaction atomic:`, `durable:`, `readOnly:`
+- [x] In-memory rollback on exception works
+- [x] Durable commit uses a distinct primitive path
+- [x] Durable commit journals writes and `fsync`s before installation
+- [x] Restart can recover by replaying the durable journal onto a checkpoint image
+- [x] Nested transactions do not leak inner commits past outer rollback
+
+Next transaction / reliability work:
+
+1. Reliability hardening
+- [ ] Exercise multi-commit replay ordering more aggressively
+- [ ] Exercise checksum-corrupted but fully written frames
+- [ ] Decide whether replay should stop, skip, or trap on the first corrupted complete frame
+- [ ] Add explicit commit-sequence / frame-version policy if the format evolves
+
+2. Transaction semantics
+- [ ] Decide whether nested transactions stay "join outer" or grow savepoints
+- [ ] Add a `Transaction current` / explicit transaction object protocol if needed
+- [ ] Define read-only semantics more sharply if external effects enter the model
+
+3. Persistence integration
+- [ ] Reconcile the current journal+checkpoint path with future page-based persistence
+- [ ] Decide checkpoint / journal ordering guarantees precisely
