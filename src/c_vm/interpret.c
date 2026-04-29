@@ -236,6 +236,8 @@ static void propagate_signal(Oop **sp_ptr, ObjPtr *fp_ptr, Oop signal_class,
                              Oop signal_payload, ObjPtr class_table, Om om, Oop *txn_log);
 static int class_matches_exception(Oop **sp_ptr, ObjPtr *fp_ptr, Oop handler_class,
                                    Oop signal_class, ObjPtr class_table, Om om, Oop *txn_log);
+static int has_matching_exception_handler(Oop **sp_ptr, ObjPtr *fp_ptr, Oop signal_class,
+                                          ObjPtr class_table, Om om, Oop *txn_log);
 
 static int activate_block_call(Oop **sp_ptr, ObjPtr *fp_ptr,
                                uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
@@ -400,6 +402,24 @@ static int class_matches_exception(Oop **sp_ptr, ObjPtr *fp_ptr, Oop handler_cla
     match = invoke_message_with_one_arg(sp_ptr, fp_ptr, handler_class, selector,
                                         signal_class, class_table, om, txn_log);
     return match == TAGGED_TRUE;
+}
+
+static int has_matching_exception_handler(Oop **sp_ptr, ObjPtr *fp_ptr, Oop signal_class,
+                                          ObjPtr class_table, Om om, Oop *txn_log)
+{
+    ExceptionHandlerFrame *handler = current_exception_handler;
+
+    while (handler != NULL)
+    {
+        if (class_matches_exception(sp_ptr, fp_ptr, handler->exception_class, signal_class,
+                                    class_table, om, txn_log))
+        {
+            return 1;
+        }
+        handler = handler->previous;
+    }
+
+    return 0;
 }
 
 static void initialize_word_fields(ObjPtr object, uint64_t size)
@@ -1603,7 +1623,9 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
             {
                 return PRIMITIVE_FAILED;
             }
-            if (current_ensure_frame != NULL || current_exception_handler != NULL)
+            if (current_ensure_frame != NULL ||
+                has_matching_exception_handler(sp_ptr, fp_ptr, OBJ_CLASS((ObjPtr)receiver),
+                                               *class_table_ptr, om, txn_log))
             {
                 propagate_signal(sp_ptr, fp_ptr, OBJ_CLASS((ObjPtr)receiver), receiver,
                                  *class_table_ptr, om, txn_log);

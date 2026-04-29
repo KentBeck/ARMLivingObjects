@@ -47,7 +47,13 @@ add: aTest
 
 !TestSuite methodsFor: 'running'!
 runOn: aResult
-    ^ self runOn: aResult startingAt: 1
+    | index |
+    index := 1.
+    [index < (tally + 1)] whileTrue: [
+        (tests at: index) runOn: aResult.
+        index := index + 1
+    ].
+    ^ aResult
 !
 
 runOn: aResult startingAt: index

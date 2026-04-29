@@ -47,6 +47,7 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/Symbol.st", "Symbol.st corpus compile", 1},
         {"src/smalltalk/SystemDictionary.st", "SystemDictionary.st corpus compile", 1},
         {"src/smalltalk/TestCase.st", "TestCase.st corpus compile", 1},
+        {"src/smalltalk/TestFailure.st", "TestFailure.st corpus compile", 1},
         {"src/smalltalk/TestResult.st", "TestResult.st corpus compile", 1},
         {"src/smalltalk/TestSuite.st", "TestSuite.st corpus compile", 1},
         {"src/smalltalk/Tokenizer.st", "Tokenizer.st corpus compile", 1},
@@ -171,6 +172,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Stdio class>>writeFd:string: uses fd-write primitive");
     ASSERT_EQ(ctx, strstr(class_src, "sourceAtSelector: aSelector") != NULL, 1,
               "Class>>sourceAtSelector: exists");
+    ASSERT_EQ(ctx, strstr(class_src, "defaultHandlesSignalClass: aClass") == NULL, 1,
+              "Class does not carry extra default exception matching helper");
     ASSERT_EQ(ctx, bc_compile_source_methods(class_src, methods, 64, &method_count), 1,
               "Class.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 9, "Class.st method count");
@@ -347,10 +350,24 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, bc_compile_source_methods(test_case_src, methods, 64, &method_count), 1,
               "TestCase.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 16, "TestCase.st method count");
-    ASSERT_EQ(ctx, strstr(test_case_src, "failureCountBefore := aResult failureCount.") != NULL, 1,
-              "TestCase snapshots failure count before running a selector");
-    ASSERT_EQ(ctx, strstr(test_case_src, "result recordFailure: self selector: selector reason: aSymbol.") != NULL, 1,
-              "TestCase records failures directly on TestResult");
+    ASSERT_EQ(ctx, strstr(test_case_src, "] on: TestFailure do: [:ex |") != NULL, 1,
+              "TestCase catches TestFailure with exceptions");
+    ASSERT_EQ(ctx, strstr(test_case_src, "self tearDown.") != NULL, 1,
+              "TestCase tears down in both pass and failure paths");
+    ASSERT_EQ(ctx, strstr(test_case_src, "^ TestFailure signal: aSymbol") != NULL, 1,
+              "TestCase signals TestFailure on assertion failure");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/TestFailure.st", symbol_src, sizeof(symbol_src)), 1,
+              "src/smalltalk/TestFailure.st exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Object subclass: #TestFailure instanceVariableNames: 'messageText'") != NULL, 1,
+              "TestFailure is its own signalable class");
+    ASSERT_EQ(ctx, strstr(symbol_src, "signal\n    <primitive: 37>") != NULL, 1,
+              "TestFailure uses the signal primitive");
+    ASSERT_EQ(ctx, strstr(symbol_src, "signal: aString") != NULL, 1,
+              "TestFailure has class-side constructor/signal entrypoint");
+    ASSERT_EQ(ctx, bc_compile_source_methods(symbol_src, methods, 64, &method_count), 1,
+              "TestFailure.st compiles through chunk pipeline");
+    ASSERT_EQ(ctx, method_count, 5, "TestFailure.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/TestSuite.st", test_suite_src, sizeof(test_suite_src)), 1,
               "src/smalltalk/TestSuite.st exists");
@@ -425,6 +442,22 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "DefaultActionException signal: 'boom'") != NULL, 1,
               "ExceptionHandlingTest invokes custom defaultAction exception");
 
+    ASSERT_EQ(ctx, read_file("tests/fixtures/MultipleFailureTest.st", symbol_src,
+                             sizeof(symbol_src)), 1,
+              "tests/fixtures/MultipleFailureTest.st exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "TestCase subclass: #MultipleFailureTest instanceVariableNames: ''") != NULL, 1,
+              "MultipleFailureTest is a TestCase subclass");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testContinuesAfterFailures") != NULL, 1,
+              "MultipleFailureTest verifies continuation after failures");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testRecordsLastFailureReason") != NULL, 1,
+              "MultipleFailureTest verifies failure reason recording");
+    ASSERT_EQ(ctx, strstr(symbol_src, "expectedFailureOne") != NULL, 1,
+              "MultipleFailureTest includes an intentional first failing helper");
+    ASSERT_EQ(ctx, strstr(symbol_src, "expectedPass") != NULL, 1,
+              "MultipleFailureTest includes an intentional passing helper");
+    ASSERT_EQ(ctx, strstr(symbol_src, "expectedFailureTwo") != NULL, 1,
+              "MultipleFailureTest includes an intentional second failing helper");
+
     ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,
                              sizeof(smalltalk_self_test_suite_src)), 1,
               "tests/fixtures/SmalltalkSelfTestSuite.st exists");
@@ -436,6 +469,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "SmalltalkSelfTestSuite includes BlockActivationTest");
     ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: ExceptionHandlingTest to: suite startingAt: 1.") != NULL, 1,
               "SmalltalkSelfTestSuite includes ExceptionHandlingTest");
+    ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: MultipleFailureTest to: suite startingAt: 1.") != NULL, 1,
+              "SmalltalkSelfTestSuite includes MultipleFailureTest");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
               "src/smalltalk/Tokenizer.st exists");

@@ -20,14 +20,13 @@ testSelectors
 !
 
 runSelfTestOn: aResult selectors: selectors startingAt: index
-    | selector |
-    ^ (index < (selectors size + 1))
-        ifTrue: [
-            selector := selectors at: index.
-            (self selector: selector) runOn: aResult.
-            self runSelfTestOn: aResult selectors: selectors startingAt: index + 1
-        ]
-        ifFalse: [aResult]
+    | currentIndex |
+    currentIndex := index.
+    [currentIndex < (selectors size + 1)] whileTrue: [
+        (self selector: (selectors at: currentIndex)) runOn: aResult.
+        currentIndex := currentIndex + 1
+    ].
+    ^ aResult
 !
 
 !TestCase methodsFor: 'accessing'!
@@ -54,15 +53,16 @@ tearDown
 !
 
 runOn: aResult
-    | failureCountBefore |
     result := aResult.
-    failureCountBefore := aResult failureCount.
-    self setUp.
-    self perform: selector.
-    self tearDown.
-    ^ (aResult failureCount = failureCountBefore)
-        ifTrue: [aResult recordPass: self selector: selector]
-        ifFalse: [self]
+    ^ [
+        self setUp.
+        self perform: selector.
+        self tearDown.
+        aResult recordPass: self selector: selector
+    ] on: TestFailure do: [:ex |
+        self tearDown.
+        aResult recordFailure: self selector: selector reason: ex description
+    ]
 !
 
 !TestCase methodsFor: 'asserting'!
@@ -77,8 +77,7 @@ assert: aBoolean description: aSymbol
 !
 
 failWith: aSymbol
-    result recordFailure: self selector: selector reason: aSymbol.
-    ^ false
+    ^ TestFailure signal: aSymbol
 !
 
 assert: actual equals: expected

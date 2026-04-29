@@ -55,41 +55,6 @@ static void print_smalltalk_suite_progress(const char *class_name, int pass_coun
     fflush(stdout);
 }
 
-static void run_smalltalk_self_test(TestContext *ctx, SmalltalkWorld *world,
-                                    const char *class_name, int expected_tests)
-{
-    uint64_t *test_class = smalltalk_world_lookup_class(world, class_name);
-    Oop test_result;
-    Oop run_count;
-    Oop pass_count;
-    Oop failure_count;
-    Oop last_reason;
-    Oop last_backtrace;
-
-    ASSERT_EQ(ctx, test_class != NULL, 1, "runtime: Smalltalk test class available to suite runner");
-    test_result = sw_send0(world, ctx, (Oop)test_class, world->class_class, "selfTest");
-    ASSERT_EQ(ctx, is_object_ptr(test_result), 1, "runtime: Smalltalk suite returns a TestResult");
-    smalltalk_world_put_global(world, "CurrentSmalltalkSuiteResult", test_result);
-    test_result = smalltalk_world_lookup_global(world, "CurrentSmalltalkSuiteResult");
-    ASSERT_EQ(ctx, is_object_ptr(test_result), 1, "runtime: Smalltalk suite result stays rooted");
-
-    run_count = sw_send0(world, ctx, test_result, NULL, "runCount");
-    pass_count = sw_send0(world, ctx, test_result, NULL, "passCount");
-    failure_count = sw_send0(world, ctx, test_result, NULL, "failureCount");
-    last_reason = sw_send0(world, ctx, test_result, NULL, "lastReason");
-    last_backtrace = sw_send0(world, ctx, test_result, NULL, "lastBacktrace");
-
-    print_smalltalk_suite_progress(class_name,
-                                   (int)untag_smallint(pass_count),
-                                   (int)untag_smallint(failure_count));
-
-    ASSERT_EQ(ctx, run_count, tag_smallint(expected_tests), "runtime: Smalltalk suite runCount matches");
-    ASSERT_EQ(ctx, pass_count, tag_smallint(expected_tests), "runtime: Smalltalk suite passCount matches");
-    ASSERT_EQ(ctx, failure_count, tag_smallint(0), "runtime: Smalltalk suite has no failures");
-    ASSERT_EQ(ctx, last_reason, tagged_nil(), "runtime: passing Smalltalk suite leaves lastReason nil");
-    ASSERT_EQ(ctx, last_backtrace, tagged_nil(), "runtime: passing Smalltalk suite leaves lastBacktrace nil");
-}
-
 static int copy_symbol_to_cstring(Oop symbol_oop, char *buffer, size_t capacity)
 {
     ObjPtr symbol;
@@ -145,6 +110,64 @@ static void run_smalltalk_direct_tests(TestContext *ctx, SmalltalkWorld *world,
     }
 
     print_smalltalk_suite_progress(class_name, pass_count, 0);
+}
+
+static void run_smalltalk_suite_builder(TestContext *ctx, SmalltalkWorld *world,
+                                        const char *class_name, int expected_tests)
+{
+    uint64_t *suite_class = smalltalk_world_lookup_class(world, class_name);
+    uint64_t *test_result_class = smalltalk_world_lookup_class(world, "TestResult");
+    Oop suite;
+    Oop tests;
+    Oop suite_size;
+    Oop test_result;
+    Oop run_count;
+    Oop pass_count;
+    Oop failure_count;
+    Oop last_reason;
+    Oop last_backtrace;
+
+    ASSERT_EQ(ctx, suite_class != NULL, 1, "runtime: Smalltalk suite class available");
+    ASSERT_EQ(ctx, test_result_class != NULL, 1, "runtime: TestResult class available for suite execution");
+    suite = sw_send0(world, ctx, (Oop)suite_class, world->class_class, "suite");
+    ASSERT_EQ(ctx, is_object_ptr(suite), 1, "runtime: Smalltalk suite builder returns a suite");
+    smalltalk_world_put_global(world, "CurrentSmalltalkSuite", suite);
+    suite = smalltalk_world_lookup_global(world, "CurrentSmalltalkSuite");
+    ASSERT_EQ(ctx, is_object_ptr(suite), 1, "runtime: Smalltalk suite stays rooted");
+    tests = sw_send0(world, ctx, suite, NULL, "tests");
+    smalltalk_world_put_global(world, "CurrentSmalltalkSuiteTests", tests);
+    tests = smalltalk_world_lookup_global(world, "CurrentSmalltalkSuiteTests");
+    suite_size = sw_send0(world, ctx, suite, NULL, "size");
+    ASSERT_EQ(ctx, is_object_ptr(tests), 1, "runtime: suite exposes test storage");
+    ASSERT_EQ(ctx, suite_size, tag_smallint(expected_tests), "runtime: suite size matches expectation");
+    test_result = sw_send0(world, ctx, (Oop)test_result_class, world->class_class, "new");
+    ASSERT_EQ(ctx, is_object_ptr(test_result), 1, "runtime: suite TestResult exists");
+    smalltalk_world_put_global(world, "CurrentSmalltalkSuiteResult", test_result);
+    test_result = smalltalk_world_lookup_global(world, "CurrentSmalltalkSuiteResult");
+    ASSERT_EQ(ctx, is_object_ptr(test_result), 1, "runtime: suite TestResult stays rooted");
+
+    for (int index = 1; index <= expected_tests; index++)
+    {
+        Oop test_case = sw_send1(world, ctx, tests, NULL, "at:", tag_smallint(index));
+        ASSERT_EQ(ctx, is_object_ptr(test_case), 1, "runtime: suite test case exists");
+        sw_send1(world, ctx, test_case, NULL, "runOn:", test_result);
+    }
+
+    run_count = sw_send0(world, ctx, test_result, NULL, "runCount");
+    pass_count = sw_send0(world, ctx, test_result, NULL, "passCount");
+    failure_count = sw_send0(world, ctx, test_result, NULL, "failureCount");
+    last_reason = sw_send0(world, ctx, test_result, NULL, "lastReason");
+    last_backtrace = sw_send0(world, ctx, test_result, NULL, "lastBacktrace");
+
+    print_smalltalk_suite_progress(class_name,
+                                   (int)untag_smallint(pass_count),
+                                   (int)untag_smallint(failure_count));
+
+    ASSERT_EQ(ctx, run_count, tag_smallint(expected_tests), "runtime: Smalltalk suite runCount matches");
+    ASSERT_EQ(ctx, pass_count, tag_smallint(expected_tests), "runtime: Smalltalk suite passCount matches");
+    ASSERT_EQ(ctx, failure_count, tag_smallint(0), "runtime: Smalltalk suite has no failures");
+    ASSERT_EQ(ctx, last_reason, tagged_nil(), "runtime: passing Smalltalk suite leaves lastReason nil");
+    ASSERT_EQ(ctx, last_backtrace, tagged_nil(), "runtime: passing Smalltalk suite leaves lastBacktrace nil");
 }
 
 #ifdef ALO_INTERPRETER_C
@@ -1139,6 +1162,8 @@ void test_smalltalk_runtime(TestContext *ctx)
               1, "runtime: Exception.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Error.st") != NULL,
               1, "runtime: Error.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/TestFailure.st") != NULL,
+              1, "runtime: TestFailure.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/True.st") != NULL,
               1, "runtime: True.st installs methods onto the existing True class");
     ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/False.st") != NULL,
@@ -1179,25 +1204,33 @@ void test_smalltalk_runtime(TestContext *ctx)
               1, "runtime: BlockActivationTest.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/DefaultActionException.st") != NULL,
               1, "runtime: DefaultActionException.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/MultipleFailureTest.st") != NULL,
+              1, "runtime: MultipleFailureTest.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ExceptionHandlingTest.st") != NULL,
               1, "runtime: ExceptionHandlingTest.st defines class and installs methods");
     {
         uint64_t *context_test_class = smalltalk_world_lookup_class(&world, "ContextTest");
         uint64_t *block_activation_test_class = smalltalk_world_lookup_class(&world, "BlockActivationTest");
         uint64_t *default_action_exception_class = smalltalk_world_lookup_class(&world, "DefaultActionException");
+        uint64_t *multiple_failure_test_class = smalltalk_world_lookup_class(&world, "MultipleFailureTest");
         uint64_t *exception_handling_test_class = smalltalk_world_lookup_class(&world, "ExceptionHandlingTest");
         uint64_t *exception_class = smalltalk_world_lookup_class(&world, "Exception");
         uint64_t *error_class = smalltalk_world_lookup_class(&world, "Error");
+        uint64_t *test_failure_class = smalltalk_world_lookup_class(&world, "TestFailure");
         ASSERT_EQ(ctx, context_test_class != NULL, 1, "runtime: ContextTest in Smalltalk dict");
         ASSERT_EQ(ctx, block_activation_test_class != NULL, 1, "runtime: BlockActivationTest in Smalltalk dict");
         ASSERT_EQ(ctx, default_action_exception_class != NULL, 1, "runtime: DefaultActionException in Smalltalk dict");
+        ASSERT_EQ(ctx, multiple_failure_test_class != NULL, 1, "runtime: MultipleFailureTest in Smalltalk dict");
         ASSERT_EQ(ctx, exception_handling_test_class != NULL, 1, "runtime: ExceptionHandlingTest in Smalltalk dict");
         ASSERT_EQ(ctx, exception_class != NULL, 1, "runtime: Exception in Smalltalk dict");
         ASSERT_EQ(ctx, error_class != NULL, 1, "runtime: Error in Smalltalk dict");
+        ASSERT_EQ(ctx, test_failure_class != NULL, 1, "runtime: TestFailure in Smalltalk dict");
         ASSERT_EQ(ctx, class_lookup(context_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: ContextTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(block_activation_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: BlockActivationTest inherits runOn:");
+        ASSERT_EQ(ctx, class_lookup(multiple_failure_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+                  1, "runtime: MultipleFailureTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(exception_handling_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: ExceptionHandlingTest inherits runOn:");
 #ifdef ALO_INTERPRETER_C
@@ -1222,7 +1255,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
 #ifdef ALO_INTERPRETER_C
-        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 23);
+        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 25);
 #else
         run_smalltalk_direct_tests(ctx, &world, "ContextTest", 6);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);
