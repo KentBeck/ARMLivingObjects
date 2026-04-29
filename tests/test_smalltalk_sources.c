@@ -125,6 +125,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Exception.st sets signaler");
     ASSERT_EQ(ctx, strstr(class_src, "signal\n    <primitive: 37>") != NULL, 1,
               "Exception>>signal uses primitive 37");
+    ASSERT_EQ(ctx, strstr(class_src, "signal\n    <primitive: 37>\n    ^ self defaultAction") != NULL, 1,
+              "Exception>>signal falls back to defaultAction in Smalltalk");
     ASSERT_EQ(ctx, strstr(class_src, "defaultAction\n    ^ self halt") != NULL, 1,
               "Exception>>defaultAction stays in Smalltalk");
     ASSERT_EQ(ctx, strstr(class_src, "signal: aString") != NULL, 1,
@@ -375,6 +377,13 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, read_file("tests/fixtures/ExceptionHandlingTest.st", exception_handling_test_src,
                              sizeof(exception_handling_test_src)), 1,
               "tests/fixtures/ExceptionHandlingTest.st exists");
+    ASSERT_EQ(ctx, read_file("tests/fixtures/DefaultActionException.st", symbol_src,
+                             sizeof(symbol_src)), 1,
+              "tests/fixtures/DefaultActionException.st exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Exception subclass: #DefaultActionException instanceVariableNames: ''") != NULL, 1,
+              "DefaultActionException is an Exception subclass");
+    ASSERT_EQ(ctx, strstr(symbol_src, "defaultAction\n    ^ 99") != NULL, 1,
+              "DefaultActionException overrides defaultAction");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "on: Error do:") != NULL, 1,
               "ExceptionHandlingTest covers handler activation");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "do: [2]") != NULL, 1,
@@ -405,6 +414,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "ExceptionHandlingTest covers signaler on raised exceptions");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "ex signaler == Error") != NULL, 1,
               "ExceptionHandlingTest checks signaler identity");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testUnhandledExceptionUsesDefaultAction") != NULL, 1,
+              "ExceptionHandlingTest covers defaultAction fallback");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "DefaultActionException signal: 'boom'") != NULL, 1,
+              "ExceptionHandlingTest invokes custom defaultAction exception");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,
                              sizeof(smalltalk_self_test_suite_src)), 1,

@@ -402,50 +402,6 @@ static int class_matches_exception(Oop **sp_ptr, ObjPtr *fp_ptr, Oop handler_cla
     return match == TAGGED_TRUE;
 }
 
-
-static Oop allocate_signaled_exception(Oop exception_class, Oop message_text, Om om)
-{
-    ObjPtr klass;
-    ObjPtr exception;
-    Oop inst_size_oop;
-    int64_t inst_size;
-
-    if (!is_object_value(exception_class))
-    {
-        return message_text;
-    }
-
-    klass = (ObjPtr)exception_class;
-    inst_size_oop = OBJ_FIELD(klass, CLASS_INST_SIZE);
-    if (!is_smallint_value(inst_size_oop))
-    {
-        return message_text;
-    }
-
-    inst_size = untag_smallint(inst_size_oop);
-    if (inst_size < 0)
-    {
-        return message_text;
-    }
-
-    exception = om_alloc(om, exception_class, FORMAT_FIELDS, (uint64_t)inst_size);
-    if (exception == NULL)
-    {
-        return message_text;
-    }
-
-    for (int64_t index = 0; index < inst_size; index++)
-    {
-        OBJ_FIELD(exception, (uint64_t)index) = TAGGED_NIL;
-    }
-    if (inst_size > 0)
-    {
-        OBJ_FIELD(exception, 0) = message_text;
-    }
-
-    return (Oop)exception;
-}
-
 static void initialize_word_fields(ObjPtr object, uint64_t size)
 {
     for (uint64_t index = 0; index < size; index++)
@@ -1638,18 +1594,6 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
         }
 
     case PRIM_SIGNAL:
-        if (arg_count == 1)
-        {
-            Oop exception = allocate_signaled_exception(receiver, sp[0], om);
-            if (current_ensure_frame != NULL || current_exception_handler != NULL)
-            {
-                propagate_signal(sp_ptr, fp_ptr, receiver, exception,
-                                 *class_table_ptr, om, txn_log);
-            }
-            raise(SIGTRAP);
-            return PRIMITIVE_UNSUPPORTED;
-        }
-
         if (arg_count != 0)
         {
             return PRIMITIVE_FAILED;
@@ -1664,11 +1608,9 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                 propagate_signal(sp_ptr, fp_ptr, OBJ_CLASS((ObjPtr)receiver), receiver,
                                  *class_table_ptr, om, txn_log);
             }
-            raise(SIGTRAP);
-            return PRIMITIVE_UNSUPPORTED;
+            return PRIMITIVE_FAILED;
         }
-        raise(SIGTRAP);
-        return PRIMITIVE_UNSUPPORTED;
+        return PRIMITIVE_FAILED;
 
     default:
         return PRIMITIVE_UNSUPPORTED;

@@ -9,7 +9,7 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 9.
+    selectors := Array new: 10.
     selectors at: 1 put: #testOnDoCatchesSignaledException.
     selectors at: 2 put: #testInnerHandlerWins.
     selectors at: 3 put: #testEnsureRunsOnNormalCompletion.
@@ -19,6 +19,7 @@ testSelectors
     selectors at: 7 put: #testErrorHandlerDoesNotCatchException.
     selectors at: 8 put: #testExceptionCarriesSignalContext.
     selectors at: 9 put: #testExceptionCarriesSignaler.
+    selectors at: 10 put: #testUnhandledExceptionUsesDefaultAction.
     ^ selectors
 !
 
@@ -139,4 +140,8 @@ testExceptionCarriesSignaler
         self signalTestError
     ] on: Error do: [:ex | ex signaler == Error].
     ^ self assert: value
+!
+
+testUnhandledExceptionUsesDefaultAction
+    ^ self assert: (DefaultActionException signal: 'boom') equals: 99
 !

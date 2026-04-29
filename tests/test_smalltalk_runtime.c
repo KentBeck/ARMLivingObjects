@@ -1177,16 +1177,20 @@ void test_smalltalk_runtime(TestContext *ctx)
               1, "runtime: ContextTest.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/BlockActivationTest.st") != NULL,
               1, "runtime: BlockActivationTest.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/DefaultActionException.st") != NULL,
+              1, "runtime: DefaultActionException.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ExceptionHandlingTest.st") != NULL,
               1, "runtime: ExceptionHandlingTest.st defines class and installs methods");
     {
         uint64_t *context_test_class = smalltalk_world_lookup_class(&world, "ContextTest");
         uint64_t *block_activation_test_class = smalltalk_world_lookup_class(&world, "BlockActivationTest");
+        uint64_t *default_action_exception_class = smalltalk_world_lookup_class(&world, "DefaultActionException");
         uint64_t *exception_handling_test_class = smalltalk_world_lookup_class(&world, "ExceptionHandlingTest");
         uint64_t *exception_class = smalltalk_world_lookup_class(&world, "Exception");
         uint64_t *error_class = smalltalk_world_lookup_class(&world, "Error");
         ASSERT_EQ(ctx, context_test_class != NULL, 1, "runtime: ContextTest in Smalltalk dict");
         ASSERT_EQ(ctx, block_activation_test_class != NULL, 1, "runtime: BlockActivationTest in Smalltalk dict");
+        ASSERT_EQ(ctx, default_action_exception_class != NULL, 1, "runtime: DefaultActionException in Smalltalk dict");
         ASSERT_EQ(ctx, exception_handling_test_class != NULL, 1, "runtime: ExceptionHandlingTest in Smalltalk dict");
         ASSERT_EQ(ctx, exception_class != NULL, 1, "runtime: Exception in Smalltalk dict");
         ASSERT_EQ(ctx, error_class != NULL, 1, "runtime: Error in Smalltalk dict");
@@ -1218,7 +1222,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
 #ifdef ALO_INTERPRETER_C
-        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 21);
+        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 22);
 #else
         run_smalltalk_direct_tests(ctx, &world, "ContextTest", 6);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);

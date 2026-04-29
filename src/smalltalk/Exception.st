@@ -31,7 +31,7 @@ signaler: anObject
 !Exception methodsFor: 'exceptions'!
 signal
     <primitive: 37>
-    ^ self
+    ^ self defaultAction
 !
 
 resume: aValue
