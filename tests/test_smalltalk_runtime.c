@@ -646,6 +646,8 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: String.st attaches to the existing String class");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Stdio.st") != NULL,
               1, "runtime: Stdio.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Association.st"), 1,
+              "runtime: Association.st installs methods onto the existing Association class");
     ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Dictionary.st"), 1,
               "runtime: Dictionary.st installs methods onto the existing Dictionary class");
     uint64_t *dictionary_class = world.dictionary_class;
@@ -1213,15 +1215,25 @@ void test_smalltalk_runtime(TestContext *ctx)
               "runtime: BlockClosure.st installs methods onto the existing BlockClosure class");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Transaction.st") != NULL,
               1, "runtime: Transaction.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Image.st") != NULL,
+              1, "runtime: Image.st defines class and installs methods");
     {
         uint64_t *transaction_class = smalltalk_world_lookup_class(&world, "Transaction");
+        uint64_t *image_class = smalltalk_world_lookup_class(&world, "Image");
         ASSERT_EQ(ctx, transaction_class != NULL, 1, "runtime: Transaction in Smalltalk dict");
+        ASSERT_EQ(ctx, image_class != NULL, 1, "runtime: Image in Smalltalk dict");
         ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(transaction_class),
                                     intern_cstring_symbol(world.om, "atomic:")) != 0,
                   1, "runtime: Transaction has class-side atomic:");
         ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(transaction_class),
                                     intern_cstring_symbol(world.om, "readOnly:")) != 0,
                   1, "runtime: Transaction has class-side readOnly:");
+        ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(image_class),
+                                    intern_cstring_symbol(world.om, "checkpointTo:")) != 0,
+                  1, "runtime: Image has class-side checkpointTo:");
+        ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(image_class),
+                                    intern_cstring_symbol(world.om, "restartFrom:valueOfGlobal:")) != 0,
+                  1, "runtime: Image has class-side restartFrom:valueOfGlobal:");
     }
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ContextTest.st") != NULL,
@@ -1236,6 +1248,8 @@ void test_smalltalk_runtime(TestContext *ctx)
               1, "runtime: ExceptionHandlingTest.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/TransactionTest.st") != NULL,
               1, "runtime: TransactionTest.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/DurableTransactionTest.st") != NULL,
+              1, "runtime: DurableTransactionTest.st defines class and installs methods");
     {
         uint64_t *context_test_class = smalltalk_world_lookup_class(&world, "ContextTest");
         uint64_t *block_activation_test_class = smalltalk_world_lookup_class(&world, "BlockActivationTest");
@@ -1243,6 +1257,7 @@ void test_smalltalk_runtime(TestContext *ctx)
         uint64_t *multiple_failure_test_class = smalltalk_world_lookup_class(&world, "MultipleFailureTest");
         uint64_t *exception_handling_test_class = smalltalk_world_lookup_class(&world, "ExceptionHandlingTest");
         uint64_t *transaction_test_class = smalltalk_world_lookup_class(&world, "TransactionTest");
+        uint64_t *durable_transaction_test_class = smalltalk_world_lookup_class(&world, "DurableTransactionTest");
         uint64_t *exception_class = smalltalk_world_lookup_class(&world, "Exception");
         uint64_t *error_class = smalltalk_world_lookup_class(&world, "Error");
         uint64_t *test_failure_class = smalltalk_world_lookup_class(&world, "TestFailure");
@@ -1252,6 +1267,8 @@ void test_smalltalk_runtime(TestContext *ctx)
         ASSERT_EQ(ctx, multiple_failure_test_class != NULL, 1, "runtime: MultipleFailureTest in Smalltalk dict");
         ASSERT_EQ(ctx, exception_handling_test_class != NULL, 1, "runtime: ExceptionHandlingTest in Smalltalk dict");
         ASSERT_EQ(ctx, transaction_test_class != NULL, 1, "runtime: TransactionTest in Smalltalk dict");
+        ASSERT_EQ(ctx, durable_transaction_test_class != NULL, 1,
+                  "runtime: DurableTransactionTest in Smalltalk dict");
         ASSERT_EQ(ctx, exception_class != NULL, 1, "runtime: Exception in Smalltalk dict");
         ASSERT_EQ(ctx, error_class != NULL, 1, "runtime: Error in Smalltalk dict");
         ASSERT_EQ(ctx, test_failure_class != NULL, 1, "runtime: TestFailure in Smalltalk dict");
@@ -1265,6 +1282,8 @@ void test_smalltalk_runtime(TestContext *ctx)
                   1, "runtime: ExceptionHandlingTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(transaction_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: TransactionTest inherits runOn:");
+        ASSERT_EQ(ctx, class_lookup(durable_transaction_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+                  1, "runtime: DurableTransactionTest inherits runOn:");
 #ifdef ALO_INTERPRETER_C
         ASSERT_EQ(ctx, sw_send1(&world, ctx, (Oop)exception_class, world.class_class,
                                 "handlesSignalClass:", (Oop)error_class), TAGGED_TRUE,
@@ -1287,12 +1306,18 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
 #ifdef ALO_INTERPRETER_C
-        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 25);
+        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 32);
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicCommitsObjectChanges");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicReturnsBlockValue");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest",
                                       "testReadOnlyEvaluatesWithoutMutationProtocol");
+        run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
+                                      "testDurableUsesSameProgrammingModelAsAtomic");
+        run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
+                                      "testDurableReturnsBlockValue");
+        run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
+                                      "testDurableCommitSurvivesCheckpointAndRestart");
 #else
         run_smalltalk_direct_tests(ctx, &world, "ContextTest", 6);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);

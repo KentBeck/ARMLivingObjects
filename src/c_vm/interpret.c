@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <setjmp.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,13 +36,21 @@ extern uint64_t gc_collect_stack_slots(Oop *sp, ObjPtr fp,
                                        Oop **slot_buf, uint64_t max_slots);
 extern ObjPtr ensure_frame_context_global(ObjPtr fp, Om om);
 extern ObjPtr ensure_frame_context_with_sp(ObjPtr fp, Oop *sp, Om om, Oop context_class);
+extern ObjPtr global_symbol_table;
+extern ObjPtr global_symbol_class;
 extern ObjPtr global_context_class;
+extern ObjPtr global_smalltalk_dictionary;
 extern Oop cannot_return_selector_oop(void);
+extern Oop lookup_cstring_symbol(const char *text);
+extern uint64_t om_registered_start(Om om);
+extern uint64_t om_registered_end(Om om);
 extern void txn_log_write(Oop *log, Oop obj, uint64_t field_index, Oop value);
 extern Oop txn_log_read(Oop *log, Oop obj, uint64_t field_index, uint64_t *found);
 extern void txn_commit(Oop *log);
 extern void txn_abort(Oop *log);
 extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table, Om om, Oop *txn_log);
+extern void image_pointers_to_offsets(uint8_t *buf, uint64_t size, uint64_t heap_base);
+extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_base);
 
 enum
 {
@@ -141,6 +150,17 @@ typedef struct EnsureFrame
     volatile Oop *signaled_payload_slot;
 } EnsureFrame;
 
+typedef struct ImageCheckpointHeader
+{
+    uint64_t magic;
+    uint64_t used_size;
+    uint64_t symbol_table_offset;
+    uint64_t symbol_class_offset;
+    uint64_t context_class_offset;
+    uint64_t smalltalk_dict_offset;
+    uint64_t class_table_offset;
+} ImageCheckpointHeader;
+
 typedef struct TransactionLogFrame
 {
     struct TransactionLogFrame *previous;
@@ -153,6 +173,7 @@ static TransactionLogFrame *current_transaction_log_frame = NULL;
 
 #define TRANSACTION_LOG_ENTRY_CAPACITY 64
 #define TRANSACTION_LOG_WORD_CAPACITY (1 + (TRANSACTION_LOG_ENTRY_CAPACITY * 3))
+#define IMAGE_CHECKPOINT_MAGIC UINT64_C(0x41524c4f494d4731)
 
 static int is_smallint_value(Oop value)
 {
@@ -202,6 +223,93 @@ static void replace_receiver(Oop **sp_ptr, Oop result)
 static uint64_t byte_txn_index(uint64_t index)
 {
     return (UINT64_C(1) << 63) | index;
+}
+
+static int bytes_object_to_cstring(Oop value, char *buffer, size_t capacity)
+{
+    ObjPtr object;
+    uint64_t size;
+
+    if (!is_bytes_object(value) || capacity == 0)
+    {
+        return 0;
+    }
+
+    object = (ObjPtr)value;
+    size = OBJ_SIZE(object);
+    if (size + 1 > capacity)
+    {
+        return 0;
+    }
+
+    memcpy(buffer, &OBJ_FIELD(object, 0), (size_t)size);
+    buffer[size] = '\0';
+    return 1;
+}
+
+static uint64_t heap_start_for_om(Om om)
+{
+    if (gc_is_registered_context(om))
+    {
+        return om[GC_FROM_START];
+    }
+    return om_registered_start(om);
+}
+
+static uint64_t heap_used_bytes_for_om(Om om)
+{
+    uint64_t heap_start = heap_start_for_om(om);
+    if (heap_start == 0)
+    {
+        return 0;
+    }
+    return om[0] - heap_start;
+}
+
+static uint64_t object_offset_in_heap(Oop object, uint64_t heap_start)
+{
+    if (!is_object_value(object))
+    {
+        return 0;
+    }
+    return object - heap_start;
+}
+
+static Oop smalltalk_lookup_loaded_global(Oop key)
+{
+    Oop associations_oop;
+    uint64_t tally;
+    ObjPtr associations;
+
+    if (global_smalltalk_dictionary == NULL || !is_object_value((Oop)global_smalltalk_dictionary))
+    {
+        return TAGGED_NIL;
+    }
+
+    associations_oop = OBJ_FIELD(global_smalltalk_dictionary, 0);
+    if (!is_object_value(associations_oop))
+    {
+        return TAGGED_NIL;
+    }
+
+    tally = OBJ_FIELD(global_smalltalk_dictionary, 1) == TAGGED_NIL
+                ? 0
+                : (uint64_t)untag_smallint(OBJ_FIELD(global_smalltalk_dictionary, 1));
+    associations = (ObjPtr)associations_oop;
+    for (uint64_t index = 0; index < tally; index++)
+    {
+        Oop assoc = OBJ_FIELD(associations, index);
+        if (!is_object_value(assoc))
+        {
+            continue;
+        }
+        if (OBJ_FIELD((ObjPtr)assoc, 0) == key)
+        {
+            return OBJ_FIELD((ObjPtr)assoc, 1);
+        }
+    }
+
+    return TAGGED_NIL;
 }
 
 static void record_write_barrier(Om om, Oop receiver, uint64_t field_index,
@@ -1127,6 +1235,142 @@ static PrimitiveResult try_transaction_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
     return PRIMITIVE_SUCCEEDED;
 }
 
+static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
+                                           uint64_t arg_count, ObjPtr class_table, Om om)
+{
+    Oop *sp = *sp_ptr;
+    char path[1024];
+
+    if (primitive == PRIM_IMAGE_CHECKPOINT_TO)
+    {
+        uint64_t heap_start;
+        uint64_t used_size;
+        uint8_t *image_copy;
+        FILE *file;
+        ImageCheckpointHeader header;
+
+        if (arg_count != 1 || !bytes_object_to_cstring(sp[0], path, sizeof(path)))
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        heap_start = heap_start_for_om(om);
+        used_size = heap_used_bytes_for_om(om);
+        if (heap_start == 0 || used_size == 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        image_copy = (uint8_t *)malloc((size_t)used_size);
+        if (image_copy == NULL)
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        memcpy(image_copy, (const void *)heap_start, (size_t)used_size);
+        image_pointers_to_offsets(image_copy, used_size, heap_start);
+
+        header.magic = IMAGE_CHECKPOINT_MAGIC;
+        header.used_size = used_size;
+        header.symbol_table_offset = object_offset_in_heap((Oop)global_symbol_table, heap_start);
+        header.symbol_class_offset = object_offset_in_heap((Oop)global_symbol_class, heap_start);
+        header.context_class_offset = object_offset_in_heap((Oop)global_context_class, heap_start);
+        header.smalltalk_dict_offset = object_offset_in_heap((Oop)global_smalltalk_dictionary, heap_start);
+        header.class_table_offset = object_offset_in_heap((Oop)class_table, heap_start);
+
+        file = fopen(path, "wb");
+        if (file == NULL)
+        {
+            free(image_copy);
+            return PRIMITIVE_FAILED;
+        }
+        if (fwrite(&header, sizeof(header), 1, file) != 1 ||
+            fwrite(image_copy, 1, (size_t)used_size, file) != used_size)
+        {
+            fclose(file);
+            free(image_copy);
+            return PRIMITIVE_FAILED;
+        }
+        fclose(file);
+        free(image_copy);
+        replace_receiver_and_arg(sp_ptr, sp[0]);
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    if (primitive == PRIM_IMAGE_RESTART_VALUE_OF_GLOBAL)
+    {
+        ImageCheckpointHeader header;
+        FILE *file;
+        uint8_t *loaded_heap;
+        Oop loaded_key;
+        Oop loaded_value;
+        char key_text[512];
+        uint64_t *saved_symbol_table;
+        uint64_t *saved_symbol_class;
+        uint64_t *saved_context_class;
+        uint64_t *saved_smalltalk_dictionary;
+
+        if (arg_count != 2 ||
+            !bytes_object_to_cstring(sp[1], path, sizeof(path)) ||
+            !bytes_object_to_cstring(sp[0], key_text, sizeof(key_text)))
+        {
+            return PRIMITIVE_FAILED;
+        }
+
+        file = fopen(path, "rb");
+        if (file == NULL)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (fread(&header, sizeof(header), 1, file) != 1 ||
+            header.magic != IMAGE_CHECKPOINT_MAGIC)
+        {
+            fclose(file);
+            return PRIMITIVE_FAILED;
+        }
+
+        loaded_heap = (uint8_t *)malloc((size_t)header.used_size);
+        if (loaded_heap == NULL)
+        {
+            fclose(file);
+            return PRIMITIVE_FAILED;
+        }
+        if (fread(loaded_heap, 1, (size_t)header.used_size, file) != header.used_size)
+        {
+            fclose(file);
+            free(loaded_heap);
+            return PRIMITIVE_FAILED;
+        }
+        fclose(file);
+
+        image_offsets_to_pointers(loaded_heap, header.used_size, (uint64_t)loaded_heap);
+
+        saved_symbol_table = global_symbol_table;
+        saved_symbol_class = global_symbol_class;
+        saved_context_class = global_context_class;
+        saved_smalltalk_dictionary = global_smalltalk_dictionary;
+
+        global_symbol_table = (uint64_t *)(loaded_heap + header.symbol_table_offset);
+        global_symbol_class = (uint64_t *)(loaded_heap + header.symbol_class_offset);
+        global_context_class = (uint64_t *)(loaded_heap + header.context_class_offset);
+        global_smalltalk_dictionary = (uint64_t *)(loaded_heap + header.smalltalk_dict_offset);
+
+        loaded_key = lookup_cstring_symbol(key_text);
+        loaded_value = loaded_key == TAGGED_NIL ? TAGGED_NIL : smalltalk_lookup_loaded_global(loaded_key);
+
+        global_symbol_table = saved_symbol_table;
+        global_symbol_class = saved_symbol_class;
+        global_context_class = saved_context_class;
+        global_smalltalk_dictionary = saved_smalltalk_dictionary;
+        free(loaded_heap);
+
+        replace_receiver_and_two_args(sp_ptr, loaded_value);
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    return PRIMITIVE_UNSUPPORTED;
+}
+
 static PrimitiveResult try_smallint_primitive(Oop **sp_ptr, Oop primitive,
                                              uint64_t arg_count)
 {
@@ -1940,6 +2184,10 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                     result = try_live_image_primitive(sp_ptr, primitive_id, arg_count, om,
                                                       fp_ptr, &ip, &bytecode_base,
                                                       &class_table);
+                }
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    result = try_image_primitive(sp_ptr, primitive_id, arg_count, class_table, om);
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {

@@ -36,6 +36,7 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/Exception.st", "Exception.st corpus compile", 1},
         {"src/smalltalk/ExpressionSpecTest.st", "ExpressionSpecTest.st corpus compile", 1},
         {"src/smalltalk/False.st", "False.st corpus compile", 1},
+        {"src/smalltalk/Image.st", "Image.st corpus compile", 1},
         {"src/smalltalk/LSPDocument.st", "LSPDocument.st corpus compile", 1},
         {"src/smalltalk/LSPMethodSpan.st", "LSPMethodSpan.st corpus compile", 1},
         {"src/smalltalk/LSPSourceIndex.st", "LSPSourceIndex.st corpus compile", 1},
@@ -82,6 +83,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char transaction_src[2048];
     char tokenizer_src[32768];
     char expression_spec_test_src[2048];
+    char image_src[2048];
     char block_activation_test_src[4096];
     char transaction_test_src[4096];
     char durable_transaction_test_src[4096];
@@ -194,6 +196,15 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(transaction_src, "durable: aBlock\n    ^ self atomic: aBlock") != NULL, 1,
               "Transaction class>>durable: currently delegates to atomic:");
 
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Image.st", image_src, sizeof(image_src)), 1,
+              "src/smalltalk/Image.st exists");
+    ASSERT_EQ(ctx, strstr(image_src, "Object subclass: #Image instanceVariableNames: ''") != NULL, 1,
+              "Image.st declares Image");
+    ASSERT_EQ(ctx, strstr(image_src, "checkpointTo: aPath") != NULL, 1,
+              "Image class>>checkpointTo: exists");
+    ASSERT_EQ(ctx, strstr(image_src, "restartFrom: aPath valueOfGlobal: aKey") != NULL, 1,
+              "Image class>>restartFrom:valueOfGlobal: exists");
+
     ASSERT_EQ(ctx, read_file("tests/fixtures/TransactionTest.st", transaction_test_src,
                              sizeof(transaction_test_src)), 1,
               "tests/fixtures/TransactionTest.st exists");
@@ -213,7 +224,7 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(durable_transaction_test_src, "Image checkpointTo: path") != NULL, 1,
               "DurableTransactionTest specifies checkpoint API");
     ASSERT_EQ(ctx, strstr(durable_transaction_test_src,
-                          "restartFromCheckpoint: path verify: [") != NULL, 1,
+                          "Image restartFrom: path valueOfGlobal: key") != NULL, 1,
               "DurableTransactionTest specifies restart verification flow");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/String.st", string_src, sizeof(string_src)), 1,
@@ -508,6 +519,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "SmalltalkSelfTestSuite includes ExceptionHandlingTest");
     ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: MultipleFailureTest to: suite startingAt: 1.") != NULL, 1,
               "SmalltalkSelfTestSuite includes MultipleFailureTest");
+    ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: TransactionTest to: suite startingAt: 1.") != NULL, 1,
+              "SmalltalkSelfTestSuite includes TransactionTest");
+    ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: DurableTransactionTest to: suite startingAt: 1.") != NULL, 1,
+              "SmalltalkSelfTestSuite includes DurableTransactionTest");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Tokenizer.st", tokenizer_src, sizeof(tokenizer_src)), 1,
               "src/smalltalk/Tokenizer.st exists");

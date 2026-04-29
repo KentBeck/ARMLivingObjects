@@ -46,10 +46,6 @@ newPair
     ^ pair
 !
 
-restartFromCheckpoint: aPath verify: aBlock
-    ^ Image restartFrom: aPath verify: aBlock
-!
-
 !DurableTransactionTest methodsFor: 'tests'!
 testDurableUsesSameProgrammingModelAsAtomic
     | pair |
@@ -73,10 +69,9 @@ testDurableCommitSurvivesCheckpointAndRestart
     path := self checkpointPath.
     key := self durableTransactionKey.
     Transaction durable: [
-        Smalltalk at: key put: 42
+        Dictionary smalltalk at: key put: 42
     ].
     Image checkpointTo: path.
-    ^ self restartFromCheckpoint: path verify: [
-        self assert: (Smalltalk at: key) equals: 42
-    ]
+    ^ self assert:
+        (Image restartFrom: path valueOfGlobal: key) equals: 42
 !

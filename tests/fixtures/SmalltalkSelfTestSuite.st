@@ -15,6 +15,8 @@ suite
     self addTestsFrom: BlockActivationTest to: suite startingAt: 1.
     self addTestsFrom: ExceptionHandlingTest to: suite startingAt: 1.
     self addTestsFrom: MultipleFailureTest to: suite startingAt: 1.
+    self addTestsFrom: TransactionTest to: suite startingAt: 1.
+    self addTestsFrom: DurableTransactionTest to: suite startingAt: 1.
     ^ suite
 !
 
