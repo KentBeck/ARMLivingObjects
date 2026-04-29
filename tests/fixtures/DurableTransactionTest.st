@@ -9,10 +9,11 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 3.
+    selectors := Array new: 4.
     selectors at: 1 put: #testDurableUsesSameProgrammingModelAsAtomic.
     selectors at: 2 put: #testDurableReturnsBlockValue.
-    selectors at: 3 put: #testDurableCommitSurvivesCheckpointAndRestart.
+    selectors at: 3 put: #testDurableRollsBackOnError.
+    selectors at: 4 put: #testDurableCommitSurvivesCheckpointAndRestart.
     ^ selectors
 !
 
@@ -62,6 +63,19 @@ testDurableReturnsBlockValue
     | value |
     value := Transaction durable: [41].
     ^ self assert: value equals: 41
+!
+
+testDurableRollsBackOnError
+    | pair |
+    pair := self newPair.
+    [
+        Transaction durable: [
+            pair at: 1 put: 17.
+            Error signal: 'rollback'
+        ]
+    ] on: Error do: [nil].
+    ^ self assert:
+        (((pair at: 1) = 1) and: [(pair at: 2) = 2])
 !
 
 testDurableCommitSurvivesCheckpointAndRestart

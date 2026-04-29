@@ -13,5 +13,6 @@ readOnly: aBlock
 !
 
 durable: aBlock
+    <primitive: 41>
     ^ self atomic: aBlock
 !

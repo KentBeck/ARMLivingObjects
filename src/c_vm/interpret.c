@@ -1168,7 +1168,8 @@ static PrimitiveResult try_transaction_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                                                  Oop primitive, uint64_t arg_count,
                                                  ObjPtr class_table, Om om, Oop *txn_log)
 {
-    if (primitive != PRIM_TRANSACTION_ATOMIC)
+    if (primitive != PRIM_TRANSACTION_ATOMIC &&
+        primitive != PRIM_TRANSACTION_DURABLE)
     {
         return PRIMITIVE_UNSUPPORTED;
     }

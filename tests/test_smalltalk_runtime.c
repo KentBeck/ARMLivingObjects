@@ -1306,7 +1306,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
 #ifdef ALO_INTERPRETER_C
-        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 32);
+        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 33);
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicCommitsObjectChanges");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicReturnsBlockValue");
@@ -1316,6 +1316,8 @@ void test_smalltalk_runtime(TestContext *ctx)
                                       "testDurableUsesSameProgrammingModelAsAtomic");
         run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
                                       "testDurableReturnsBlockValue");
+        run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
+                                      "testDurableRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
                                       "testDurableCommitSurvivesCheckpointAndRestart");
 #else

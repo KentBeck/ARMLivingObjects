@@ -193,8 +193,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Transaction class>>atomic: uses primitive 40 with block-eval fallback");
     ASSERT_EQ(ctx, strstr(transaction_src, "readOnly: aBlock\n    ^ aBlock value") != NULL, 1,
               "Transaction class>>readOnly: evaluates block");
-    ASSERT_EQ(ctx, strstr(transaction_src, "durable: aBlock\n    ^ self atomic: aBlock") != NULL, 1,
-              "Transaction class>>durable: currently delegates to atomic:");
+    ASSERT_EQ(ctx, strstr(transaction_src, "durable: aBlock\n    <primitive: 41>\n    ^ self atomic: aBlock") != NULL, 1,
+              "Transaction class>>durable: uses its own primitive with atomic fallback");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Image.st", image_src, sizeof(image_src)), 1,
               "src/smalltalk/Image.st exists");
