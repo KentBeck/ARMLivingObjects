@@ -39,6 +39,8 @@ extern ObjPtr global_context_class;
 extern Oop cannot_return_selector_oop(void);
 extern void txn_log_write(Oop *log, Oop obj, uint64_t field_index, Oop value);
 extern Oop txn_log_read(Oop *log, Oop obj, uint64_t field_index, uint64_t *found);
+extern void txn_commit(Oop *log);
+extern void txn_abort(Oop *log);
 extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table, Om om, Oop *txn_log);
 
 enum
@@ -139,8 +141,18 @@ typedef struct EnsureFrame
     volatile Oop *signaled_payload_slot;
 } EnsureFrame;
 
+typedef struct TransactionLogFrame
+{
+    struct TransactionLogFrame *previous;
+    Oop *log;
+} TransactionLogFrame;
+
 static ExceptionHandlerFrame *current_exception_handler = NULL;
 static EnsureFrame *current_ensure_frame = NULL;
+static TransactionLogFrame *current_transaction_log_frame = NULL;
+
+#define TRANSACTION_LOG_ENTRY_CAPACITY 64
+#define TRANSACTION_LOG_WORD_CAPACITY (1 + (TRANSACTION_LOG_ENTRY_CAPACITY * 3))
 
 static int is_smallint_value(Oop value)
 {
@@ -484,6 +496,23 @@ static uint64_t count_ensure_roots(void)
     return count;
 }
 
+static uint64_t count_transaction_log_roots(void)
+{
+    uint64_t count = 0;
+    TransactionLogFrame *frame = current_transaction_log_frame;
+
+    while (frame != NULL)
+    {
+        if (frame->log != NULL)
+        {
+            count += frame->log[0] * 2;
+        }
+        frame = frame->previous;
+    }
+
+    return count;
+}
+
 static uint64_t collect_exception_handler_roots(Oop *roots, uint64_t index)
 {
     ExceptionHandlerFrame *handler = current_exception_handler;
@@ -508,6 +537,26 @@ static uint64_t collect_ensure_roots(Oop *roots, uint64_t index)
         roots[index++] = *ensure->signaled_class_slot;
         roots[index++] = *ensure->signaled_payload_slot;
         ensure = ensure->previous;
+    }
+
+    return index;
+}
+
+static uint64_t collect_transaction_log_roots(Oop *roots, uint64_t index)
+{
+    TransactionLogFrame *frame = current_transaction_log_frame;
+
+    while (frame != NULL)
+    {
+        if (frame->log != NULL)
+        {
+            for (uint64_t entry = 0; entry < frame->log[0]; entry++)
+            {
+                roots[index++] = frame->log[1 + (entry * 3)];
+                roots[index++] = frame->log[3 + (entry * 3)];
+            }
+        }
+        frame = frame->previous;
     }
 
     return index;
@@ -542,6 +591,26 @@ static uint64_t restore_ensure_roots(Oop *roots, uint64_t index)
     return index;
 }
 
+static uint64_t restore_transaction_log_roots(Oop *roots, uint64_t index)
+{
+    TransactionLogFrame *frame = current_transaction_log_frame;
+
+    while (frame != NULL)
+    {
+        if (frame->log != NULL)
+        {
+            for (uint64_t entry = 0; entry < frame->log[0]; entry++)
+            {
+                frame->log[1 + (entry * 3)] = roots[index++];
+                frame->log[3 + (entry * 3)] = roots[index++];
+            }
+        }
+        frame = frame->previous;
+    }
+
+    return index;
+}
+
 static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
                                         uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
                                         ObjPtr *class_table_ptr, Om om)
@@ -554,6 +623,7 @@ static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
     uint64_t slot_count = gc_collect_stack_slots(*sp_ptr, *fp_ptr, NULL, 0);
     uint64_t exception_root_count = count_exception_handler_roots();
     uint64_t ensure_root_count = count_ensure_roots();
+    uint64_t transaction_log_root_count = count_transaction_log_roots();
     Oop **slots = NULL;
     Oop *roots = NULL;
 
@@ -566,7 +636,8 @@ static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
         }
     }
 
-    roots = (Oop *)malloc((size_t)((slot_count + exception_root_count + ensure_root_count + 1) * sizeof(Oop)));
+    roots = (Oop *)malloc((size_t)((slot_count + exception_root_count + ensure_root_count +
+                                    transaction_log_root_count + 1) * sizeof(Oop)));
     if (roots == NULL)
     {
         free(slots);
@@ -581,6 +652,7 @@ static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
     uint64_t root_index = slot_count;
     root_index = collect_exception_handler_roots(roots, root_index);
     root_index = collect_ensure_roots(roots, root_index);
+    root_index = collect_transaction_log_roots(roots, root_index);
     roots[root_index] = (uint64_t)*class_table_ptr;
 
     gc_collect(roots, root_index + 1, om, om + GC_TO_FREE,
@@ -593,6 +665,7 @@ static int collect_and_retry_allocation(Oop **sp_ptr, ObjPtr *fp_ptr,
     root_index = slot_count;
     root_index = restore_exception_handler_roots(roots, root_index);
     root_index = restore_ensure_roots(roots, root_index);
+    root_index = restore_transaction_log_roots(roots, root_index);
     *class_table_ptr = (ObjPtr)roots[root_index];
 
     uint64_t from_free = om[GC_FROM_FREE];
@@ -979,6 +1052,78 @@ static PrimitiveResult try_block_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
     {
         return PRIMITIVE_UNSUPPORTED;
     }
+    return PRIMITIVE_SUCCEEDED;
+}
+
+static PrimitiveResult try_transaction_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
+                                                 uint8_t **ip_ptr, uint8_t **bytecode_base_ptr,
+                                                 Oop primitive, uint64_t arg_count,
+                                                 ObjPtr class_table, Om om, Oop *txn_log)
+{
+    if (primitive != PRIM_TRANSACTION_ATOMIC)
+    {
+        return PRIMITIVE_UNSUPPORTED;
+    }
+
+    if (arg_count != 1)
+    {
+        return PRIMITIVE_FAILED;
+    }
+
+    Oop *sp = *sp_ptr;
+    Oop block = sp[0];
+    Oop *saved_sp = sp + 2;
+    ObjPtr saved_fp = *fp_ptr;
+    uint64_t block_arg_count = block_num_args(block);
+    Oop block_result;
+    EnsureFrame ensure_frame;
+    EnsureFrame *previous_ensure = current_ensure_frame;
+    TransactionLogFrame transaction_frame;
+    TransactionLogFrame *previous_transaction_frame = current_transaction_log_frame;
+    volatile Oop signaled_class = TAGGED_NIL;
+    volatile Oop signaled_payload = TAGGED_NIL;
+    Oop local_txn_log[TRANSACTION_LOG_WORD_CAPACITY];
+
+    if (block_arg_count != 0)
+    {
+        return PRIMITIVE_FAILED;
+    }
+
+    memset(local_txn_log, 0, sizeof(local_txn_log));
+
+    transaction_frame.previous = previous_transaction_frame;
+    transaction_frame.log = local_txn_log;
+    current_transaction_log_frame = &transaction_frame;
+
+    ensure_frame.previous = previous_ensure;
+    ensure_frame.saved_ip = *ip_ptr;
+    ensure_frame.saved_bytecode_base = *bytecode_base_ptr;
+    ensure_frame.signaled_class_slot = &signaled_class;
+    ensure_frame.signaled_payload_slot = &signaled_payload;
+    current_ensure_frame = &ensure_frame;
+
+    if (setjmp(ensure_frame.env) == 0)
+    {
+        block_result = invoke_block_closure(sp_ptr, fp_ptr, block, 0, TAGGED_NIL,
+                                            ensure_frame.saved_ip,
+                                            ensure_frame.saved_bytecode_base,
+                                            class_table, om, local_txn_log);
+        current_ensure_frame = previous_ensure;
+        txn_commit(local_txn_log);
+        current_transaction_log_frame = previous_transaction_frame;
+        *sp_ptr = saved_sp - 1;
+        *fp_ptr = saved_fp;
+        **sp_ptr = block_result;
+        return PRIMITIVE_SUCCEEDED;
+    }
+
+    current_ensure_frame = previous_ensure;
+    *sp_ptr = saved_sp;
+    *fp_ptr = saved_fp;
+    txn_abort(local_txn_log);
+    current_transaction_log_frame = previous_transaction_frame;
+    propagate_signal(sp_ptr, fp_ptr, signaled_class, signaled_payload,
+                     class_table, om, txn_log);
     return PRIMITIVE_SUCCEEDED;
 }
 
@@ -1774,6 +1919,11 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                 {
                     result = try_block_primitive(sp_ptr, fp_ptr, &ip, &bytecode_base,
                                                  primitive_id, arg_count, class_table, om, txn_log);
+                }
+                if (result == PRIMITIVE_UNSUPPORTED)
+                {
+                    result = try_transaction_primitive(sp_ptr, fp_ptr, &ip, &bytecode_base,
+                                                       primitive_id, arg_count, class_table, om, txn_log);
                 }
                 if (result == PRIMITIVE_UNSUPPORTED)
                 {

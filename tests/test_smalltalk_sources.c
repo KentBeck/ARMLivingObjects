@@ -50,6 +50,7 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/TestFailure.st", "TestFailure.st corpus compile", 1},
         {"src/smalltalk/TestResult.st", "TestResult.st corpus compile", 1},
         {"src/smalltalk/TestSuite.st", "TestSuite.st corpus compile", 1},
+        {"src/smalltalk/Transaction.st", "Transaction.st corpus compile", 1},
         {"src/smalltalk/Tokenizer.st", "Tokenizer.st corpus compile", 1},
         {"src/smalltalk/Token.st", "Token.st corpus compile", 1},
         {"src/smalltalk/ASTNodes.st", "ASTNodes.st corpus compile", 0},
@@ -78,6 +79,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char test_result_src[4096];
     char test_case_src[4096];
     char test_suite_src[4096];
+    char transaction_src[2048];
     char tokenizer_src[32768];
     char expression_spec_test_src[2048];
     char block_activation_test_src[4096];
@@ -180,6 +182,17 @@ void test_smalltalk_sources(TestContext *ctx)
               "Class.st compiles through chunk pipeline");
     ASSERT_EQ(ctx, method_count, 9, "Class.st method count");
     ASSERT_EQ(ctx, strcmp(methods[0].class_name, "Class"), 0, "Class.st compiled class name");
+
+    ASSERT_EQ(ctx, read_file("src/smalltalk/Transaction.st", transaction_src, sizeof(transaction_src)), 1,
+              "src/smalltalk/Transaction.st exists");
+    ASSERT_EQ(ctx, strstr(transaction_src, "Object subclass: #Transaction instanceVariableNames: ''") != NULL, 1,
+              "Transaction.st declares Transaction");
+    ASSERT_EQ(ctx, strstr(transaction_src, "atomic: aBlock\n    <primitive: 40>\n    ^ aBlock value") != NULL, 1,
+              "Transaction class>>atomic: uses primitive 40 with block-eval fallback");
+    ASSERT_EQ(ctx, strstr(transaction_src, "readOnly: aBlock\n    ^ aBlock value") != NULL, 1,
+              "Transaction class>>readOnly: evaluates block");
+    ASSERT_EQ(ctx, strstr(transaction_src, "durable: aBlock\n    ^ self atomic: aBlock") != NULL, 1,
+              "Transaction class>>durable: currently delegates to atomic:");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/TransactionTest.st", transaction_test_src,
                              sizeof(transaction_test_src)), 1,

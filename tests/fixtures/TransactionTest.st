@@ -31,33 +31,37 @@ runTransactionTestsOn: aResult selectors: selectors startingAt: index
 !
 
 !TransactionTest methodsFor: 'helpers'!
-newPoint
-    ^ PointFile x: 1 y: 2
+newPair
+    | pair |
+    pair := Array new: 2.
+    pair at: 1 put: 1.
+    pair at: 2 put: 2.
+    ^ pair
 !
 
 !TransactionTest methodsFor: 'tests'!
 testAtomicCommitsObjectChanges
-    | point |
-    point := self newPoint.
+    | pair |
+    pair := self newPair.
     Transaction atomic: [
-        point x: 7.
-        point y: 9
+        pair at: 1 put: 7.
+        pair at: 2 put: 9
     ].
     ^ self assert:
-        ((point x = 7) and: [point y = 9])
+        (((pair at: 1) = 7) and: [(pair at: 2) = 9])
 !
 
 testAtomicRollsBackOnError
-    | point |
-    point := self newPoint.
+    | pair |
+    pair := self newPair.
     [
         Transaction atomic: [
-            point x: 7.
+            pair at: 1 put: 7.
             Error signal: 'rollback'
         ]
     ] on: Error do: [nil].
     ^ self assert:
-        ((point x = 1) and: [point y = 2])
+        (((pair at: 1) = 1) and: [(pair at: 2) = 2])
 !
 
 testAtomicReturnsBlockValue
@@ -67,10 +71,10 @@ testAtomicReturnsBlockValue
 !
 
 testReadOnlyEvaluatesWithoutMutationProtocol
-    | point value |
-    point := self newPoint.
+    | pair value |
+    pair := self newPair.
     value := Transaction readOnly: [
-        point x + point y
+        (pair at: 1) + (pair at: 2)
     ].
     ^ self assert: value equals: 3
 !

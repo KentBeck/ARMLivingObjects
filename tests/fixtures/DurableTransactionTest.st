@@ -38,8 +38,12 @@ durableTransactionKey
     ^ #DurableTransactionValue
 !
 
-newPoint
-    ^ PointFile x: 1 y: 2
+newPair
+    | pair |
+    pair := Array new: 2.
+    pair at: 1 put: 1.
+    pair at: 2 put: 2.
+    ^ pair
 !
 
 restartFromCheckpoint: aPath verify: aBlock
@@ -48,14 +52,14 @@ restartFromCheckpoint: aPath verify: aBlock
 
 !DurableTransactionTest methodsFor: 'tests'!
 testDurableUsesSameProgrammingModelAsAtomic
-    | point |
-    point := self newPoint.
+    | pair |
+    pair := self newPair.
     Transaction durable: [
-        point x: 17.
-        point y: 19
+        pair at: 1 put: 17.
+        pair at: 2 put: 19
     ].
     ^ self assert:
-        ((point x = 17) and: [point y = 19])
+        (((pair at: 1) = 17) and: [(pair at: 2) = 19])
 !
 
 testDurableReturnsBlockValue
