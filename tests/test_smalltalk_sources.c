@@ -119,6 +119,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Exception.st declares Exception with messageText, signalContext, and signaler state");
     ASSERT_EQ(ctx, strstr(class_src, "messageText: aString") != NULL, 1,
               "Exception.st sets messageText");
+    ASSERT_EQ(ctx, strstr(class_src, "description\n    ^ self messageText") != NULL, 1,
+              "Exception.st exposes description in Smalltalk");
     ASSERT_EQ(ctx, strstr(class_src, "signalContext: aContext") != NULL, 1,
               "Exception.st sets signalContext");
     ASSERT_EQ(ctx, strstr(class_src, "signaler: anObject") != NULL, 1,
@@ -400,6 +402,10 @@ void test_smalltalk_sources(TestContext *ctx)
               "ExceptionHandlingTest covers ensure: during unwinding");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testExceptionCarriesMessageText") != NULL, 1,
               "ExceptionHandlingTest covers exception payload access");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testExceptionDescriptionUsesMessageText") != NULL, 1,
+              "ExceptionHandlingTest covers exception description");
+    ASSERT_EQ(ctx, strstr(exception_handling_test_src, "on: Error do: [:ex | ex description].") != NULL, 1,
+              "ExceptionHandlingTest reads description from the exception object");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testResumeReturnsHandlerValue") != NULL, 1,
               "ExceptionHandlingTest covers handler resume values");
     ASSERT_EQ(ctx, strstr(exception_handling_test_src, "testErrorHandlerDoesNotCatchException") != NULL, 1,

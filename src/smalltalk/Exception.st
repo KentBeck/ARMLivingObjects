@@ -5,6 +5,10 @@ messageText
     ^ messageText
 !
 
+description
+    ^ self messageText
+!
+
 messageText: aString
     messageText := aString.
     ^ aString

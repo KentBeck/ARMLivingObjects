@@ -1222,7 +1222,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
 #ifdef ALO_INTERPRETER_C
-        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 22);
+        run_smalltalk_self_test(ctx, &world, "SmalltalkSelfTestSuite", 23);
 #else
         run_smalltalk_direct_tests(ctx, &world, "ContextTest", 6);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);

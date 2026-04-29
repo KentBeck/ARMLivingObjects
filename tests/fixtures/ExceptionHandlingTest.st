@@ -9,17 +9,18 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 10.
+    selectors := Array new: 11.
     selectors at: 1 put: #testOnDoCatchesSignaledException.
     selectors at: 2 put: #testInnerHandlerWins.
     selectors at: 3 put: #testEnsureRunsOnNormalCompletion.
     selectors at: 4 put: #testEnsureRunsOnExceptionalExit.
     selectors at: 5 put: #testExceptionCarriesMessageText.
-    selectors at: 6 put: #testResumeReturnsHandlerValue.
-    selectors at: 7 put: #testErrorHandlerDoesNotCatchException.
-    selectors at: 8 put: #testExceptionCarriesSignalContext.
-    selectors at: 9 put: #testExceptionCarriesSignaler.
-    selectors at: 10 put: #testUnhandledExceptionUsesDefaultAction.
+    selectors at: 6 put: #testExceptionDescriptionUsesMessageText.
+    selectors at: 7 put: #testResumeReturnsHandlerValue.
+    selectors at: 8 put: #testErrorHandlerDoesNotCatchException.
+    selectors at: 9 put: #testExceptionCarriesSignalContext.
+    selectors at: 10 put: #testExceptionCarriesSignaler.
+    selectors at: 11 put: #testUnhandledExceptionUsesDefaultAction.
     ^ selectors
 !
 
@@ -104,6 +105,14 @@ testExceptionCarriesMessageText
     value := [
         self signalTestErrorWith: 'kapow'
     ] on: Error do: [:ex | ex messageText].
+    ^ self assert: value equals: 'kapow'
+!
+
+testExceptionDescriptionUsesMessageText
+    | value |
+    value := [
+        self signalTestErrorWith: 'kapow'
+    ] on: Error do: [:ex | ex description].
     ^ self assert: value equals: 'kapow'
 !
 
