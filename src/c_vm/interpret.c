@@ -70,6 +70,8 @@ extern ObjPtr om_page_first_object_start(Om om, uint64_t page_id);
 extern ObjPtr om_page_covering_object(Om om, uint64_t page_id);
 extern ObjPtr om_next_object(Om om, ObjPtr object);
 extern void om_mark_object_dirty(Om om, ObjPtr object);
+extern void om_mark_field_dirty(Om om, ObjPtr object, uint64_t field_index);
+extern void om_mark_byte_dirty(Om om, ObjPtr object, uint64_t byte_index);
 extern void om_clear_dirty_pages(Om om);
 
 enum
@@ -478,9 +480,17 @@ static void mark_dirty_pages_for_txn_log(const Oop *log, Om om)
     for (uint64_t entry = 0; entry < log[0]; entry++)
     {
         Oop object = log[1 + (entry * 3)];
+        uint64_t field_index = log[2 + (entry * 3)];
         if (is_object_value(object))
         {
-            om_mark_object_dirty(om, (ObjPtr)object);
+            if ((field_index >> 63) != 0)
+            {
+                om_mark_byte_dirty(om, (ObjPtr)object, field_index & ~(UINT64_C(1) << 63));
+            }
+            else
+            {
+                om_mark_field_dirty(om, (ObjPtr)object, field_index);
+            }
         }
     }
 }
@@ -2361,7 +2371,7 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                     return PRIMITIVE_FAILED;
                 }
                 ((uint8_t *)&OBJ_FIELD(receiver_object, 0))[index] = (uint8_t)byte_value;
-                om_mark_object_dirty(om, receiver_object);
+                om_mark_byte_dirty(om, receiver_object, index);
             }
         }
         else if (format == FORMAT_INDEXABLE)
@@ -2373,7 +2383,7 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
             else
             {
                 OBJ_FIELD(receiver_object, index) = value;
-                om_mark_object_dirty(om, receiver_object);
+                om_mark_field_dirty(om, receiver_object, index);
             }
         }
         else
@@ -2473,7 +2483,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
             else
             {
                 OBJ_FIELD(receiver, field_index) = value;
-                om_mark_object_dirty(om, receiver);
+                om_mark_field_dirty(om, receiver, field_index);
                 record_write_barrier(om, (Oop)receiver, field_index, value);
             }
             break;

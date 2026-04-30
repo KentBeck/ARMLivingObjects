@@ -176,6 +176,8 @@ extern uint64_t om_page_is_dirty(Om om, uint64_t page_id);
 extern uint64_t om_dirty_page_count(Om om);
 extern void om_clear_dirty_pages(Om om);
 extern void om_mark_object_dirty(Om om, ObjPtr object);
+extern void om_mark_field_dirty(Om om, ObjPtr object, uint64_t field_index);
+extern void om_mark_byte_dirty(Om om, ObjPtr object, uint64_t byte_index);
 extern uint64_t om_object_spans_pages(Om om, ObjPtr object);
 extern uint64_t om_object_words(ObjPtr object);
 extern uint64_t om_object_bytes(ObjPtr object);

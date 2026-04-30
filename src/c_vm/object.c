@@ -270,23 +270,19 @@ void om_clear_dirty_pages(Om om)
            (size_t)registered_simple_om_page_counts[index] * sizeof(uint8_t));
 }
 
-void om_mark_object_dirty(Om om, ObjPtr object)
+static void om_mark_address_range_dirty(Om om, uint64_t start_address, uint64_t size_bytes)
 {
     uint64_t index = om_registration_index(om);
-    uint64_t object_start;
-    uint64_t object_end;
     uint64_t start_page;
     uint64_t end_page;
 
-    if (index == UINT64_MAX || object == NULL)
+    if (index == UINT64_MAX || start_address == 0 || size_bytes == 0)
     {
         return;
     }
 
-    object_start = (uint64_t)object;
-    object_end = object_start + om_object_bytes(object);
-    start_page = om_page_id_for_address(om, object_start);
-    end_page = om_page_id_for_address(om, object_end - 1);
+    start_page = om_page_id_for_address(om, start_address);
+    end_page = om_page_id_for_address(om, (start_address + size_bytes) - 1);
     if (start_page == UINT64_MAX || end_page == UINT64_MAX)
     {
         return;
@@ -296,6 +292,37 @@ void om_mark_object_dirty(Om om, ObjPtr object)
     {
         registered_simple_om_page_dirty[index][page_id] = 1;
     }
+}
+
+void om_mark_object_dirty(Om om, ObjPtr object)
+{
+    if (object == NULL)
+    {
+        return;
+    }
+    om_mark_address_range_dirty(om, (uint64_t)object, om_object_bytes(object));
+}
+
+void om_mark_field_dirty(Om om, ObjPtr object, uint64_t field_index)
+{
+    if (object == NULL)
+    {
+        return;
+    }
+    om_mark_address_range_dirty(om,
+                                (uint64_t)&OBJ_FIELD(object, field_index),
+                                WORD_BYTES);
+}
+
+void om_mark_byte_dirty(Om om, ObjPtr object, uint64_t byte_index)
+{
+    if (object == NULL)
+    {
+        return;
+    }
+    om_mark_address_range_dirty(om,
+                                (uint64_t)&((uint8_t *)&OBJ_FIELD(object, 0))[byte_index],
+                                1);
 }
 
 uint64_t om_object_spans_pages(Om om, ObjPtr object)

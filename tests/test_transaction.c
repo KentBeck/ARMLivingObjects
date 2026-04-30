@@ -98,6 +98,42 @@ void test_transaction(TestContext *ctx)
                   "txn_log_replay marks one dirty page");
     }
 
+    // Replay of a later field in a multi-page object dirties only the touched page.
+    {
+        uint64_t *multi_obj = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1200);
+        uint64_t heap_start = om_registered_start(om);
+        uint64_t touched_page;
+        uint64_t first_page;
+        ASSERT_EQ(ctx, multi_obj != NULL, 1, "replay multipage object allocated");
+        ASSERT_EQ(ctx, om_object_spans_pages(om, multi_obj), (uint64_t)1,
+                  "replay multipage object spans pages");
+        OBJ_FIELD(multi_obj, 1199) = tag_smallint(12);
+        om_clear_dirty_pages(om);
+        txn_durable_log_clear();
+        log[0] = 0;
+
+        touched_page = om_page_id_for_address(om, (uint64_t)&OBJ_FIELD(multi_obj, 1199));
+        first_page = om_page_id_for_address(om, (uint64_t)multi_obj);
+        om_mark_field_dirty(om, multi_obj, 1199);
+        ASSERT_EQ(ctx, om_page_is_dirty(om, touched_page), (uint64_t)1,
+                  "om_mark_field_dirty marks touched multipage page");
+        ASSERT_EQ(ctx, om_page_is_dirty(om, first_page), touched_page == first_page ? (uint64_t)1 : (uint64_t)0,
+                  "om_mark_field_dirty does not dirty untouched earlier multipage page");
+        om_clear_dirty_pages(om);
+
+        txn_log_write(log, (uint64_t)multi_obj, 1199, tag_smallint(888));
+        ASSERT_EQ(ctx, txn_log_append_fsync(log, heap_start, om[0]), 1,
+                  "txn_log_append_fsync succeeds for multipage replay");
+        ASSERT_EQ(ctx, txn_log_replay(heap_start, om[0] - heap_start), 1,
+                  "txn_log_replay succeeds for multipage object");
+        ASSERT_EQ(ctx, OBJ_FIELD(multi_obj, 1199), tag_smallint(888),
+                  "txn_log_replay updates later multipage field");
+        ASSERT_EQ(ctx, om_page_is_dirty(om, touched_page), (uint64_t)1,
+                  "txn_log_replay marks touched multipage page dirty");
+        ASSERT_EQ(ctx, om_page_is_dirty(om, first_page), touched_page == first_page ? (uint64_t)1 : (uint64_t)0,
+                  "txn_log_replay does not dirty an untouched earlier multipage page");
+    }
+
     // Replay ignores a torn tail and keeps the last complete durable commit.
     {
         uint64_t *torn_obj = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 1);

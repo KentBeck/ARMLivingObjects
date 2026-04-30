@@ -58,6 +58,8 @@ static int copy_oop_bytes_to_cstring(Oop oop, char *buffer, uint64_t buffer_size
 }
 
 extern void om_mark_object_dirty(Om om, ObjPtr object);
+extern void om_mark_field_dirty(Om om, ObjPtr object, uint64_t field_index);
+extern void om_mark_byte_dirty(Om om, ObjPtr object, uint64_t byte_index);
 extern Om om_registered_for_address(uint64_t address);
 
 const char *txn_durable_log_path(void)
@@ -281,16 +283,21 @@ int txn_log_replay(uint64_t heap_start, uint64_t heap_used)
                 uint64_t byte_index = field_index & ~(UINT64_C(1) << 63);
                 int64_t byte_value = untag_smallint(value);
                 ((uint8_t *)&OBJ_FIELD(object, 0))[byte_index] = (uint8_t)byte_value;
+                {
+                    Om om = om_registered_for_address((uint64_t)object);
+                    if (om != NULL)
+                    {
+                        om_mark_byte_dirty(om, object, byte_index);
+                    }
+                }
             }
             else
             {
                 OBJ_FIELD(object, field_index) = value;
-            }
-            {
                 Om om = om_registered_for_address((uint64_t)object);
                 if (om != NULL)
                 {
-                    om_mark_object_dirty(om, object);
+                    om_mark_field_dirty(om, object, field_index);
                 }
             }
         }

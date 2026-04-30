@@ -1485,15 +1485,15 @@ void test_smalltalk_runtime(TestContext *ctx)
             fclose(file);
 
             OBJ_FIELD(multi_fields, 1199) = tag_smallint(4321);
-            om_mark_object_dirty(checkpoint_world.om, multi_fields);
+            om_mark_field_dirty(checkpoint_world.om, multi_fields, 1199);
             ASSERT_EQ(ctx, om_page_is_dirty(checkpoint_world.om, clean_page), (uint64_t)0,
                       "runtime: unrelated clean page stays clean");
-            ASSERT_EQ(ctx, om_page_is_dirty(checkpoint_world.om, first_multi_page), (uint64_t)1,
-                      "runtime: first multipage page marked dirty");
+            ASSERT_EQ(ctx, om_page_is_dirty(checkpoint_world.om, first_multi_page), (uint64_t)0,
+                      "runtime: untouched first multipage page stays clean");
             ASSERT_EQ(ctx, om_page_is_dirty(checkpoint_world.om, last_multi_page), (uint64_t)1,
                       "runtime: last multipage page marked dirty");
-            ASSERT_EQ(ctx, om_dirty_page_count(checkpoint_world.om) >= (last_multi_page - first_multi_page + 1), (uint64_t)1,
-                      "runtime: whole multipage object contributes dirty pages");
+            ASSERT_EQ(ctx, om_dirty_page_count(checkpoint_world.om), (uint64_t)1,
+                      "runtime: later multipage field dirties only one page");
 
             ASSERT_EQ(ctx, sw_send1(&checkpoint_world, &checkpoint_ctx, (Oop)image_class, checkpoint_world.class_class,
                                     "checkpointTo:", checkpoint_path_oop),
