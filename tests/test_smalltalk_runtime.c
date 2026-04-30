@@ -13,6 +13,25 @@
 
 #include <unistd.h>
 
+typedef struct RuntimeCheckpointHeader
+{
+    uint64_t magic;
+    uint64_t used_size;
+    uint64_t page_bytes;
+    uint64_t page_count;
+    uint64_t symbol_table_offset;
+    uint64_t symbol_class_offset;
+    uint64_t context_class_offset;
+    uint64_t smalltalk_dict_offset;
+    uint64_t class_table_offset;
+} RuntimeCheckpointHeader;
+
+static uint64_t runtime_checkpoint_page_data_offset(uint64_t page_count, uint64_t page_id)
+{
+    return sizeof(RuntimeCheckpointHeader) + (3 * page_count * sizeof(uint64_t)) +
+           (page_id * OM_PAGE_BYTES);
+}
+
 static int byte_object_equals_cstring(uint64_t value, const char *text)
 {
     if (!is_object_ptr(value))
@@ -1234,6 +1253,131 @@ void test_smalltalk_runtime(TestContext *ctx)
         ASSERT_EQ(ctx, class_lookup((uint64_t *)OBJ_CLASS(image_class),
                                     intern_cstring_symbol(world.om, "restartFrom:valueOfGlobal:")) != 0,
                   1, "runtime: Image has class-side restartFrom:valueOfGlobal:");
+#ifdef ALO_INTERPRETER_C
+        {
+            const char *checkpoint_path = "/tmp/arlo_incremental_pages.image";
+            static uint8_t checkpoint_world_buf[8 * 1024 * 1024] __attribute__((aligned(8)));
+            SmalltalkWorld checkpoint_world;
+            TestContext checkpoint_ctx = *ctx;
+            uint64_t *image_class;
+            uint64_t *probe_clean = NULL;
+            uint64_t *page_filler = NULL;
+            uint64_t *probe_dirty = NULL;
+            uint64_t clean_page;
+            uint64_t dirty_page;
+            uint64_t filler_fields;
+            Oop checkpoint_path_oop;
+            FILE *file;
+            RuntimeCheckpointHeader header;
+            uint8_t clean_before[OM_PAGE_BYTES];
+            uint8_t clean_after[OM_PAGE_BYTES];
+            uint8_t dirty_before[OM_PAGE_BYTES];
+            uint8_t dirty_after[OM_PAGE_BYTES];
+            int advanced = 0;
+
+            unlink(checkpoint_path);
+            smalltalk_world_init(&checkpoint_world, checkpoint_world_buf, sizeof(checkpoint_world_buf));
+            ASSERT_EQ(ctx, smalltalk_world_install_class_file(&checkpoint_world, "src/smalltalk/Image.st") != NULL,
+                      1, "runtime: incremental checkpoint world installs Image");
+            image_class = smalltalk_world_lookup_class(&checkpoint_world, "Image");
+            ASSERT_EQ(ctx, image_class != NULL, 1, "runtime: incremental checkpoint world has Image");
+
+            for (int tries = 0; tries < 1024 && !advanced; tries++)
+            {
+                uint64_t current_page = om_page_id_for_address(checkpoint_world.om, checkpoint_world.om[0]);
+                while (om_page_id_for_address(checkpoint_world.om, checkpoint_world.om[0]) == current_page)
+                {
+                    probe_clean = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, 1);
+                    if (probe_clean == NULL)
+                    {
+                        break;
+                    }
+                }
+
+                if (probe_clean == NULL)
+                {
+                    break;
+                }
+
+                clean_page = om_page_id_for_address(checkpoint_world.om, (uint64_t)probe_clean);
+                filler_fields = (OM_PAGE_BYTES - om_page_used_bytes(checkpoint_world.om, clean_page)) / WORD_BYTES;
+                if (filler_fields > 5)
+                {
+                    advanced = 1;
+                }
+            }
+            ASSERT_EQ(ctx, advanced, 1,
+                      "runtime: found a fresh page with room for incremental checkpoint probes");
+            filler_fields -= 5;
+            page_filler = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, filler_fields);
+            ASSERT_EQ(ctx, page_filler != NULL, 1, "runtime: clean page filler allocated");
+            probe_dirty = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, 1);
+            ASSERT_EQ(ctx, probe_dirty != NULL, 1, "runtime: dirty-page probe allocated");
+
+            dirty_page = om_page_id_for_address(checkpoint_world.om, (uint64_t)probe_dirty);
+            ASSERT_EQ(ctx, dirty_page, clean_page + 1,
+                      "runtime: dirty probe lands on following page");
+
+            OBJ_FIELD(probe_clean, 0) = tag_smallint(111);
+            OBJ_FIELD(probe_dirty, 0) = tag_smallint(222);
+            om_mark_object_dirty(checkpoint_world.om, probe_clean);
+            om_mark_object_dirty(checkpoint_world.om, page_filler);
+            om_mark_object_dirty(checkpoint_world.om, probe_dirty);
+
+            checkpoint_path_oop = (Oop)sw_make_string(&checkpoint_world, checkpoint_path);
+            ASSERT_EQ(ctx, sw_send1(&checkpoint_world, &checkpoint_ctx, (Oop)image_class, checkpoint_world.class_class,
+                                    "checkpointTo:", checkpoint_path_oop),
+                      checkpoint_path_oop,
+                      "runtime: first checkpoint succeeds");
+
+            file = fopen(checkpoint_path, "rb");
+            ASSERT_EQ(ctx, file != NULL, 1, "runtime: checkpoint file created");
+            ASSERT_EQ(ctx, fread(&header, sizeof(header), 1, file), (size_t)1,
+                      "runtime: checkpoint header readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, clean_page), SEEK_SET), 0,
+                      "runtime: seek to clean page body succeeds");
+            ASSERT_EQ(ctx, fread(clean_before, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: clean page body readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, dirty_page), SEEK_SET), 0,
+                      "runtime: seek to dirty page body succeeds");
+            ASSERT_EQ(ctx, fread(dirty_before, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: dirty page body readable");
+            fclose(file);
+
+            OBJ_FIELD(probe_dirty, 0) = tag_smallint(999);
+            om_mark_object_dirty(checkpoint_world.om, probe_dirty);
+            ASSERT_EQ(ctx, om_dirty_page_count(checkpoint_world.om), (uint64_t)1,
+                      "runtime: only the changed page is dirty before second checkpoint");
+
+            ASSERT_EQ(ctx, sw_send1(&checkpoint_world, &checkpoint_ctx, (Oop)image_class, checkpoint_world.class_class,
+                                    "checkpointTo:", checkpoint_path_oop),
+                      checkpoint_path_oop,
+                      "runtime: second checkpoint succeeds");
+            ASSERT_EQ(ctx, om_dirty_page_count(checkpoint_world.om), (uint64_t)0,
+                      "runtime: checkpoint clears dirty pages");
+
+            file = fopen(checkpoint_path, "rb");
+            ASSERT_EQ(ctx, file != NULL, 1, "runtime: second checkpoint file readable");
+            ASSERT_EQ(ctx, fread(&header, sizeof(header), 1, file), (size_t)1,
+                      "runtime: second checkpoint header readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, clean_page), SEEK_SET), 0,
+                      "runtime: seek to clean page body after second checkpoint succeeds");
+            ASSERT_EQ(ctx, fread(clean_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: clean page body after second checkpoint readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, dirty_page), SEEK_SET), 0,
+                      "runtime: seek to dirty page body after second checkpoint succeeds");
+            ASSERT_EQ(ctx, fread(dirty_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: dirty page body after second checkpoint readable");
+            fclose(file);
+
+            ASSERT_EQ(ctx, memcmp(clean_before, clean_after, OM_PAGE_BYTES), 0,
+                      "runtime: clean page body unchanged across incremental checkpoint");
+            ASSERT_EQ(ctx, memcmp(dirty_before, dirty_after, OM_PAGE_BYTES) != 0, 1,
+                      "runtime: dirty page body rewritten across incremental checkpoint");
+            unlink(checkpoint_path);
+            smalltalk_world_teardown(&checkpoint_world);
+        }
+#endif
     }
 
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ContextTest.st") != NULL,
