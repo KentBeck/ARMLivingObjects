@@ -57,6 +57,9 @@ static int copy_oop_bytes_to_cstring(Oop oop, char *buffer, uint64_t buffer_size
     return 1;
 }
 
+extern void om_mark_object_dirty(Om om, ObjPtr object);
+extern Om om_registered_for_address(uint64_t address);
+
 const char *txn_durable_log_path(void)
 {
     return DURABLE_TXN_LOG_PATH;
@@ -282,6 +285,13 @@ int txn_log_replay(uint64_t heap_start, uint64_t heap_used)
             else
             {
                 OBJ_FIELD(object, field_index) = value;
+            }
+            {
+                Om om = om_registered_for_address((uint64_t)object);
+                if (om != NULL)
+                {
+                    om_mark_object_dirty(om, object);
+                }
             }
         }
         free(body);

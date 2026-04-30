@@ -83,6 +83,7 @@ void test_transaction(TestContext *ctx)
         uint64_t heap_start = om_registered_start(om);
         ASSERT_EQ(ctx, replay_obj != NULL, 1, "replay object allocated");
         OBJ_FIELD(replay_obj, 0) = tag_smallint(5);
+        om_clear_dirty_pages(om);
 
         txn_log_write(log, (uint64_t)replay_obj, 0, tag_smallint(444));
         ASSERT_EQ(ctx, txn_log_append_fsync(log, heap_start, om[0]), 1,
@@ -93,6 +94,8 @@ void test_transaction(TestContext *ctx)
                   "txn_log_replay succeeds");
         ASSERT_EQ(ctx, OBJ_FIELD(replay_obj, 0), tag_smallint(444),
                   "txn_log_replay applies durable write");
+        ASSERT_EQ(ctx, om_dirty_page_count(om), (uint64_t)1,
+                  "txn_log_replay marks one dirty page");
     }
 
     // Replay ignores a torn tail and keeps the last complete durable commit.
@@ -423,6 +426,7 @@ void test_transaction(TestContext *ctx)
         sp = (uint64_t *)((uint8_t *)stack + STACK_WORDS * sizeof(uint64_t));
         fp = (uint64_t *)0xCAFE;
         stack_push(&sp, stack, (uint64_t)arr2);
+        om_clear_dirty_pages(om);
 
         activate_method(&sp, &fp, 0, (uint64_t)caller_cm2, 0, 0);
         interpret(&sp, &fp,
@@ -433,6 +437,8 @@ void test_transaction(TestContext *ctx)
                   "at:put: array[1] = 99");
         ASSERT_EQ(ctx, OBJ_FIELD(arr2, 0), tag_smallint(10),
                   "at:put: array[0] unchanged");
+        ASSERT_EQ(ctx, om_dirty_page_count(om), (uint64_t)1,
+                  "at:put: direct write marks one dirty page");
     }
 
     // --- at:put: with transaction (write goes to log) ---

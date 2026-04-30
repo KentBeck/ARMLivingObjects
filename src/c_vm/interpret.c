@@ -56,6 +56,18 @@ extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table
 extern void image_pointers_to_offsets(uint8_t *buf, uint64_t size, uint64_t heap_base);
 extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_base);
 extern void image_live_pointers_to_offsets_paged(Om source_om, uint8_t *image_copy, uint64_t used_size);
+extern void image_offsets_to_live_pointers_paged(uint8_t *image_copy, uint64_t used_size,
+                                                 uint64_t heap_base,
+                                                 const uint64_t *page_used_table,
+                                                 const uint64_t *page_first_table,
+                                                 const uint64_t *page_covering_table,
+                                                 uint64_t page_count);
+extern uint64_t om_page_count(Om om);
+extern uint64_t om_page_used_bytes(Om om, uint64_t page_id);
+extern ObjPtr om_page_first_object_start(Om om, uint64_t page_id);
+extern ObjPtr om_page_covering_object(Om om, uint64_t page_id);
+extern void om_mark_object_dirty(Om om, ObjPtr object);
+extern void om_clear_dirty_pages(Om om);
 
 enum
 {
@@ -159,6 +171,8 @@ typedef struct ImageCheckpointHeader
 {
     uint64_t magic;
     uint64_t used_size;
+    uint64_t page_bytes;
+    uint64_t page_count;
     uint64_t symbol_table_offset;
     uint64_t symbol_class_offset;
     uint64_t context_class_offset;
@@ -280,6 +294,15 @@ static uint64_t object_offset_in_heap(Oop object, uint64_t heap_start)
     return object - heap_start;
 }
 
+static uint64_t page_object_offset_in_heap(Oop object, uint64_t heap_start)
+{
+    if (!is_object_value(object))
+    {
+        return 0;
+    }
+    return (object - heap_start) + 8;
+}
+
 static Oop smalltalk_lookup_loaded_global(Oop key)
 {
     Oop associations_oop;
@@ -336,6 +359,23 @@ static void record_write_barrier(Om om, Oop receiver, uint64_t field_index,
     if (remembered != NULL)
     {
         txn_log_write(remembered, receiver, field_index, value);
+    }
+}
+
+static void mark_dirty_pages_for_txn_log(const Oop *log, Om om)
+{
+    if (log == NULL)
+    {
+        return;
+    }
+
+    for (uint64_t entry = 0; entry < log[0]; entry++)
+    {
+        Oop object = log[1 + (entry * 3)];
+        if (is_object_value(object))
+        {
+            om_mark_object_dirty(om, (ObjPtr)object);
+        }
     }
 }
 
@@ -1249,10 +1289,12 @@ static PrimitiveResult try_transaction_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                 raise(SIGTRAP);
                 return PRIMITIVE_FAILED;
             }
+            mark_dirty_pages_for_txn_log(local_txn_log, om);
             txn_commit_durable(local_txn_log);
         }
         else
         {
+            mark_dirty_pages_for_txn_log(local_txn_log, om);
             txn_commit(local_txn_log);
         }
         current_transaction_log_frame = previous_transaction_frame;
@@ -1282,7 +1324,11 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
     {
         uint64_t heap_start;
         uint64_t used_size;
+        uint64_t page_count;
         uint8_t *image_copy;
+        uint64_t *page_used_table;
+        uint64_t *page_first_table;
+        uint64_t *page_covering_table;
         FILE *file;
         ImageCheckpointHeader header;
 
@@ -1297,10 +1343,31 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         {
             return PRIMITIVE_FAILED;
         }
+        page_count = om_page_count(om);
+        page_used_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
+        page_first_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
+        page_covering_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
+        if ((page_used_table == NULL || page_first_table == NULL || page_covering_table == NULL) &&
+            page_count != 0)
+        {
+            free(page_used_table);
+            free(page_first_table);
+            free(page_covering_table);
+            return PRIMITIVE_FAILED;
+        }
+        for (uint64_t page_id = 0; page_id < page_count; page_id++)
+        {
+            page_used_table[page_id] = om_page_used_bytes(om, page_id);
+            page_first_table[page_id] = page_object_offset_in_heap((Oop)om_page_first_object_start(om, page_id), heap_start);
+            page_covering_table[page_id] = page_object_offset_in_heap((Oop)om_page_covering_object(om, page_id), heap_start);
+        }
 
         image_copy = (uint8_t *)malloc((size_t)used_size);
         if (image_copy == NULL)
         {
+            free(page_used_table);
+            free(page_first_table);
+            free(page_covering_table);
             return PRIMITIVE_FAILED;
         }
 
@@ -1309,6 +1376,8 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
 
         header.magic = IMAGE_CHECKPOINT_MAGIC;
         header.used_size = used_size;
+        header.page_bytes = OM_PAGE_BYTES;
+        header.page_count = page_count;
         header.symbol_table_offset = object_offset_in_heap((Oop)global_symbol_table, heap_start);
         header.symbol_class_offset = object_offset_in_heap((Oop)global_symbol_class, heap_start);
         header.context_class_offset = object_offset_in_heap((Oop)global_context_class, heap_start);
@@ -1319,17 +1388,31 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         if (file == NULL)
         {
             free(image_copy);
+            free(page_used_table);
+            free(page_first_table);
+            free(page_covering_table);
             return PRIMITIVE_FAILED;
         }
         if (fwrite(&header, sizeof(header), 1, file) != 1 ||
+            (page_count != 0 &&
+             (fwrite(page_used_table, sizeof(uint64_t), (size_t)page_count, file) != page_count ||
+              fwrite(page_first_table, sizeof(uint64_t), (size_t)page_count, file) != page_count ||
+              fwrite(page_covering_table, sizeof(uint64_t), (size_t)page_count, file) != page_count)) ||
             fwrite(image_copy, 1, (size_t)used_size, file) != used_size)
         {
             fclose(file);
             free(image_copy);
+            free(page_used_table);
+            free(page_first_table);
+            free(page_covering_table);
             return PRIMITIVE_FAILED;
         }
         fclose(file);
         free(image_copy);
+        free(page_used_table);
+        free(page_first_table);
+        free(page_covering_table);
+        om_clear_dirty_pages(om);
         if (!txn_durable_log_clear())
         {
             return PRIMITIVE_FAILED;
@@ -1343,6 +1426,9 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         ImageCheckpointHeader header;
         FILE *file;
         uint8_t *loaded_heap;
+        uint64_t *page_used_table = NULL;
+        uint64_t *page_first_table = NULL;
+        uint64_t *page_covering_table = NULL;
         Oop loaded_key;
         Oop loaded_value;
         char key_text[512];
@@ -1369,22 +1455,73 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             fclose(file);
             return PRIMITIVE_FAILED;
         }
+        if (header.page_bytes != 0 &&
+            header.page_bytes != OM_PAGE_BYTES)
+        {
+            fclose(file);
+            return PRIMITIVE_FAILED;
+        }
+        if (header.page_count != 0)
+        {
+            page_used_table = (uint64_t *)malloc((size_t)(header.page_count * sizeof(uint64_t)));
+            page_first_table = (uint64_t *)malloc((size_t)(header.page_count * sizeof(uint64_t)));
+            page_covering_table = (uint64_t *)malloc((size_t)(header.page_count * sizeof(uint64_t)));
+            if (page_used_table == NULL || page_first_table == NULL || page_covering_table == NULL)
+            {
+                fclose(file);
+                free(page_used_table);
+                free(page_first_table);
+                free(page_covering_table);
+                return PRIMITIVE_FAILED;
+            }
+            if (fread(page_used_table, sizeof(uint64_t), (size_t)header.page_count, file) != header.page_count ||
+                fread(page_first_table, sizeof(uint64_t), (size_t)header.page_count, file) != header.page_count ||
+                fread(page_covering_table, sizeof(uint64_t), (size_t)header.page_count, file) != header.page_count)
+            {
+                fclose(file);
+                free(page_used_table);
+                free(page_first_table);
+                free(page_covering_table);
+                return PRIMITIVE_FAILED;
+            }
+        }
 
         loaded_heap = (uint8_t *)malloc((size_t)header.used_size);
         if (loaded_heap == NULL)
         {
             fclose(file);
+            free(page_used_table);
+            free(page_first_table);
+            free(page_covering_table);
             return PRIMITIVE_FAILED;
         }
         if (fread(loaded_heap, 1, (size_t)header.used_size, file) != header.used_size)
         {
             fclose(file);
+            free(page_used_table);
+            free(page_first_table);
+            free(page_covering_table);
             free(loaded_heap);
             return PRIMITIVE_FAILED;
         }
         fclose(file);
 
-        image_offsets_to_pointers(loaded_heap, header.used_size, (uint64_t)loaded_heap);
+        if (header.page_count != 0)
+        {
+            image_offsets_to_live_pointers_paged(loaded_heap, header.used_size,
+                                                 (uint64_t)loaded_heap,
+                                                 page_used_table,
+                                                 page_first_table,
+                                                 page_covering_table,
+                                                 header.page_count);
+        }
+        else
+        {
+            image_offsets_to_pointers(loaded_heap, header.used_size, (uint64_t)loaded_heap);
+        }
+        free(page_used_table);
+        free(page_first_table);
+        free(page_covering_table);
 
         saved_symbol_table = global_symbol_table;
         saved_symbol_class = global_symbol_class;
@@ -2031,6 +2168,7 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
                     return PRIMITIVE_FAILED;
                 }
                 ((uint8_t *)&OBJ_FIELD(receiver_object, 0))[index] = (uint8_t)byte_value;
+                om_mark_object_dirty(om, receiver_object);
             }
         }
         else if (format == FORMAT_INDEXABLE)
@@ -2042,6 +2180,7 @@ static PrimitiveResult try_indexed_primitive(Oop **sp_ptr, ObjPtr *fp_ptr,
             else
             {
                 OBJ_FIELD(receiver_object, index) = value;
+                om_mark_object_dirty(om, receiver_object);
             }
         }
         else
@@ -2141,6 +2280,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
             else
             {
                 OBJ_FIELD(receiver, field_index) = value;
+                om_mark_object_dirty(om, receiver);
                 record_write_barrier(om, (Oop)receiver, field_index, value);
             }
             break;

@@ -172,6 +172,10 @@ extern uint64_t om_page_count(Om om);
 extern uint64_t om_page_id_for_address(Om om, uint64_t address);
 extern uint64_t om_page_start(Om om, uint64_t page_id);
 extern uint64_t om_page_used_bytes(Om om, uint64_t page_id);
+extern uint64_t om_page_is_dirty(Om om, uint64_t page_id);
+extern uint64_t om_dirty_page_count(Om om);
+extern void om_clear_dirty_pages(Om om);
+extern void om_mark_object_dirty(Om om, ObjPtr object);
 extern uint64_t om_object_spans_pages(Om om, ObjPtr object);
 extern uint64_t om_object_words(ObjPtr object);
 extern uint64_t om_object_bytes(ObjPtr object);
@@ -180,6 +184,12 @@ extern ObjPtr om_page_covering_object(Om om, uint64_t page_id);
 extern uint64_t om_page_starts_with_continuation(Om om, uint64_t page_id);
 extern ObjPtr om_page_first_object_start(Om om, uint64_t page_id);
 extern void image_live_pointers_to_offsets_paged(Om source_om, uint8_t *image_copy, uint64_t used_size);
+extern void image_offsets_to_live_pointers_paged(uint8_t *image_copy, uint64_t used_size,
+                                                 uint64_t heap_base,
+                                                 const uint64_t *page_used_table,
+                                                 const uint64_t *page_first_table,
+                                                 const uint64_t *page_covering_table,
+                                                 uint64_t page_count);
 
 // GC functions
 // gc_copy_object(obj, to_space) -> new_obj

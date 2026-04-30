@@ -3,6 +3,26 @@
 #include "primitives.h"
 #include <string.h>
 
+typedef struct PersistCheckpointHeader
+{
+    uint64_t magic;
+    uint64_t used_size;
+    uint64_t page_bytes;
+    uint64_t page_count;
+    uint64_t symbol_table_offset;
+    uint64_t symbol_class_offset;
+    uint64_t context_class_offset;
+    uint64_t smalltalk_dict_offset;
+    uint64_t class_table_offset;
+} PersistCheckpointHeader;
+
+static uint64_t encode_checkpoint_offset(uint64_t address, uint64_t heap_base)
+{
+    return address == 0 ? 0 : (address - heap_base) + 8;
+}
+
+#define PERSIST_CHECKPOINT_MAGIC UINT64_C(0x41524c4f494d4731)
+
 static uint64_t *make_test_string(uint64_t *om, uint64_t *string_class, const char *text)
 {
     uint64_t size = (uint64_t)strlen(text);
@@ -107,18 +127,18 @@ void test_persist(TestContext *ctx)
         last_page = om_page_id_for_address(page_om, (uint64_t)last);
         ASSERT_EQ(ctx, last_page, (uint64_t)1,
                   "pages: later object belongs to second page");
-        ASSERT_EQ(ctx, om_page_used_bytes(page_om, 0), (uint64_t)OM_PAGE_BYTES,
-                  "pages: first page reports full once allocation crosses boundary");
+        ASSERT_EQ(ctx, om_page_used_bytes(page_om, 0), (uint64_t)(OM_PAGE_BYTES - (2 * WORD_BYTES)),
+                  "pages: first page reports used bytes up to its last real object");
         ASSERT_EQ(ctx, om_page_used_bytes(page_om, 1) > 0, (uint64_t)1,
                   "pages: second page reports non-zero used bytes after allocation");
     }
 
-    // --- Current boundary: contiguous allocation still allows page straddling ---
+    // --- Page-aware allocation: small objects stay on one page; large ones may span ---
     {
         static uint8_t page_buf2[12288] __attribute__((aligned(8)));
         uint64_t page_om2[2];
         uint64_t *filler;
-        uint64_t *small_straddling;
+        uint64_t *small_after_boundary;
         uint64_t *large_spanning;
 
         om_init(page_buf2, sizeof(page_buf2), page_om2);
@@ -130,13 +150,13 @@ void test_persist(TestContext *ctx)
         ASSERT_EQ(ctx, om_page_used_bytes(page_om2, 0), (uint64_t)(510 * WORD_BYTES),
                   "pages: filler leaves tail room in first page");
 
-        small_straddling = om_alloc(page_om2, (uint64_t)class_class, FORMAT_FIELDS, 1);
-        ASSERT_EQ(ctx, small_straddling != NULL, 1,
+        small_after_boundary = om_alloc(page_om2, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ASSERT_EQ(ctx, small_after_boundary != NULL, 1,
                   "pages: small boundary object allocated");
-        ASSERT_EQ(ctx, om_page_id_for_address(page_om2, (uint64_t)small_straddling), (uint64_t)0,
-                  "pages: contiguous allocator still starts boundary object on first page");
-        ASSERT_EQ(ctx, om_object_spans_pages(page_om2, small_straddling), (uint64_t)1,
-                  "pages: small boundary object still straddles pages before page-aware scanning exists");
+        ASSERT_EQ(ctx, om_page_id_for_address(page_om2, (uint64_t)small_after_boundary), (uint64_t)1,
+                  "pages: small boundary object is bumped to next page");
+        ASSERT_EQ(ctx, om_object_spans_pages(page_om2, small_after_boundary), (uint64_t)0,
+                  "pages: small boundary object no longer straddles");
 
         large_spanning = om_alloc(page_om2, (uint64_t)class_class, FORMAT_BYTES, 5000);
         ASSERT_EQ(ctx, large_spanning != NULL, 1, "pages: large object allocated");
@@ -145,20 +165,66 @@ void test_persist(TestContext *ctx)
 
         ASSERT_EQ(ctx, (uint64_t)om_page_covering_object(page_om2, 0), (uint64_t)filler,
                   "pages: first page is covered by filler object");
-        ASSERT_EQ(ctx, (uint64_t)om_page_covering_object(page_om2, 1), (uint64_t)small_straddling,
-                  "pages: second page begins as continuation of straddling object");
+        ASSERT_EQ(ctx, (uint64_t)om_page_covering_object(page_om2, 1), (uint64_t)small_after_boundary,
+                  "pages: second page begins with the bumped small object");
+        ASSERT_EQ(ctx, (uint64_t)om_page_covering_object(page_om2, 2), (uint64_t)large_spanning,
+                  "pages: third page begins as continuation of large object");
         ASSERT_EQ(ctx, om_page_starts_with_continuation(page_om2, 0), (uint64_t)0,
                   "pages: first page does not start with continuation");
-        ASSERT_EQ(ctx, om_page_starts_with_continuation(page_om2, 1), (uint64_t)1,
-                  "pages: second page starts with continuation metadata");
+        ASSERT_EQ(ctx, om_page_starts_with_continuation(page_om2, 1), (uint64_t)0,
+                  "pages: second page starts with a real object");
+        ASSERT_EQ(ctx, om_page_starts_with_continuation(page_om2, 2), (uint64_t)1,
+                  "pages: third page starts with continuation metadata");
         ASSERT_EQ(ctx, (uint64_t)om_page_first_object_start(page_om2, 0), (uint64_t)filler,
                   "pages: first page first object start is filler");
-        ASSERT_EQ(ctx, (uint64_t)om_page_first_object_start(page_om2, 1), (uint64_t)large_spanning,
-                  "pages: second page first object start skips continuation tail");
-        ASSERT_EQ(ctx, (uint64_t)om_next_object(page_om2, filler), (uint64_t)small_straddling,
-                  "pages: next-object walk reaches straddling object");
-        ASSERT_EQ(ctx, (uint64_t)om_next_object(page_om2, small_straddling), (uint64_t)large_spanning,
-                  "pages: next-object walk reaches next object after continuation");
+        ASSERT_EQ(ctx, (uint64_t)om_page_first_object_start(page_om2, 1), (uint64_t)small_after_boundary,
+                  "pages: second page first object start is the bumped small object");
+        ASSERT_EQ(ctx, (uint64_t)om_page_first_object_start(page_om2, 2), (uint64_t)0,
+                  "pages: continuation page has no first object start");
+        ASSERT_EQ(ctx, (uint64_t)om_next_object(page_om2, filler), (uint64_t)small_after_boundary,
+                  "pages: next-object walk reaches bumped small object");
+        ASSERT_EQ(ctx, (uint64_t)om_next_object(page_om2, small_after_boundary), (uint64_t)large_spanning,
+                  "pages: next-object walk reaches large spanning object");
+    }
+
+    // --- Dirty page tracking marks touched pages and can be cleared ---
+    {
+        static uint8_t dirty_buf[12288] __attribute__((aligned(8)));
+        uint64_t dirty_om[2];
+        uint64_t *filler;
+        uint64_t *small_after_boundary;
+        uint64_t *large_spanning;
+
+        om_init(dirty_buf, sizeof(dirty_buf), dirty_om);
+        filler = om_alloc(dirty_om, (uint64_t)class_class, FORMAT_FIELDS, 507);
+        small_after_boundary = om_alloc(dirty_om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        large_spanning = om_alloc(dirty_om, (uint64_t)class_class, FORMAT_BYTES, 5000);
+        ASSERT_EQ(ctx, filler != NULL && small_after_boundary != NULL && large_spanning != NULL, 1,
+                  "pages dirty: objects allocated");
+        ASSERT_EQ(ctx, om_dirty_page_count(dirty_om), (uint64_t)0,
+                  "pages dirty: heap starts clean");
+
+        om_mark_object_dirty(dirty_om, small_after_boundary);
+        ASSERT_EQ(ctx, om_dirty_page_count(dirty_om), (uint64_t)1,
+                  "pages dirty: one-page object dirties one page");
+        ASSERT_EQ(ctx, om_page_is_dirty(dirty_om, 0), (uint64_t)0,
+                  "pages dirty: untouched first page stays clean");
+        ASSERT_EQ(ctx, om_page_is_dirty(dirty_om, 1), (uint64_t)1,
+                  "pages dirty: page with boundary object marked dirty");
+        ASSERT_EQ(ctx, om_page_is_dirty(dirty_om, 2), (uint64_t)0,
+                  "pages dirty: continuation page still clean");
+
+        om_clear_dirty_pages(dirty_om);
+        ASSERT_EQ(ctx, om_dirty_page_count(dirty_om), (uint64_t)0,
+                  "pages dirty: clear resets dirty bits");
+
+        om_mark_object_dirty(dirty_om, large_spanning);
+        ASSERT_EQ(ctx, om_dirty_page_count(dirty_om), (uint64_t)2,
+                  "pages dirty: spanning object dirties both covered pages");
+        ASSERT_EQ(ctx, om_page_is_dirty(dirty_om, 1), (uint64_t)1,
+                  "pages dirty: spanning object dirties start page");
+        ASSERT_EQ(ctx, om_page_is_dirty(dirty_om, 2), (uint64_t)1,
+                  "pages dirty: spanning object dirties continuation page");
     }
 
     // --- Serialize heap to buffer, deserialize, verify ---
@@ -221,42 +287,199 @@ void test_persist(TestContext *ctx)
         static uint8_t srcp[12288] __attribute__((aligned(8)));
         uint64_t sp[2];
         uint64_t *filler;
-        uint64_t *straddling;
+        uint64_t *small_after_boundary;
+        uint64_t *large_spanning;
         uint64_t usedp;
         uint64_t filler_offset;
-        uint64_t straddling_offset;
+        uint64_t large_offset;
+        uint64_t page_used[3];
+        uint64_t page_first[3];
+        uint64_t page_covering[3];
         static uint8_t imgp[12288];
         static uint8_t dstp[12288] __attribute__((aligned(8)));
         uint64_t *new_filler;
-        uint64_t *new_straddling;
+        uint64_t *new_large;
 
         om_init(srcp, sizeof(srcp), sp);
 
         filler = om_alloc(sp, (uint64_t)class_class, FORMAT_FIELDS, 507);
-        straddling = om_alloc(sp, (uint64_t)class_class, FORMAT_FIELDS, 1);
-        ASSERT_EQ(ctx, filler != NULL && straddling != NULL, 1,
+        small_after_boundary = om_alloc(sp, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        large_spanning = om_alloc(sp, (uint64_t)class_class, FORMAT_BYTES, 5000);
+        ASSERT_EQ(ctx, filler != NULL && small_after_boundary != NULL && large_spanning != NULL, 1,
                   "persist pages: source objects allocated");
-        ASSERT_EQ(ctx, om_object_spans_pages(sp, straddling), (uint64_t)1,
-                  "persist pages: source object straddles page boundary");
-        OBJ_FIELD(filler, 0) = (uint64_t)straddling;
-        OBJ_FIELD(straddling, 0) = tag_smallint(1234);
+        ASSERT_EQ(ctx, om_object_spans_pages(sp, large_spanning), (uint64_t)1,
+                  "persist pages: large source object straddles page boundary");
+        OBJ_FIELD(filler, 0) = (uint64_t)large_spanning;
+        ((uint8_t *)&OBJ_FIELD(large_spanning, 0))[0] = 0xD2;
 
         usedp = sp[0] - (uint64_t)srcp;
         filler_offset = (uint64_t)filler - (uint64_t)srcp;
-        straddling_offset = (uint64_t)straddling - (uint64_t)srcp;
+        large_offset = (uint64_t)large_spanning - (uint64_t)srcp;
+        for (uint64_t page_id = 0; page_id < om_page_count(sp); page_id++)
+        {
+            page_used[page_id] = om_page_used_bytes(sp, page_id);
+            page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(sp, page_id), (uint64_t)srcp);
+            page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(sp, page_id), (uint64_t)srcp);
+        }
 
         memcpy(imgp, srcp, usedp);
         image_live_pointers_to_offsets_paged(sp, imgp, usedp);
 
         memcpy(dstp, imgp, usedp);
-        image_offsets_to_pointers(dstp, usedp, (uint64_t)dstp);
+        image_offsets_to_live_pointers_paged(dstp, usedp, (uint64_t)dstp,
+                                             page_used, page_first, page_covering,
+                                             om_page_count(sp));
 
         new_filler = (uint64_t *)((uint64_t)dstp + filler_offset);
-        new_straddling = (uint64_t *)((uint64_t)dstp + straddling_offset);
-        ASSERT_EQ(ctx, OBJ_FIELD(new_filler, 0), (uint64_t)new_straddling,
-                  "persist pages: page-aware conversion preserves pointer into straddling object");
-        ASSERT_EQ(ctx, OBJ_FIELD(new_straddling, 0), tag_smallint(1234),
-                  "persist pages: straddling object field preserved");
+        new_large = (uint64_t *)((uint64_t)dstp + large_offset);
+        ASSERT_EQ(ctx, OBJ_FIELD(new_filler, 0), (uint64_t)new_large,
+                  "persist pages: page-aware conversion preserves pointer into large spanning object");
+        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(new_large, 0))[0], (uint64_t)0xD2,
+                  "persist pages: spanning bytes object payload preserved");
+    }
+
+    // --- Checkpoint metadata carries page size/count and used bytes table ---
+    {
+        static uint8_t srcm[12288] __attribute__((aligned(8)));
+        uint64_t sm[2];
+        uint64_t *filler;
+        uint64_t *small_after_boundary;
+        uint64_t *large_spanning;
+        uint64_t usedm;
+        static uint8_t imgm[12288];
+        PersistCheckpointHeader header;
+        uint64_t page_used[3];
+        uint64_t page_first[3];
+        uint64_t page_covering[3];
+        FILE *fm;
+        PersistCheckpointHeader loaded_header;
+        uint64_t loaded_used[3];
+        uint64_t loaded_first[3];
+        uint64_t loaded_covering[3];
+
+        om_init(srcm, sizeof(srcm), sm);
+        filler = om_alloc(sm, (uint64_t)class_class, FORMAT_FIELDS, 507);
+        small_after_boundary = om_alloc(sm, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        large_spanning = om_alloc(sm, (uint64_t)class_class, FORMAT_BYTES, 5000);
+        ASSERT_EQ(ctx, filler != NULL && small_after_boundary != NULL && large_spanning != NULL, 1,
+                  "persist pages meta: source objects allocated");
+        ASSERT_EQ(ctx, om_object_spans_pages(sm, large_spanning), (uint64_t)1,
+                  "persist pages meta: large object straddles");
+        OBJ_FIELD(filler, 0) = (uint64_t)large_spanning;
+        ((uint8_t *)&OBJ_FIELD(large_spanning, 0))[0] = 88;
+
+        usedm = sm[0] - (uint64_t)srcm;
+        memcpy(imgm, srcm, usedm);
+        image_live_pointers_to_offsets_paged(sm, imgm, usedm);
+
+        header.magic = PERSIST_CHECKPOINT_MAGIC;
+        header.used_size = usedm;
+        header.page_bytes = OM_PAGE_BYTES;
+        header.page_count = om_page_count(sm);
+        header.symbol_table_offset = 0;
+        header.symbol_class_offset = 0;
+        header.context_class_offset = 0;
+        header.smalltalk_dict_offset = 0;
+        header.class_table_offset = 0;
+        for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
+        {
+            page_used[page_id] = om_page_used_bytes(sm, page_id);
+            page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(sm, page_id), (uint64_t)srcm);
+            page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(sm, page_id), (uint64_t)srcm);
+        }
+
+        fm = fopen("/tmp/arlo_pages_meta.image", "wb");
+        fwrite(&header, sizeof(header), 1, fm);
+        fwrite(page_used, sizeof(uint64_t), (size_t)header.page_count, fm);
+        fwrite(page_first, sizeof(uint64_t), (size_t)header.page_count, fm);
+        fwrite(page_covering, sizeof(uint64_t), (size_t)header.page_count, fm);
+        fwrite(imgm, 1, usedm, fm);
+        fclose(fm);
+
+        fm = fopen("/tmp/arlo_pages_meta.image", "rb");
+        ASSERT_EQ(ctx, fread(&loaded_header, sizeof(loaded_header), 1, fm), (size_t)1,
+                  "persist pages meta: header read succeeds");
+        ASSERT_EQ(ctx, fread(loaded_used, sizeof(uint64_t), (size_t)loaded_header.page_count, fm),
+                  (size_t)loaded_header.page_count,
+                  "persist pages meta: page table read succeeds");
+        ASSERT_EQ(ctx, fread(loaded_first, sizeof(uint64_t), (size_t)loaded_header.page_count, fm),
+                  (size_t)loaded_header.page_count,
+                  "persist pages meta: first-object table read succeeds");
+        ASSERT_EQ(ctx, fread(loaded_covering, sizeof(uint64_t), (size_t)loaded_header.page_count, fm),
+                  (size_t)loaded_header.page_count,
+                  "persist pages meta: covering-object table read succeeds");
+        fclose(fm);
+
+        ASSERT_EQ(ctx, loaded_header.magic, PERSIST_CHECKPOINT_MAGIC,
+                  "persist pages meta: header magic preserved");
+        ASSERT_EQ(ctx, loaded_header.page_bytes, (uint64_t)OM_PAGE_BYTES,
+                  "persist pages meta: page size preserved");
+        ASSERT_EQ(ctx, loaded_header.page_count, (uint64_t)3,
+                  "persist pages meta: page count preserved");
+        ASSERT_EQ(ctx, loaded_used[0], (uint64_t)(510 * WORD_BYTES),
+                  "persist pages meta: first page used bytes preserved");
+        ASSERT_EQ(ctx, loaded_used[1] > 0, (uint64_t)1,
+                  "persist pages meta: continuation page still has used-byte metadata");
+        ASSERT_EQ(ctx, loaded_first[0], encode_checkpoint_offset((uint64_t)filler, (uint64_t)srcm),
+                  "persist pages meta: first page first-object offset preserved");
+        ASSERT_EQ(ctx, loaded_first[1], encode_checkpoint_offset((uint64_t)small_after_boundary, (uint64_t)srcm),
+                  "persist pages meta: second page first-object offset preserved");
+        ASSERT_EQ(ctx, loaded_first[2], (uint64_t)0,
+                  "persist pages meta: continuation page has no first-object start");
+        ASSERT_EQ(ctx, loaded_covering[2], encode_checkpoint_offset((uint64_t)large_spanning, (uint64_t)srcm),
+                  "persist pages meta: continuation page covering-object offset preserved");
+    }
+
+    // --- Page-aware load uses page metadata to restore a straddling object ---
+    {
+        static uint8_t srcl[12288] __attribute__((aligned(8)));
+        uint64_t sl[2];
+        uint64_t *filler;
+        uint64_t *small_after_boundary;
+        uint64_t *large_spanning;
+        uint64_t usedl;
+        uint64_t filler_offset;
+        uint64_t large_offset;
+        uint64_t page_used[3];
+        uint64_t page_first[3];
+        uint64_t page_covering[3];
+        static uint8_t imgl[12288];
+        static uint8_t dstl[12288] __attribute__((aligned(8)));
+        uint64_t *new_filler;
+        uint64_t *new_large;
+
+        om_init(srcl, sizeof(srcl), sl);
+        filler = om_alloc(sl, (uint64_t)class_class, FORMAT_FIELDS, 507);
+        small_after_boundary = om_alloc(sl, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        large_spanning = om_alloc(sl, (uint64_t)class_class, FORMAT_BYTES, 5000);
+        ASSERT_EQ(ctx, filler != NULL && small_after_boundary != NULL && large_spanning != NULL, 1,
+                  "persist pages load: source objects allocated");
+        OBJ_FIELD(filler, 0) = (uint64_t)large_spanning;
+        ((uint8_t *)&OBJ_FIELD(large_spanning, 0))[0] = 0xE1;
+
+        usedl = sl[0] - (uint64_t)srcl;
+        filler_offset = (uint64_t)filler - (uint64_t)srcl;
+        large_offset = (uint64_t)large_spanning - (uint64_t)srcl;
+        for (uint64_t page_id = 0; page_id < om_page_count(sl); page_id++)
+        {
+            page_used[page_id] = om_page_used_bytes(sl, page_id);
+            page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(sl, page_id), (uint64_t)srcl);
+            page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(sl, page_id), (uint64_t)srcl);
+        }
+
+        memcpy(imgl, srcl, usedl);
+        image_live_pointers_to_offsets_paged(sl, imgl, usedl);
+        memcpy(dstl, imgl, usedl);
+        image_offsets_to_live_pointers_paged(dstl, usedl, (uint64_t)dstl,
+                                             page_used, page_first, page_covering,
+                                             om_page_count(sl));
+
+        new_filler = (uint64_t *)((uint64_t)dstl + filler_offset);
+        new_large = (uint64_t *)((uint64_t)dstl + large_offset);
+        ASSERT_EQ(ctx, OBJ_FIELD(new_filler, 0), (uint64_t)new_large,
+                  "persist pages load: paged load preserves pointer into spanning object");
+        ASSERT_EQ(ctx, ((uint8_t *)&OBJ_FIELD(new_large, 0))[0], (uint64_t)0xE1,
+                  "persist pages load: paged load preserves spanning payload");
     }
 
     // --- Serialize heap where class is also in the heap ---
