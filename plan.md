@@ -489,6 +489,11 @@ Persistence
 - [~] Persistence tests cover image reload, method survival, and log replay
 - [ ] Page-based object storage is not implemented yet
 - [ ] Persistent layout / paging architecture is not settled yet
+- [~] See `pages-plan.md` for the first concrete paging design and slice order:
+  - fixed-size pages
+  - dirty-page checkpointing
+  - restart + journal replay on top of pages
+  - first milestone goal: checkpoint cost proportional to dirty pages, not total heap size
 
 Reliability / Transaction Log
 
