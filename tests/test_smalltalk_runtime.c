@@ -1377,6 +1377,154 @@ void test_smalltalk_runtime(TestContext *ctx)
             unlink(checkpoint_path);
             smalltalk_world_teardown(&checkpoint_world);
         }
+
+        {
+            const char *checkpoint_path = "/tmp/arlo_incremental_multipage.image";
+            static uint8_t checkpoint_world_buf[8 * 1024 * 1024] __attribute__((aligned(8)));
+            SmalltalkWorld checkpoint_world;
+            TestContext checkpoint_ctx = *ctx;
+            uint64_t *image_class;
+            uint64_t *clean_probe = NULL;
+            uint64_t *clean_filler = NULL;
+            uint64_t *multi_fields = NULL;
+            uint64_t clean_page;
+            uint64_t first_multi_page;
+            uint64_t last_multi_page;
+            uint64_t filler_fields;
+            Oop checkpoint_path_oop;
+            FILE *file;
+            RuntimeCheckpointHeader header;
+            uint8_t clean_before[OM_PAGE_BYTES];
+            uint8_t clean_after[OM_PAGE_BYTES];
+            uint8_t multi_first_before[OM_PAGE_BYTES];
+            uint8_t multi_first_after[OM_PAGE_BYTES];
+            uint8_t multi_last_before[OM_PAGE_BYTES];
+            uint8_t multi_last_after[OM_PAGE_BYTES];
+            int advanced = 0;
+
+            unlink(checkpoint_path);
+            smalltalk_world_init(&checkpoint_world, checkpoint_world_buf, sizeof(checkpoint_world_buf));
+            ASSERT_EQ(ctx, smalltalk_world_install_class_file(&checkpoint_world, "src/smalltalk/Image.st") != NULL,
+                      1, "runtime: multipage checkpoint world installs Image");
+            image_class = smalltalk_world_lookup_class(&checkpoint_world, "Image");
+            ASSERT_EQ(ctx, image_class != NULL, 1, "runtime: multipage checkpoint world has Image");
+
+            for (int tries = 0; tries < 1024 && !advanced; tries++)
+            {
+                uint64_t current_page = om_page_id_for_address(checkpoint_world.om, checkpoint_world.om[0]);
+                while (om_page_id_for_address(checkpoint_world.om, checkpoint_world.om[0]) == current_page)
+                {
+                    clean_probe = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, 1);
+                    if (clean_probe == NULL)
+                    {
+                        break;
+                    }
+                }
+
+                if (clean_probe == NULL)
+                {
+                    break;
+                }
+
+                clean_page = om_page_id_for_address(checkpoint_world.om, (uint64_t)clean_probe);
+                filler_fields = (OM_PAGE_BYTES - om_page_used_bytes(checkpoint_world.om, clean_page)) / WORD_BYTES;
+                if (filler_fields > 5)
+                {
+                    advanced = 1;
+                }
+            }
+            ASSERT_EQ(ctx, advanced, 1,
+                      "runtime: found a fresh page with room before multipage object");
+            clean_filler = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, filler_fields);
+            ASSERT_EQ(ctx, clean_filler != NULL, 1, "runtime: clean-page filler allocated");
+
+            multi_fields = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, 1200);
+            ASSERT_EQ(ctx, multi_fields != NULL, 1, "runtime: multipage fields object allocated");
+            ASSERT_EQ(ctx, om_object_spans_pages(checkpoint_world.om, multi_fields), (uint64_t)1,
+                      "runtime: fields object spans multiple pages");
+
+            OBJ_FIELD(clean_probe, 0) = tag_smallint(123);
+            OBJ_FIELD(multi_fields, 0) = tag_smallint(1);
+            OBJ_FIELD(multi_fields, 700) = tag_smallint(700);
+            OBJ_FIELD(multi_fields, 1199) = tag_smallint(1199);
+
+            first_multi_page = om_page_id_for_address(checkpoint_world.om, (uint64_t)multi_fields);
+            last_multi_page = om_page_id_for_address(checkpoint_world.om,
+                                                     ((uint64_t)multi_fields + om_object_bytes(multi_fields)) - 1);
+            ASSERT_EQ(ctx, first_multi_page > clean_page, 1,
+                      "runtime: multipage object starts after the unrelated clean page");
+            ASSERT_EQ(ctx, last_multi_page > first_multi_page, 1,
+                      "runtime: multipage object reaches a later continuation page");
+
+            om_mark_object_dirty(checkpoint_world.om, clean_probe);
+            om_mark_object_dirty(checkpoint_world.om, clean_filler);
+            om_mark_object_dirty(checkpoint_world.om, multi_fields);
+
+            checkpoint_path_oop = (Oop)sw_make_string(&checkpoint_world, checkpoint_path);
+            ASSERT_EQ(ctx, sw_send1(&checkpoint_world, &checkpoint_ctx, (Oop)image_class, checkpoint_world.class_class,
+                                    "checkpointTo:", checkpoint_path_oop),
+                      checkpoint_path_oop,
+                      "runtime: first multipage checkpoint succeeds");
+
+            file = fopen(checkpoint_path, "rb");
+            ASSERT_EQ(ctx, file != NULL, 1, "runtime: multipage checkpoint file created");
+            ASSERT_EQ(ctx, fread(&header, sizeof(header), 1, file), (size_t)1,
+                      "runtime: multipage checkpoint header readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, clean_page), SEEK_SET), 0,
+                      "runtime: seek to clean page for multipage proof succeeds");
+            ASSERT_EQ(ctx, fread(clean_before, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: clean page body before multipage change readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, first_multi_page), SEEK_SET), 0,
+                      "runtime: seek to first multipage body succeeds");
+            ASSERT_EQ(ctx, fread(multi_first_before, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: first multipage body before change readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, last_multi_page), SEEK_SET), 0,
+                      "runtime: seek to last multipage body succeeds");
+            ASSERT_EQ(ctx, fread(multi_last_before, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: last multipage body before change readable");
+            fclose(file);
+
+            OBJ_FIELD(multi_fields, 1199) = tag_smallint(4321);
+            om_mark_object_dirty(checkpoint_world.om, multi_fields);
+            ASSERT_EQ(ctx, om_page_is_dirty(checkpoint_world.om, clean_page), (uint64_t)0,
+                      "runtime: unrelated clean page stays clean");
+            ASSERT_EQ(ctx, om_page_is_dirty(checkpoint_world.om, first_multi_page), (uint64_t)1,
+                      "runtime: first multipage page marked dirty");
+            ASSERT_EQ(ctx, om_page_is_dirty(checkpoint_world.om, last_multi_page), (uint64_t)1,
+                      "runtime: last multipage page marked dirty");
+            ASSERT_EQ(ctx, om_dirty_page_count(checkpoint_world.om) >= (last_multi_page - first_multi_page + 1), (uint64_t)1,
+                      "runtime: whole multipage object contributes dirty pages");
+
+            ASSERT_EQ(ctx, sw_send1(&checkpoint_world, &checkpoint_ctx, (Oop)image_class, checkpoint_world.class_class,
+                                    "checkpointTo:", checkpoint_path_oop),
+                      checkpoint_path_oop,
+                      "runtime: second multipage checkpoint succeeds");
+
+            file = fopen(checkpoint_path, "rb");
+            ASSERT_EQ(ctx, file != NULL, 1, "runtime: second multipage checkpoint readable");
+            ASSERT_EQ(ctx, fread(&header, sizeof(header), 1, file), (size_t)1,
+                      "runtime: second multipage header readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, clean_page), SEEK_SET), 0,
+                      "runtime: seek to clean page after multipage change succeeds");
+            ASSERT_EQ(ctx, fread(clean_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: clean page body after multipage change readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, first_multi_page), SEEK_SET), 0,
+                      "runtime: seek to first multipage body after change succeeds");
+            ASSERT_EQ(ctx, fread(multi_first_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: first multipage body after change readable");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, last_multi_page), SEEK_SET), 0,
+                      "runtime: seek to last multipage body after change succeeds");
+            ASSERT_EQ(ctx, fread(multi_last_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
+                      "runtime: last multipage body after change readable");
+            fclose(file);
+
+            ASSERT_EQ(ctx, memcmp(clean_before, clean_after, OM_PAGE_BYTES), 0,
+                      "runtime: unrelated clean page remains byte-identical");
+            ASSERT_EQ(ctx, memcmp(multi_last_before, multi_last_after, OM_PAGE_BYTES) != 0, 1,
+                      "runtime: tail continuation page of multipage object rewritten");
+            unlink(checkpoint_path);
+            smalltalk_world_teardown(&checkpoint_world);
+        }
 #endif
     }
 
