@@ -338,6 +338,111 @@ void test_persist(TestContext *ctx)
                   "persist pages: spanning bytes object payload preserved");
     }
 
+    // --- Multi-page field object tracks continuation metadata across many pages ---
+    {
+        static uint8_t src_multi[16384] __attribute__((aligned(8)));
+        uint64_t multi_om[2];
+        uint64_t *target;
+        uint64_t *multi_fields;
+        uint64_t multi_pages;
+        uint64_t tail_page;
+
+        om_init(src_multi, sizeof(src_multi), multi_om);
+        target = om_alloc(multi_om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ASSERT_EQ(ctx, target != NULL, 1, "persist multipage: target object allocated");
+
+        multi_fields = om_alloc(multi_om, (uint64_t)class_class, FORMAT_FIELDS, 1200);
+        ASSERT_EQ(ctx, multi_fields != NULL, 1, "persist multipage: large fields object allocated");
+        ASSERT_EQ(ctx, om_object_spans_pages(multi_om, multi_fields), (uint64_t)1,
+                  "persist multipage: large fields object spans pages");
+
+        OBJ_FIELD(multi_fields, 0) = (uint64_t)target;
+        OBJ_FIELD(multi_fields, 700) = tag_smallint(700);
+        OBJ_FIELD(multi_fields, 1199) = (uint64_t)target;
+
+        multi_pages = om_page_count(multi_om);
+        ASSERT_EQ(ctx, multi_pages >= (uint64_t)3, (uint64_t)1,
+                  "persist multipage: heap has at least three pages");
+        ASSERT_EQ(ctx, (uint64_t)om_page_covering_object(multi_om, 0), (uint64_t)target,
+                  "persist multipage: first page still starts with target object");
+        ASSERT_EQ(ctx, (uint64_t)om_page_covering_object(multi_om, 1), (uint64_t)multi_fields,
+                  "persist multipage: second page covered by large fields object");
+        ASSERT_EQ(ctx, om_page_starts_with_continuation(multi_om, 1), (uint64_t)1,
+                  "persist multipage: second page begins with continuation");
+        ASSERT_EQ(ctx, (uint64_t)om_page_first_object_start(multi_om, 1), (uint64_t)0,
+                  "persist multipage: continuation page has no first object start");
+
+        tail_page = om_page_id_for_address(multi_om, ((uint64_t)multi_fields + om_object_bytes(multi_fields)) - 1);
+        ASSERT_EQ(ctx, tail_page >= (uint64_t)2, (uint64_t)1,
+                  "persist multipage: large fields object reaches a third page");
+        ASSERT_EQ(ctx, (uint64_t)om_page_covering_object(multi_om, tail_page), (uint64_t)multi_fields,
+                  "persist multipage: tail continuation page points back to large fields object");
+        ASSERT_EQ(ctx, om_page_starts_with_continuation(multi_om, tail_page), (uint64_t)1,
+                  "persist multipage: tail page begins with continuation");
+    }
+
+    // --- Multi-page field object round-trips through paged save/load ---
+    {
+        static uint8_t src_multi_rt[16384] __attribute__((aligned(8)));
+        uint64_t multi_rt_om[2];
+        uint64_t *target;
+        uint64_t *multi_fields;
+        uint64_t used_multi;
+        uint64_t target_offset;
+        uint64_t multi_offset;
+        uint64_t page_count;
+        uint64_t page_used[4];
+        uint64_t page_first[4];
+        uint64_t page_covering[4];
+        static uint8_t image_multi[16384];
+        static uint8_t dst_multi[16384] __attribute__((aligned(8)));
+        uint64_t *new_target;
+        uint64_t *new_multi_fields;
+
+        om_init(src_multi_rt, sizeof(src_multi_rt), multi_rt_om);
+        target = om_alloc(multi_rt_om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        multi_fields = om_alloc(multi_rt_om, (uint64_t)class_class, FORMAT_FIELDS, 1200);
+        ASSERT_EQ(ctx, target != NULL && multi_fields != NULL, 1,
+                  "persist multipage roundtrip: objects allocated");
+
+        OBJ_FIELD(target, 0) = tag_smallint(333);
+        OBJ_FIELD(multi_fields, 0) = (uint64_t)target;
+        OBJ_FIELD(multi_fields, 700) = (uint64_t)target;
+        OBJ_FIELD(multi_fields, 1199) = tag_smallint(999);
+
+        used_multi = multi_rt_om[0] - (uint64_t)src_multi_rt;
+        target_offset = (uint64_t)target - (uint64_t)src_multi_rt;
+        multi_offset = (uint64_t)multi_fields - (uint64_t)src_multi_rt;
+        page_count = om_page_count(multi_rt_om);
+        ASSERT_EQ(ctx, page_count <= (uint64_t)4, (uint64_t)1,
+                  "persist multipage roundtrip: local page tables fit test buffer");
+        for (uint64_t page_id = 0; page_id < page_count; page_id++)
+        {
+            page_used[page_id] = om_page_used_bytes(multi_rt_om, page_id);
+            page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(multi_rt_om, page_id),
+                                                           (uint64_t)src_multi_rt);
+            page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(multi_rt_om, page_id),
+                                                              (uint64_t)src_multi_rt);
+        }
+
+        memcpy(image_multi, src_multi_rt, used_multi);
+        image_live_pointers_to_offsets_paged(multi_rt_om, image_multi, used_multi);
+        memcpy(dst_multi, image_multi, used_multi);
+        image_offsets_to_live_pointers_paged(dst_multi, used_multi, (uint64_t)dst_multi,
+                                             page_used, page_first, page_covering, page_count);
+
+        new_target = (uint64_t *)((uint64_t)dst_multi + target_offset);
+        new_multi_fields = (uint64_t *)((uint64_t)dst_multi + multi_offset);
+        ASSERT_EQ(ctx, OBJ_FIELD(new_target, 0), tag_smallint(333),
+                  "persist multipage roundtrip: target payload preserved");
+        ASSERT_EQ(ctx, OBJ_FIELD(new_multi_fields, 0), (uint64_t)new_target,
+                  "persist multipage roundtrip: early pointer field preserved");
+        ASSERT_EQ(ctx, OBJ_FIELD(new_multi_fields, 700), (uint64_t)new_target,
+                  "persist multipage roundtrip: later pointer field preserved");
+        ASSERT_EQ(ctx, OBJ_FIELD(new_multi_fields, 1199), tag_smallint(999),
+                  "persist multipage roundtrip: tail field preserved");
+    }
+
     // --- Checkpoint metadata carries page size/count and used bytes table ---
     {
         static uint8_t srcm[12288] __attribute__((aligned(8)));
