@@ -493,6 +493,7 @@ Persistence
   - fixed-size pages
   - dirty-page checkpointing
   - restart + journal replay on top of pages
+  - explicit follow-on support for multi-page large objects
   - first milestone goal: checkpoint cost proportional to dirty pages, not total heap size
 
 Reliability / Transaction Log

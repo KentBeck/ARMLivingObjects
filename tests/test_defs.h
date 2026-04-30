@@ -167,6 +167,12 @@ extern int txn_log_replay(uint64_t heap_start, uint64_t heap_used);
 extern int txn_durable_log_clear(void);
 extern const char *txn_durable_log_path(void);
 extern uint64_t om_registered_start(uint64_t *om);
+extern uint64_t om_page_bytes(void);
+extern uint64_t om_page_count(Om om);
+extern uint64_t om_page_id_for_address(Om om, uint64_t address);
+extern uint64_t om_page_start(Om om, uint64_t page_id);
+extern uint64_t om_page_used_bytes(Om om, uint64_t page_id);
+extern uint64_t om_object_spans_pages(Om om, ObjPtr object);
 
 // GC functions
 // gc_copy_object(obj, to_space) -> new_obj

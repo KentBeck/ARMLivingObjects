@@ -21,11 +21,12 @@ First version constraints:
 - no variable page sizes
 - no fancy generations
 - no concurrent flushing
+- large objects must eventually be able to span multiple pages; this is a required follow-on, not an optional optimization
 
 Questions to settle first:
 
 - page size: probably `4 KB` or `8 KB`
-- an object cannot straddle pages in v1
+- v1 may begin with no object spanning pages, but the design must leave room for multi-page objects
 - page identity is stable across checkpoints
 - each page has:
   - page id
@@ -87,9 +88,8 @@ First version:
 
 - allocate persistent objects into a current page until full
 - then move to a new page
-- large objects may need:
-  - dedicated whole pages, or
-  - temporary “not yet supported” restriction
+- small and medium objects should fit in one page in v1
+- large objects must later be split across page boundaries with explicit metadata
 
 Important first rule:
 
@@ -100,6 +100,7 @@ Do not optimize placement yet. Just get:
 - page ownership
 - page fullness
 - page creation
+- a clear extension point for multi-page object layout
 
 ## 5. Dirty Tracking
 
@@ -173,7 +174,8 @@ Allocation/page ownership:
 
 - objects get assigned to pages
 - new page allocated when one fills
-- object does not straddle pages in v1
+- small objects do not straddle pages in v1
+- later: large objects can span multiple pages and reload correctly
 
 Dirty tracking:
 
@@ -207,21 +209,27 @@ These should mostly be C tests first.
 - allocate objects into tracked pages
 - page ownership queries
 - tests for placement/fullness
+- keep the allocation/layout API honest about later multi-page objects
 
 3. Dirty-page slice
 - mark pages dirty on committed writes
 - tests for dirty tracking
 
-4. Incremental checkpoint slice
+4. Multi-page object slice
+- define how a large object's continuation pages are represented
+- make restart/load preserve multi-page object contents
+- add tests for split byte objects and split indexable objects
+
+5. Incremental checkpoint slice
 - write metadata + dirty pages only
 - tests for page-count behavior
 
-5. Restart slice
+6. Restart slice
 - load page-based image
 - replay durable journal
 - tests for restart correctness
 
-6. Cleanup/integration slice
+7. Cleanup/integration slice
 - reconcile old whole-image code paths
 - decide what remains as bootstrap/debug tooling
 
@@ -230,7 +238,8 @@ These should mostly be C tests first.
 I would explicitly choose these now:
 
 - fixed-size pages
-- no object spanning pages in v1
+- small-object single-page fast path in v1
+- explicit later support for multi-page objects
 - no savepoints/concurrency work during page implementation
 - checkpoint granularity is pages
 - transactions stay as they are until pages work

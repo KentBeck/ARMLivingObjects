@@ -61,6 +61,58 @@ void test_persist(TestContext *ctx)
     uint64_t *om = ctx->om;
     uint64_t *class_class = ctx->class_class;
 
+    // --- Page bookkeeping: count, ownership, fullness ---
+    {
+        static uint8_t page_buf[8192] __attribute__((aligned(8)));
+        uint64_t page_om[2];
+        uint64_t *first;
+        uint64_t *last = NULL;
+        uint64_t first_page;
+        uint64_t last_page;
+
+        om_init(page_buf, sizeof(page_buf), page_om);
+        ASSERT_EQ(ctx, om_page_bytes(), (uint64_t)OM_PAGE_BYTES,
+                  "pages: page size constant exposed");
+        ASSERT_EQ(ctx, om_page_count(page_om), (uint64_t)2,
+                  "pages: 8192-byte heap reports two 4KB pages");
+        ASSERT_EQ(ctx, om_page_start(page_om, 0), (uint64_t)page_buf,
+                  "pages: first page starts at heap base");
+        ASSERT_EQ(ctx, om_page_start(page_om, 1), (uint64_t)(page_buf + OM_PAGE_BYTES),
+                  "pages: second page start follows first by page size");
+        ASSERT_EQ(ctx, om_page_used_bytes(page_om, 0), (uint64_t)0,
+                  "pages: empty first page has zero used bytes");
+        ASSERT_EQ(ctx, om_page_used_bytes(page_om, 1), (uint64_t)0,
+                  "pages: empty second page has zero used bytes");
+
+        first = om_alloc(page_om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ASSERT_EQ(ctx, first != NULL, 1, "pages: first object allocated");
+        first_page = om_page_id_for_address(page_om, (uint64_t)first);
+        ASSERT_EQ(ctx, first_page, (uint64_t)0,
+                  "pages: first object belongs to first page");
+        ASSERT_EQ(ctx, om_page_used_bytes(page_om, 0), (uint64_t)(4 * WORD_BYTES),
+                  "pages: first page used bytes track first allocation");
+        ASSERT_EQ(ctx, om_object_spans_pages(page_om, first), (uint64_t)0,
+                  "pages: small object stays within one page");
+
+        while ((last = om_alloc(page_om, (uint64_t)class_class, FORMAT_FIELDS, 8)) != NULL)
+        {
+            if (om_page_id_for_address(page_om, (uint64_t)last) == 1)
+            {
+                break;
+            }
+        }
+
+        ASSERT_EQ(ctx, last != NULL, 1,
+                  "pages: allocation eventually reaches second page");
+        last_page = om_page_id_for_address(page_om, (uint64_t)last);
+        ASSERT_EQ(ctx, last_page, (uint64_t)1,
+                  "pages: later object belongs to second page");
+        ASSERT_EQ(ctx, om_page_used_bytes(page_om, 0), (uint64_t)OM_PAGE_BYTES,
+                  "pages: first page reports full once allocation crosses boundary");
+        ASSERT_EQ(ctx, om_page_used_bytes(page_om, 1) > 0, (uint64_t)1,
+                  "pages: second page reports non-zero used bytes after allocation");
+    }
+
     // --- Serialize heap to buffer, deserialize, verify ---
     {
         // Source heap
