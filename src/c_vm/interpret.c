@@ -55,6 +55,7 @@ extern int txn_durable_log_clear(void);
 extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table, Om om, Oop *txn_log);
 extern void image_pointers_to_offsets(uint8_t *buf, uint64_t size, uint64_t heap_base);
 extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_base);
+extern void image_live_pointers_to_offsets_paged(Om source_om, uint8_t *image_copy, uint64_t used_size);
 
 enum
 {
@@ -1304,7 +1305,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         }
 
         memcpy(image_copy, (const void *)heap_start, (size_t)used_size);
-        image_pointers_to_offsets(image_copy, used_size, heap_start);
+        image_live_pointers_to_offsets_paged(om, image_copy, used_size);
 
         header.magic = IMAGE_CHECKPOINT_MAGIC;
         header.used_size = used_size;
