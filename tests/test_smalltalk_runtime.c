@@ -30,7 +30,7 @@ typedef struct RuntimeCheckpointHeader
 
 static uint64_t runtime_checkpoint_page_data_offset(uint64_t page_count, uint64_t page_id)
 {
-    return sizeof(RuntimeCheckpointHeader) + (4 * page_count * sizeof(uint64_t)) +
+    return sizeof(RuntimeCheckpointHeader) + (5 * page_count * sizeof(uint64_t)) +
            (page_id * OM_PAGE_BYTES);
 }
 

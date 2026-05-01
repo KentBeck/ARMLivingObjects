@@ -51,6 +51,7 @@ static uint64_t persist_hash_bytes(uint64_t hash, const uint8_t *bytes, uint64_t
 }
 
 static uint64_t persist_metadata_checksum(const PersistCheckpointHeader *header,
+                                          const uint64_t *page_state,
                                           const uint64_t *page_used,
                                           const uint64_t *page_first,
                                           const uint64_t *page_covering,
@@ -64,6 +65,7 @@ static uint64_t persist_metadata_checksum(const PersistCheckpointHeader *header,
     if (copy.page_count != 0)
     {
         uint64_t table_bytes = copy.page_count * sizeof(uint64_t);
+        hash = persist_hash_bytes(hash, (const uint8_t *)page_state, table_bytes);
         hash = persist_hash_bytes(hash, (const uint8_t *)page_used, table_bytes);
         hash = persist_hash_bytes(hash, (const uint8_t *)page_first, table_bytes);
         hash = persist_hash_bytes(hash, (const uint8_t *)page_covering, table_bytes);
@@ -152,6 +154,10 @@ void test_persist(TestContext *ctx)
                   "pages: empty first page has zero used bytes");
         ASSERT_EQ(ctx, om_page_used_bytes(page_om, 1), (uint64_t)0,
                   "pages: empty second page has zero used bytes");
+        ASSERT_EQ(ctx, om_page_state(page_om, 0), (uint64_t)OM_PAGE_STATE_FREE,
+                  "pages: empty first page starts free");
+        ASSERT_EQ(ctx, om_page_state(page_om, 1), (uint64_t)OM_PAGE_STATE_FREE,
+                  "pages: empty second page starts free");
 
         first = om_alloc(page_om, (uint64_t)class_class, FORMAT_FIELDS, 1);
         ASSERT_EQ(ctx, first != NULL, 1, "pages: first object allocated");
@@ -160,6 +166,8 @@ void test_persist(TestContext *ctx)
                   "pages: first object belongs to first page");
         ASSERT_EQ(ctx, om_page_used_bytes(page_om, 0), (uint64_t)(4 * WORD_BYTES),
                   "pages: first page used bytes track first allocation");
+        ASSERT_EQ(ctx, om_page_state(page_om, 0), (uint64_t)OM_PAGE_STATE_HEAD,
+                  "pages: first allocation marks page as head");
         ASSERT_EQ(ctx, om_object_spans_pages(page_om, first), (uint64_t)0,
                   "pages: small object stays within one page");
 
@@ -176,6 +184,8 @@ void test_persist(TestContext *ctx)
         last_page = om_page_id_for_address(page_om, (uint64_t)last);
         ASSERT_EQ(ctx, last_page, (uint64_t)1,
                   "pages: later object belongs to second page");
+        ASSERT_EQ(ctx, om_page_state(page_om, 1), (uint64_t)OM_PAGE_STATE_HEAD,
+                  "pages: second page with first object is marked head");
         ASSERT_EQ(ctx, om_page_used_bytes(page_om, 0), (uint64_t)(OM_PAGE_BYTES - (2 * WORD_BYTES)),
                   "pages: first page reports used bytes up to its last real object");
         ASSERT_EQ(ctx, om_page_used_bytes(page_om, 1) > 0, (uint64_t)1,
@@ -224,6 +234,12 @@ void test_persist(TestContext *ctx)
                   "pages: second page starts with a real object");
         ASSERT_EQ(ctx, om_page_starts_with_continuation(page_om2, 2), (uint64_t)1,
                   "pages: third page starts with continuation metadata");
+        ASSERT_EQ(ctx, om_page_state(page_om2, 0), (uint64_t)OM_PAGE_STATE_HEAD,
+                  "pages: first page state is head");
+        ASSERT_EQ(ctx, om_page_state(page_om2, 1), (uint64_t)OM_PAGE_STATE_HEAD,
+                  "pages: second page state is head");
+        ASSERT_EQ(ctx, om_page_state(page_om2, 2), (uint64_t)OM_PAGE_STATE_CONTINUATION,
+                  "pages: third page state is continuation");
         ASSERT_EQ(ctx, (uint64_t)om_page_first_object_start(page_om2, 0), (uint64_t)filler,
                   "pages: first page first object start is filler");
         ASSERT_EQ(ctx, (uint64_t)om_page_first_object_start(page_om2, 1), (uint64_t)small_after_boundary,
@@ -234,6 +250,46 @@ void test_persist(TestContext *ctx)
                   "pages: next-object walk reaches bumped small object");
         ASSERT_EQ(ctx, (uint64_t)om_next_object(page_om2, small_after_boundary), (uint64_t)large_spanning,
                   "pages: next-object walk reaches large spanning object");
+    }
+
+    // --- Freed page can be reused for a later small allocation ---
+    {
+        static uint8_t reuse_buf[12288] __attribute__((aligned(8)));
+        uint64_t reuse_om[2];
+        uint64_t *page0;
+        uint64_t *page1;
+        uint64_t *page2;
+        uint64_t *reused;
+
+        om_init(reuse_buf, sizeof(reuse_buf), reuse_om);
+        page0 = om_alloc(reuse_om, (uint64_t)class_class, FORMAT_FIELDS, 507);
+        page1 = om_alloc(reuse_om, (uint64_t)class_class, FORMAT_FIELDS, 507);
+        page2 = om_alloc(reuse_om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ASSERT_EQ(ctx, page0 != NULL && page1 != NULL && page2 != NULL, 1,
+                  "pages reuse: source pages allocated");
+        ASSERT_EQ(ctx, om_page_id_for_address(reuse_om, (uint64_t)page1), (uint64_t)1,
+                  "pages reuse: middle page allocated");
+        ASSERT_EQ(ctx, om_page_id_for_address(reuse_om, (uint64_t)page2), (uint64_t)2,
+                  "pages reuse: later page allocated");
+
+        om_release_page(reuse_om, 1);
+        ASSERT_EQ(ctx, om_page_state(reuse_om, 1), (uint64_t)OM_PAGE_STATE_FREE,
+                  "pages reuse: released page marked free");
+        ASSERT_EQ(ctx, om_page_used_bytes(reuse_om, 1), (uint64_t)0,
+                  "pages reuse: released page clears used bytes");
+        ASSERT_EQ(ctx, (uint64_t)om_page_first_object_start(reuse_om, 1), (uint64_t)0,
+                  "pages reuse: released page clears first-object metadata");
+
+        reused = om_alloc(reuse_om, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        ASSERT_EQ(ctx, reused != NULL, 1, "pages reuse: replacement object allocated");
+        ASSERT_EQ(ctx, om_page_id_for_address(reuse_om, (uint64_t)reused), (uint64_t)1,
+                  "pages reuse: allocator reuses freed page");
+        ASSERT_EQ(ctx, om_page_state(reuse_om, 1), (uint64_t)OM_PAGE_STATE_HEAD,
+                  "pages reuse: reused page becomes head again");
+        ASSERT_EQ(ctx, (uint64_t)om_next_object(reuse_om, page0), (uint64_t)reused,
+                  "pages reuse: object walk reaches reused page before later pages");
+        ASSERT_EQ(ctx, (uint64_t)om_next_object(reuse_om, reused), (uint64_t)page2,
+                  "pages reuse: object walk continues to later allocated pages");
     }
 
     // --- Dirty page tracking marks touched pages and can be cleared ---
@@ -342,6 +398,7 @@ void test_persist(TestContext *ctx)
         uint64_t filler_offset;
         uint64_t large_offset;
         uint64_t page_used[3];
+        uint64_t page_state[3];
         uint64_t page_first[3];
         uint64_t page_covering[3];
         static uint8_t imgp[12288];
@@ -503,12 +560,14 @@ void test_persist(TestContext *ctx)
         static uint8_t imgm[12288];
         PersistCheckpointHeader header;
         uint64_t page_used[3];
+        uint64_t page_state[3];
         uint64_t page_first[3];
         uint64_t page_covering[3];
         uint64_t page_checksum[3];
         FILE *fm;
         PersistCheckpointHeader loaded_header;
         uint64_t loaded_used[3];
+        uint64_t loaded_state[3];
         uint64_t loaded_first[3];
         uint64_t loaded_covering[3];
         uint64_t loaded_checksum[3];
@@ -542,6 +601,7 @@ void test_persist(TestContext *ctx)
         header.metadata_checksum = 0;
         for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
         {
+            page_state[page_id] = om_page_state(sm, page_id);
             page_used[page_id] = om_page_used_bytes(sm, page_id);
             page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(sm, page_id), (uint64_t)srcm);
             page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(sm, page_id), (uint64_t)srcm);
@@ -553,6 +613,7 @@ void test_persist(TestContext *ctx)
             page_checksum[page_id] = persist_page_checksum(page_image, OM_PAGE_BYTES);
         }
         header.metadata_checksum = persist_metadata_checksum(&header,
+                                                            page_state,
                                                             page_used,
                                                             page_first,
                                                             page_covering,
@@ -560,6 +621,7 @@ void test_persist(TestContext *ctx)
 
         fm = fopen("/tmp/arlo_pages_meta.image", "wb");
         fwrite(&header, sizeof(header), 1, fm);
+        fwrite(page_state, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(page_used, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(page_first, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(page_covering, sizeof(uint64_t), (size_t)header.page_count, fm);
@@ -570,6 +632,9 @@ void test_persist(TestContext *ctx)
         fm = fopen("/tmp/arlo_pages_meta.image", "rb");
         ASSERT_EQ(ctx, fread(&loaded_header, sizeof(loaded_header), 1, fm), (size_t)1,
                   "persist pages meta: header read succeeds");
+        ASSERT_EQ(ctx, fread(loaded_state, sizeof(uint64_t), (size_t)loaded_header.page_count, fm),
+                  (size_t)loaded_header.page_count,
+                  "persist pages meta: page-state table read succeeds");
         ASSERT_EQ(ctx, fread(loaded_used, sizeof(uint64_t), (size_t)loaded_header.page_count, fm),
                   (size_t)loaded_header.page_count,
                   "persist pages meta: page table read succeeds");
@@ -592,6 +657,10 @@ void test_persist(TestContext *ctx)
                   "persist pages meta: page count preserved");
         ASSERT_EQ(ctx, loaded_header.generation, (uint64_t)7,
                   "persist pages meta: generation preserved");
+        ASSERT_EQ(ctx, loaded_state[0], (uint64_t)OM_PAGE_STATE_HEAD,
+                  "persist pages meta: first page state preserved");
+        ASSERT_EQ(ctx, loaded_state[2], (uint64_t)OM_PAGE_STATE_CONTINUATION,
+                  "persist pages meta: continuation page state preserved");
         ASSERT_EQ(ctx, loaded_used[0], (uint64_t)(510 * WORD_BYTES),
                   "persist pages meta: first page used bytes preserved");
         ASSERT_EQ(ctx, loaded_used[1] > 0, (uint64_t)1,
@@ -610,6 +679,7 @@ void test_persist(TestContext *ctx)
                   "persist pages meta: continuation page checksum preserved");
         ASSERT_EQ(ctx, loaded_header.metadata_checksum,
                   persist_metadata_checksum(&loaded_header,
+                                            loaded_state,
                                             loaded_used,
                                             loaded_first,
                                             loaded_covering,
@@ -627,6 +697,7 @@ void test_persist(TestContext *ctx)
         uint64_t usedc;
         PersistCheckpointHeader header;
         uint64_t page_used[3];
+        uint64_t page_state[3];
         uint64_t page_first[3];
         uint64_t page_covering[3];
         uint64_t page_checksum[3];
@@ -661,6 +732,7 @@ void test_persist(TestContext *ctx)
         for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
         {
             page_used[page_id] = om_page_used_bytes(sc, page_id);
+            page_state[page_id] = om_page_state(sc, page_id);
             page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(sc, page_id), (uint64_t)srcc);
             page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(sc, page_id), (uint64_t)srcc);
             memset(page_image, 0, sizeof(page_image));
@@ -671,11 +743,13 @@ void test_persist(TestContext *ctx)
             page_checksum[page_id] = persist_page_checksum(page_image, OM_PAGE_BYTES);
         }
         header.metadata_checksum = persist_metadata_checksum(&header,
+                                                            page_state,
                                                             page_used,
                                                             page_first,
                                                             page_covering,
                                                             page_checksum);
         fwrite(&header, sizeof(header), 1, fc);
+        fwrite(page_state, sizeof(uint64_t), (size_t)header.page_count, fc);
         fwrite(page_used, sizeof(uint64_t), (size_t)header.page_count, fc);
         fwrite(page_first, sizeof(uint64_t), (size_t)header.page_count, fc);
         fwrite(page_covering, sizeof(uint64_t), (size_t)header.page_count, fc);
@@ -696,7 +770,7 @@ void test_persist(TestContext *ctx)
 
         fc = fopen(path, "r+b");
         ASSERT_EQ(ctx, fc != NULL, 1, "persist validate: file opens for corruption");
-        fseek(fc, (long)(sizeof(PersistCheckpointHeader) + (4 * header.page_count * sizeof(uint64_t)) + OM_PAGE_BYTES + 17), SEEK_SET);
+        fseek(fc, (long)(sizeof(PersistCheckpointHeader) + (5 * header.page_count * sizeof(uint64_t)) + OM_PAGE_BYTES + 17), SEEK_SET);
         fputc(0xA7, fc);
         fclose(fc);
 
@@ -714,6 +788,7 @@ void test_persist(TestContext *ctx)
         uint64_t usedmeta;
         PersistCheckpointHeader header;
         uint64_t page_used[3];
+        uint64_t page_state[3];
         uint64_t page_first[3];
         uint64_t page_covering[3];
         uint64_t page_checksum[3];
@@ -745,6 +820,7 @@ void test_persist(TestContext *ctx)
         for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
         {
             page_used[page_id] = om_page_used_bytes(smeta, page_id);
+            page_state[page_id] = om_page_state(smeta, page_id);
             page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(smeta, page_id), (uint64_t)srcmeta);
             page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(smeta, page_id), (uint64_t)srcmeta);
             memset(page_image, 0, sizeof(page_image));
@@ -755,6 +831,7 @@ void test_persist(TestContext *ctx)
             page_checksum[page_id] = persist_page_checksum(page_image, OM_PAGE_BYTES);
         }
         header.metadata_checksum = persist_metadata_checksum(&header,
+                                                            page_state,
                                                             page_used,
                                                             page_first,
                                                             page_covering,
@@ -762,6 +839,7 @@ void test_persist(TestContext *ctx)
         fm = fopen(path, "wb");
         ASSERT_EQ(ctx, fm != NULL, 1, "persist meta validate: file opens for write");
         fwrite(&header, sizeof(header), 1, fm);
+        fwrite(page_state, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(page_used, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(page_first, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(page_covering, sizeof(uint64_t), (size_t)header.page_count, fm);

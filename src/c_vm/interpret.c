@@ -66,6 +66,7 @@ extern void image_offsets_to_live_pointers_paged(uint8_t *image_copy, uint64_t u
                                                  uint64_t page_count);
 extern uint64_t om_page_count(Om om);
 extern uint64_t om_page_start(Om om, uint64_t page_id);
+extern uint64_t om_page_state(Om om, uint64_t page_id);
 extern uint64_t om_page_used_bytes(Om om, uint64_t page_id);
 extern uint64_t om_page_is_dirty(Om om, uint64_t page_id);
 extern ObjPtr om_page_first_object_start(Om om, uint64_t page_id);
@@ -338,7 +339,7 @@ static uint64_t checkpoint_page_count(uint64_t used_size)
 
 static uint64_t checkpoint_metadata_bytes(uint64_t page_count)
 {
-    return sizeof(ImageCheckpointHeader) + (4 * page_count * sizeof(uint64_t));
+    return sizeof(ImageCheckpointHeader) + (5 * page_count * sizeof(uint64_t));
 }
 
 static uint64_t checkpoint_page_file_offset(uint64_t page_count, uint64_t page_id)
@@ -445,6 +446,7 @@ static uint64_t checkpoint_hash_bytes(uint64_t hash, const uint8_t *bytes, uint6
 }
 
 static uint64_t checkpoint_metadata_checksum(const ImageCheckpointHeader *header,
+                                             const uint64_t *page_state_table,
                                              const uint64_t *page_used_table,
                                              const uint64_t *page_first_table,
                                              const uint64_t *page_covering_table,
@@ -458,6 +460,7 @@ static uint64_t checkpoint_metadata_checksum(const ImageCheckpointHeader *header
     if (copy.page_count != 0)
     {
         uint64_t table_bytes = copy.page_count * sizeof(uint64_t);
+        hash = checkpoint_hash_bytes(hash, (const uint8_t *)page_state_table, table_bytes);
         hash = checkpoint_hash_bytes(hash, (const uint8_t *)page_used_table, table_bytes);
         hash = checkpoint_hash_bytes(hash, (const uint8_t *)page_first_table, table_bytes);
         hash = checkpoint_hash_bytes(hash, (const uint8_t *)page_covering_table, table_bytes);
@@ -467,6 +470,7 @@ static uint64_t checkpoint_metadata_checksum(const ImageCheckpointHeader *header
 }
 
 static int checkpoint_header_is_valid(const ImageCheckpointHeader *header,
+                                      const uint64_t *page_state_table,
                                       const uint64_t *page_used_table,
                                       const uint64_t *page_first_table,
                                       const uint64_t *page_covering_table,
@@ -478,8 +482,26 @@ static int checkpoint_header_is_valid(const ImageCheckpointHeader *header,
         return 0;
     }
 
+    for (uint64_t page_id = 0; page_id < header->page_count; page_id++)
+    {
+        if (page_state_table[page_id] != OM_PAGE_STATE_FREE &&
+            page_state_table[page_id] != OM_PAGE_STATE_HEAD &&
+            page_state_table[page_id] != OM_PAGE_STATE_CONTINUATION)
+        {
+            return 0;
+        }
+        if (page_state_table[page_id] == OM_PAGE_STATE_FREE &&
+            (page_used_table[page_id] != 0 ||
+             page_first_table[page_id] != 0 ||
+             page_covering_table[page_id] != 0))
+        {
+            return 0;
+        }
+    }
+
     return header->metadata_checksum ==
            checkpoint_metadata_checksum(header,
+                                        page_state_table,
                                         page_used_table,
                                         page_first_table,
                                         page_covering_table,
@@ -535,11 +557,13 @@ static void checkpoint_page_pointers_to_offsets(Om source_om,
 
 static int checkpoint_load_page_tables(FILE *file,
                                        uint64_t page_count,
+                                       uint64_t **page_state_table_out,
                                        uint64_t **page_used_table_out,
                                        uint64_t **page_first_table_out,
                                        uint64_t **page_covering_table_out,
                                        uint64_t **page_checksum_table_out)
 {
+    uint64_t *page_state_table = NULL;
     uint64_t *page_used_table = NULL;
     uint64_t *page_first_table = NULL;
     uint64_t *page_covering_table = NULL;
@@ -551,16 +575,19 @@ static int checkpoint_load_page_tables(FILE *file,
         *page_first_table_out = NULL;
         *page_covering_table_out = NULL;
         *page_checksum_table_out = NULL;
+        *page_state_table_out = NULL;
         return 1;
     }
 
+    page_state_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
     page_used_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
     page_first_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
     page_covering_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
     page_checksum_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
-    if (page_used_table == NULL || page_first_table == NULL ||
+    if (page_state_table == NULL || page_used_table == NULL || page_first_table == NULL ||
         page_covering_table == NULL || page_checksum_table == NULL)
     {
+        free(page_state_table);
         free(page_used_table);
         free(page_first_table);
         free(page_covering_table);
@@ -568,11 +595,13 @@ static int checkpoint_load_page_tables(FILE *file,
         return 0;
     }
 
-    if (fread(page_used_table, sizeof(uint64_t), (size_t)page_count, file) != page_count ||
+    if (fread(page_state_table, sizeof(uint64_t), (size_t)page_count, file) != page_count ||
+        fread(page_used_table, sizeof(uint64_t), (size_t)page_count, file) != page_count ||
         fread(page_first_table, sizeof(uint64_t), (size_t)page_count, file) != page_count ||
         fread(page_covering_table, sizeof(uint64_t), (size_t)page_count, file) != page_count ||
         fread(page_checksum_table, sizeof(uint64_t), (size_t)page_count, file) != page_count)
     {
+        free(page_state_table);
         free(page_used_table);
         free(page_first_table);
         free(page_covering_table);
@@ -580,6 +609,7 @@ static int checkpoint_load_page_tables(FILE *file,
         return 0;
     }
 
+    *page_state_table_out = page_state_table;
     *page_used_table_out = page_used_table;
     *page_first_table_out = page_first_table;
     *page_covering_table_out = page_covering_table;
@@ -591,6 +621,7 @@ int image_checkpoint_validate(const char *path)
 {
     FILE *file;
     ImageCheckpointHeader header;
+    uint64_t *page_state_table = NULL;
     uint64_t *page_used_table = NULL;
     uint64_t *page_first_table = NULL;
     uint64_t *page_covering_table = NULL;
@@ -610,6 +641,7 @@ int image_checkpoint_validate(const char *path)
     }
 
     if (!checkpoint_load_page_tables(file, header.page_count,
+                                     &page_state_table,
                                      &page_used_table, &page_first_table,
                                      &page_covering_table, &page_checksum_table))
     {
@@ -617,11 +649,13 @@ int image_checkpoint_validate(const char *path)
         return 0;
     }
     if (!checkpoint_header_is_valid(&header,
+                                    page_state_table,
                                     page_used_table,
                                     page_first_table,
                                     page_covering_table,
                                     page_checksum_table))
     {
+        free(page_state_table);
         free(page_used_table);
         free(page_first_table);
         free(page_covering_table);
@@ -633,6 +667,7 @@ int image_checkpoint_validate(const char *path)
     page_buffer = (uint8_t *)malloc((size_t)OM_PAGE_BYTES);
     if (page_buffer == NULL)
     {
+        free(page_state_table);
         free(page_used_table);
         free(page_first_table);
         free(page_covering_table);
@@ -649,6 +684,15 @@ int image_checkpoint_validate(const char *path)
             valid = 0;
             break;
         }
+        if (page_state_table[page_id] == OM_PAGE_STATE_FREE)
+        {
+            if (page_checksum_table[page_id] != checkpoint_page_checksum(page_buffer, OM_PAGE_BYTES))
+            {
+                valid = 0;
+                break;
+            }
+            continue;
+        }
         if (checkpoint_page_checksum(page_buffer, OM_PAGE_BYTES) != page_checksum_table[page_id])
         {
             valid = 0;
@@ -657,6 +701,7 @@ int image_checkpoint_validate(const char *path)
     }
 
     free(page_buffer);
+    free(page_state_table);
     free(page_used_table);
     free(page_first_table);
     free(page_covering_table);
@@ -1696,6 +1741,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         uint64_t heap_start;
         uint64_t used_size;
         uint64_t page_count;
+        uint64_t *page_state_table;
         uint64_t *page_used_table;
         uint64_t *page_first_table;
         uint64_t *page_covering_table;
@@ -1719,13 +1765,15 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             return PRIMITIVE_FAILED;
         }
         page_count = checkpoint_page_count(used_size);
+        page_state_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
         page_used_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
         page_first_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
         page_covering_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
         page_checksum_table = (uint64_t *)malloc((size_t)(page_count * sizeof(uint64_t)));
-        if ((page_used_table == NULL || page_first_table == NULL || page_covering_table == NULL || page_checksum_table == NULL) &&
+        if ((page_state_table == NULL || page_used_table == NULL || page_first_table == NULL || page_covering_table == NULL || page_checksum_table == NULL) &&
             page_count != 0)
         {
+            free(page_state_table);
             free(page_used_table);
             free(page_first_table);
             free(page_covering_table);
@@ -1734,6 +1782,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         }
         for (uint64_t page_id = 0; page_id < page_count; page_id++)
         {
+            page_state_table[page_id] = om_page_state(om, page_id);
             page_used_table[page_id] = om_page_used_bytes(om, page_id);
             page_first_table[page_id] = page_object_offset_in_heap((Oop)om_page_first_object_start(om, page_id), heap_start);
             page_covering_table[page_id] = page_object_offset_in_heap((Oop)om_page_covering_object(om, page_id), heap_start);
@@ -1791,6 +1840,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         {
             free(page_copy);
             free(source_page_copy);
+            free(page_state_table);
             free(page_used_table);
             free(page_first_table);
             free(page_covering_table);
@@ -1803,6 +1853,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             fclose(source_file);
             free(page_copy);
             free(source_page_copy);
+            free(page_state_table);
             free(page_used_table);
             free(page_first_table);
             free(page_covering_table);
@@ -1813,7 +1864,8 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         if (fseek(temp_file, 0, SEEK_SET) != 0 ||
             fwrite(&header, sizeof(header), 1, temp_file) != 1 ||
             (page_count != 0 &&
-             (fwrite(page_used_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
+             (fwrite(page_state_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
+              fwrite(page_used_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
               fwrite(page_first_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
               fwrite(page_covering_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
               fwrite(page_checksum_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count)))
@@ -1826,6 +1878,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             }
             free(page_copy);
             free(source_page_copy);
+            free(page_state_table);
             free(page_used_table);
             free(page_first_table);
             free(page_covering_table);
@@ -1838,7 +1891,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             uint64_t page_live_bytes = checkpoint_page_live_bytes(used_size, page_id);
 
             memset(page_copy, 0, (size_t)OM_PAGE_BYTES);
-            if (page_live_bytes > 0)
+            if (page_state_table[page_id] != OM_PAGE_STATE_FREE && page_live_bytes > 0)
             {
                 memcpy(page_copy,
                        (const void *)(heap_start + (page_id * OM_PAGE_BYTES)),
@@ -1848,7 +1901,11 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             }
             page_checksum_table[page_id] = checkpoint_page_checksum(page_copy, OM_PAGE_BYTES);
 
-            if (!write_all_pages && !om_page_is_dirty(om, page_id) && source_file != NULL)
+            if (page_state_table[page_id] == OM_PAGE_STATE_FREE)
+            {
+                memcpy(source_page_copy, page_copy, (size_t)OM_PAGE_BYTES);
+            }
+            else if (!write_all_pages && !om_page_is_dirty(om, page_id) && source_file != NULL)
             {
                 if (fseek(source_file, (long)checkpoint_page_file_offset(page_count, page_id), SEEK_SET) != 0 ||
                     fread(source_page_copy, 1, (size_t)OM_PAGE_BYTES, source_file) != OM_PAGE_BYTES)
@@ -1872,6 +1929,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
                 }
                 free(page_copy);
                 free(source_page_copy);
+                free(page_state_table);
                 free(page_used_table);
                 free(page_first_table);
                 free(page_covering_table);
@@ -1881,6 +1939,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         }
 
         header.metadata_checksum = checkpoint_metadata_checksum(&header,
+                                                                page_state_table,
                                                                 page_used_table,
                                                                 page_first_table,
                                                                 page_covering_table,
@@ -1889,7 +1948,8 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         if (fseek(temp_file, 0, SEEK_SET) != 0 ||
             fwrite(&header, sizeof(header), 1, temp_file) != 1 ||
             (page_count != 0 &&
-             (fwrite(page_used_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
+             (fwrite(page_state_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
+              fwrite(page_used_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
               fwrite(page_first_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
               fwrite(page_covering_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count ||
               fwrite(page_checksum_table, sizeof(uint64_t), (size_t)page_count, temp_file) != page_count)) ||
@@ -1904,6 +1964,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             }
             free(page_copy);
             free(source_page_copy);
+            free(page_state_table);
             free(page_used_table);
             free(page_first_table);
             free(page_covering_table);
@@ -1920,6 +1981,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             unlink(temp_path);
             free(page_copy);
             free(source_page_copy);
+            free(page_state_table);
             free(page_used_table);
             free(page_first_table);
             free(page_covering_table);
@@ -1938,6 +2000,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         }
         free(page_copy);
         free(source_page_copy);
+        free(page_state_table);
         free(page_used_table);
         free(page_first_table);
         free(page_covering_table);
@@ -1956,6 +2019,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         ImageCheckpointHeader header;
         FILE *file;
         uint8_t *loaded_heap;
+        uint64_t *page_state_table = NULL;
         uint64_t *page_used_table = NULL;
         uint64_t *page_first_table = NULL;
         uint64_t *page_covering_table = NULL;
@@ -1988,12 +2052,14 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         if (header.page_count != 0)
         {
             if (!checkpoint_load_page_tables(file, header.page_count,
+                                             &page_state_table,
                                              &page_used_table,
                                              &page_first_table,
                                              &page_covering_table,
                                              &page_checksum_table))
             {
                 fclose(file);
+                free(page_state_table);
                 free(page_used_table);
                 free(page_first_table);
                 free(page_covering_table);
@@ -2002,12 +2068,14 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             }
         }
         if (!checkpoint_header_is_valid(&header,
+                                        page_state_table,
                                         page_used_table,
                                         page_first_table,
                                         page_covering_table,
                                         page_checksum_table))
         {
             fclose(file);
+            free(page_state_table);
             free(page_used_table);
             free(page_first_table);
             free(page_covering_table);
@@ -2019,6 +2087,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
         if (loaded_heap == NULL)
         {
             fclose(file);
+            free(page_state_table);
             free(page_used_table);
             free(page_first_table);
             free(page_covering_table);
@@ -2035,6 +2104,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
                 free(page_first_table);
                 free(page_covering_table);
                 free(page_checksum_table);
+                free(page_state_table);
                 free(loaded_heap);
                 return PRIMITIVE_FAILED;
             }
@@ -2049,6 +2119,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
                     free(page_first_table);
                     free(page_covering_table);
                     free(page_checksum_table);
+                    free(page_state_table);
                     free(loaded_heap);
                     return PRIMITIVE_FAILED;
                 }
@@ -2060,10 +2131,11 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
                     free(page_first_table);
                     free(page_covering_table);
                     free(page_checksum_table);
+                    free(page_state_table);
                     free(loaded_heap);
                     return PRIMITIVE_FAILED;
                 }
-                if (page_live_bytes > 0)
+                if (page_state_table[page_id] != OM_PAGE_STATE_FREE && page_live_bytes > 0)
                 {
                     memcpy(loaded_heap + (page_id * OM_PAGE_BYTES), page_buffer, (size_t)page_live_bytes);
                 }
@@ -2082,6 +2154,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             if (fread(loaded_heap, 1, (size_t)header.used_size, file) != header.used_size)
             {
                 fclose(file);
+                free(page_state_table);
                 free(page_used_table);
                 free(page_first_table);
                 free(page_covering_table);
@@ -2092,6 +2165,7 @@ static PrimitiveResult try_image_primitive(Oop **sp_ptr, Oop primitive,
             fclose(file);
             image_offsets_to_pointers(loaded_heap, header.used_size, (uint64_t)loaded_heap);
         }
+        free(page_state_table);
         free(page_used_table);
         free(page_first_table);
         free(page_covering_table);

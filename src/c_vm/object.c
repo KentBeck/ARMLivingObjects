@@ -16,6 +16,8 @@ static uint64_t *registered_simple_om_page_used[MAX_REGISTERED_GC_CONTEXTS];
 static uint64_t *registered_simple_om_page_first[MAX_REGISTERED_GC_CONTEXTS];
 static uint64_t *registered_simple_om_page_covering[MAX_REGISTERED_GC_CONTEXTS];
 static uint8_t *registered_simple_om_page_dirty[MAX_REGISTERED_GC_CONTEXTS];
+static uint8_t *registered_simple_om_page_state[MAX_REGISTERED_GC_CONTEXTS];
+static uint8_t *registered_simple_om_page_reusable[MAX_REGISTERED_GC_CONTEXTS];
 static uint64_t registered_simple_om_page_counts[MAX_REGISTERED_GC_CONTEXTS];
 static uint64_t registered_simple_om_count = 0;
 
@@ -121,10 +123,14 @@ void om_init(void *buffer, uint64_t size_bytes, Om free_ptr_var)
             free(registered_simple_om_page_first[index]);
             free(registered_simple_om_page_covering[index]);
             free(registered_simple_om_page_dirty[index]);
+            free(registered_simple_om_page_state[index]);
+            free(registered_simple_om_page_reusable[index]);
             registered_simple_om_page_used[index] = (uint64_t *)calloc((size_t)page_count, sizeof(uint64_t));
             registered_simple_om_page_first[index] = (uint64_t *)calloc((size_t)page_count, sizeof(uint64_t));
             registered_simple_om_page_covering[index] = (uint64_t *)calloc((size_t)page_count, sizeof(uint64_t));
             registered_simple_om_page_dirty[index] = (uint8_t *)calloc((size_t)page_count, sizeof(uint8_t));
+            registered_simple_om_page_state[index] = (uint8_t *)calloc((size_t)page_count, sizeof(uint8_t));
+            registered_simple_om_page_reusable[index] = (uint8_t *)calloc((size_t)page_count, sizeof(uint8_t));
             return;
         }
     }
@@ -139,6 +145,8 @@ void om_init(void *buffer, uint64_t size_bytes, Om free_ptr_var)
         registered_simple_om_page_first[registered_simple_om_count] = (uint64_t *)calloc((size_t)page_count, sizeof(uint64_t));
         registered_simple_om_page_covering[registered_simple_om_count] = (uint64_t *)calloc((size_t)page_count, sizeof(uint64_t));
         registered_simple_om_page_dirty[registered_simple_om_count] = (uint8_t *)calloc((size_t)page_count, sizeof(uint8_t));
+        registered_simple_om_page_state[registered_simple_om_count] = (uint8_t *)calloc((size_t)page_count, sizeof(uint8_t));
+        registered_simple_om_page_reusable[registered_simple_om_count] = (uint8_t *)calloc((size_t)page_count, sizeof(uint8_t));
         registered_simple_om_count++;
     }
 }
@@ -227,6 +235,16 @@ uint64_t om_page_used_bytes(Om om, uint64_t page_id)
     return registered_simple_om_page_used[index][page_id];
 }
 
+uint64_t om_page_state(Om om, uint64_t page_id)
+{
+    uint64_t index = om_registration_index(om);
+    if (index == UINT64_MAX || page_id >= registered_simple_om_page_counts[index])
+    {
+        return OM_PAGE_STATE_FREE;
+    }
+    return registered_simple_om_page_state[index][page_id];
+}
+
 uint64_t om_page_is_dirty(Om om, uint64_t page_id)
 {
     uint64_t index = om_registration_index(om);
@@ -268,6 +286,23 @@ void om_clear_dirty_pages(Om om)
 
     memset(registered_simple_om_page_dirty[index], 0,
            (size_t)registered_simple_om_page_counts[index] * sizeof(uint8_t));
+}
+
+void om_release_page(Om om, uint64_t page_id)
+{
+    uint64_t index = om_registration_index(om);
+
+    if (index == UINT64_MAX || page_id >= registered_simple_om_page_counts[index])
+    {
+        return;
+    }
+
+    registered_simple_om_page_used[index][page_id] = 0;
+    registered_simple_om_page_first[index][page_id] = 0;
+    registered_simple_om_page_covering[index][page_id] = 0;
+    registered_simple_om_page_dirty[index][page_id] = 0;
+    registered_simple_om_page_state[index][page_id] = OM_PAGE_STATE_FREE;
+    registered_simple_om_page_reusable[index][page_id] = 1;
 }
 
 static void om_mark_address_range_dirty(Om om, uint64_t start_address, uint64_t size_bytes)
@@ -578,9 +613,27 @@ ObjPtr om_alloc(Om free_ptr_var, Oop class_ptr, uint64_t format, uint64_t size)
                                    ? (((uint64_t)object) + OM_PAGE_BYTES - 1) & ~(uint64_t)(OM_PAGE_BYTES - 1)
                                    : heap_start + (((relative_offset + OM_PAGE_BYTES - 1) / OM_PAGE_BYTES) * OM_PAGE_BYTES);
     uint64_t metadata_index = om_registration_index(free_ptr_var);
+    uint64_t reuse_page_id = UINT64_MAX;
     ObjPtr new_free;
 
+    if (metadata_index != UINT64_MAX && total_bytes <= OM_PAGE_BYTES)
+    {
+        for (uint64_t page_id = 0; page_id < registered_simple_om_page_counts[metadata_index]; page_id++)
+        {
+            uint64_t page_start = om_page_start(free_ptr_var, page_id);
+            if (registered_simple_om_page_reusable[metadata_index][page_id] != 0 &&
+                registered_simple_om_page_state[metadata_index][page_id] == OM_PAGE_STATE_FREE &&
+                page_start < free_ptr_var[0])
+            {
+                reuse_page_id = page_id;
+                object = (ObjPtr)page_start;
+                break;
+            }
+        }
+    }
+
     if (page_offset != 0 &&
+        reuse_page_id == UINT64_MAX &&
         total_bytes <= OM_PAGE_BYTES &&
         total_bytes > bytes_left_in_page)
     {
@@ -625,6 +678,9 @@ ObjPtr om_alloc(Om free_ptr_var, Oop class_ptr, uint64_t format, uint64_t size)
             {
                 registered_simple_om_page_first[metadata_index][page_id] = object_start;
             }
+            registered_simple_om_page_state[metadata_index][page_id] =
+                (page_id == start_page) ? OM_PAGE_STATE_HEAD : OM_PAGE_STATE_CONTINUATION;
+            registered_simple_om_page_reusable[metadata_index][page_id] = 0;
             if (registered_simple_om_page_used[metadata_index][page_id] < used_bytes)
             {
                 registered_simple_om_page_used[metadata_index][page_id] = used_bytes;
@@ -632,6 +688,9 @@ ObjPtr om_alloc(Om free_ptr_var, Oop class_ptr, uint64_t format, uint64_t size)
         }
     }
 
-    free_ptr_var[0] = (uint64_t)new_free;
+    if (reuse_page_id == UINT64_MAX)
+    {
+        free_ptr_var[0] = (uint64_t)new_free;
+    }
     return object;
 }

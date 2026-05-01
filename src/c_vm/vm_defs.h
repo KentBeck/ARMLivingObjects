@@ -30,6 +30,10 @@ typedef uint64_t *Om;     // Object-memory allocator or semispace GC context.
 #define WORD_BYTES 8
 #define OM_PAGE_BYTES 4096
 
+#define OM_PAGE_STATE_FREE 0
+#define OM_PAGE_STATE_HEAD 1
+#define OM_PAGE_STATE_CONTINUATION 2
+
 // Object header layout.
 #define OBJ_HEADER_WORDS 3
 #define OBJ_CLASS_OFS 0
