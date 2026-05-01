@@ -908,6 +908,7 @@ void test_smalltalk_runtime(TestContext *ctx)
             {"true", 0, tagged_true(), NULL},
             {"false", 0, tagged_false(), NULL},
             {"1", 0, tag_smallint(1), NULL},
+            {"1 + 2", 0, tag_smallint(3), NULL},
             {"15", 0, tag_smallint(15), NULL},
             {"#foo", 0, intern_cstring_symbol(world.om, "foo"), NULL},
             {"'hi'", 1, 0, "hi"},
@@ -1550,6 +1551,8 @@ void test_smalltalk_runtime(TestContext *ctx)
               1, "runtime: DefaultActionException.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/MultipleFailureTest.st") != NULL,
               1, "runtime: MultipleFailureTest.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/CompilerTest.st") != NULL,
+              1, "runtime: CompilerTest.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ExceptionHandlingTest.st") != NULL,
               1, "runtime: ExceptionHandlingTest.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/TransactionTest.st") != NULL,
@@ -1561,6 +1564,7 @@ void test_smalltalk_runtime(TestContext *ctx)
         uint64_t *block_activation_test_class = smalltalk_world_lookup_class(&world, "BlockActivationTest");
         uint64_t *default_action_exception_class = smalltalk_world_lookup_class(&world, "DefaultActionException");
         uint64_t *multiple_failure_test_class = smalltalk_world_lookup_class(&world, "MultipleFailureTest");
+        uint64_t *compiler_test_class = smalltalk_world_lookup_class(&world, "CompilerTest");
         uint64_t *exception_handling_test_class = smalltalk_world_lookup_class(&world, "ExceptionHandlingTest");
         uint64_t *transaction_test_class = smalltalk_world_lookup_class(&world, "TransactionTest");
         uint64_t *durable_transaction_test_class = smalltalk_world_lookup_class(&world, "DurableTransactionTest");
@@ -1571,6 +1575,7 @@ void test_smalltalk_runtime(TestContext *ctx)
         ASSERT_EQ(ctx, block_activation_test_class != NULL, 1, "runtime: BlockActivationTest in Smalltalk dict");
         ASSERT_EQ(ctx, default_action_exception_class != NULL, 1, "runtime: DefaultActionException in Smalltalk dict");
         ASSERT_EQ(ctx, multiple_failure_test_class != NULL, 1, "runtime: MultipleFailureTest in Smalltalk dict");
+        ASSERT_EQ(ctx, compiler_test_class != NULL, 1, "runtime: CompilerTest in Smalltalk dict");
         ASSERT_EQ(ctx, exception_handling_test_class != NULL, 1, "runtime: ExceptionHandlingTest in Smalltalk dict");
         ASSERT_EQ(ctx, transaction_test_class != NULL, 1, "runtime: TransactionTest in Smalltalk dict");
         ASSERT_EQ(ctx, durable_transaction_test_class != NULL, 1,
@@ -1584,6 +1589,8 @@ void test_smalltalk_runtime(TestContext *ctx)
                   1, "runtime: BlockActivationTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(multiple_failure_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: MultipleFailureTest inherits runOn:");
+        ASSERT_EQ(ctx, class_lookup(compiler_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
+                  1, "runtime: CompilerTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(exception_handling_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
                   1, "runtime: ExceptionHandlingTest inherits runOn:");
         ASSERT_EQ(ctx, class_lookup(transaction_test_class, intern_cstring_symbol(world.om, "runOn:")) != 0,
@@ -1612,7 +1619,11 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     intern_cstring_symbol(world.om, "suite")) != 0,
                   1, "runtime: SmalltalkSelfTestSuite has class-side suite builder");
 #ifdef ALO_INTERPRETER_C
-        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 36);
+        run_smalltalk_suite_builder(ctx, &world, "SmalltalkSelfTestSuite", 40);
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileExpressionLiteralShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileExpressionBinarySendShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodBinaryReturnShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileExpressionKeywordSendShape");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicCommitsObjectChanges");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicReturnsBlockValue");

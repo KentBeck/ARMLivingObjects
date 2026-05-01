@@ -517,6 +517,18 @@ void test_smalltalk_sources(TestContext *ctx)
     ASSERT_EQ(ctx, strstr(symbol_src, "expectedFailureTwo") != NULL, 1,
               "MultipleFailureTest includes an intentional second failing helper");
 
+    ASSERT_EQ(ctx, read_file("tests/fixtures/CompilerTest.st", symbol_src,
+                             sizeof(symbol_src)), 1,
+              "tests/fixtures/CompilerTest.st exists");
+    ASSERT_EQ(ctx, strstr(symbol_src, "TestCase subclass: #CompilerTest instanceVariableNames: ''") != NULL, 1,
+              "CompilerTest is a TestCase subclass");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileExpressionBinarySendShape") != NULL, 1,
+              "CompilerTest covers binary expression compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodBinaryReturnShape") != NULL, 1,
+              "CompilerTest covers method compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileExpression: '1 + 2'") != NULL, 1,
+              "CompilerTest exercises real compileExpression: for binary send");
+
     ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,
                              sizeof(smalltalk_self_test_suite_src)), 1,
               "tests/fixtures/SmalltalkSelfTestSuite.st exists");
@@ -530,6 +542,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "SmalltalkSelfTestSuite includes ExceptionHandlingTest");
     ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: MultipleFailureTest to: suite startingAt: 1.") != NULL, 1,
               "SmalltalkSelfTestSuite includes MultipleFailureTest");
+    ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: CompilerTest to: suite startingAt: 1.") != NULL, 1,
+              "SmalltalkSelfTestSuite includes CompilerTest");
     ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: TransactionTest to: suite startingAt: 1.") != NULL, 1,
               "SmalltalkSelfTestSuite includes TransactionTest");
     ASSERT_EQ(ctx, strstr(smalltalk_self_test_suite_src, "self addTestsFrom: DurableTransactionTest to: suite startingAt: 1.") != NULL, 1,
