@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.arlo.stress-loop</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>/ABSOLUTE/PATH/TO/armlivingobjects/tools/run_stress_loop.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/ABSOLUTE/PATH/TO/armlivingobjects</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>INTERPRETER</key>
+    <string>c</string>
+    <key>STRESS_ITERATIONS</key>
+    <string>25</string>
+    <key>SLEEP_SECS</key>
+    <string>5</string>
+    <key>LOG_DIR</key>
+    <string>/ABSOLUTE/PATH/TO/armlivingobjects/stress_loop_logs</string>
+    <key>WATCH_REF</key>
+    <string>HEAD</string>
+    <key>BUILD_ON_HEAD_CHANGE</key>
+    <string>1</string>
+    <key>RUN_SMOKE_ON_HEAD_CHANGE</key>
+    <string>1</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/ABSOLUTE/PATH/TO/armlivingobjects/stress_loop_logs/launchd.stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/ABSOLUTE/PATH/TO/armlivingobjects/stress_loop_logs/launchd.stderr.log</string>
+</dict>
+</plist>

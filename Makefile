@@ -62,6 +62,9 @@ stress-smoke: $(STRESS_SMOKE_BIN)
 stress: $(STRESS_SMOKE_BIN)
 	./$(STRESS_SMOKE_BIN) 25
 
+stress-loop: $(STRESS_SMOKE_BIN)
+	./tools/run_stress_loop.sh
+
 smalltalk-expr: $(SMALLTALK_EXPR_BIN)
 
 smalltalk-lsp: $(SMALLTALK_LSP_BIN)
@@ -126,4 +129,4 @@ clean:
 	rm -rf $(BIN_DIR)
 	rm -f *.o test test_new
 
-.PHONY: clean gc-stress stress-smoke stress smalltalk-expr smalltalk-lsp test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr test-smalltalk-lsp
+.PHONY: clean gc-stress stress-smoke stress stress-loop smalltalk-expr smalltalk-lsp test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr test-smalltalk-lsp
