@@ -54,6 +54,9 @@ extern void txn_abort(Oop *log);
 extern int txn_log_append_fsync(const Oop *log, uint64_t heap_start, uint64_t heap_limit);
 extern int txn_log_replay(uint64_t heap_start, uint64_t heap_used);
 extern int txn_durable_log_clear(void);
+extern void checkpoint_set_test_dir_fsync_failure(int enabled);
+extern int checkpoint_fsync_parent_directory(const char *path);
+extern int image_checkpoint_validate(const char *path);
 extern Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip, ObjPtr class_table, Om om, Oop *txn_log);
 extern void image_pointers_to_offsets(uint8_t *buf, uint64_t size, uint64_t heap_base);
 extern void image_offsets_to_pointers(uint8_t *buf, uint64_t size, uint64_t new_base);
@@ -199,8 +202,6 @@ typedef struct TransactionLogFrame
 static ExceptionHandlerFrame *current_exception_handler = NULL;
 static EnsureFrame *current_ensure_frame = NULL;
 static TransactionLogFrame *current_transaction_log_frame = NULL;
-static int checkpoint_test_force_dir_fsync_failure = 0;
-
 #define TRANSACTION_LOG_ENTRY_CAPACITY 64
 #define TRANSACTION_LOG_WORD_CAPACITY (1 + (TRANSACTION_LOG_ENTRY_CAPACITY * 3))
 #define IMAGE_CHECKPOINT_MAGIC UINT64_C(0x41524c4f494d4731)
@@ -381,57 +382,6 @@ static uint64_t checkpoint_page_checksum(const uint8_t *bytes, uint64_t size)
     }
 
     return hash;
-}
-
-void checkpoint_set_test_dir_fsync_failure(int enabled)
-{
-    checkpoint_test_force_dir_fsync_failure = enabled;
-}
-
-int checkpoint_fsync_parent_directory(const char *path)
-{
-    const char *slash;
-    char dir_path[1024];
-    int dir_fd;
-    int ok = 0;
-
-    if (checkpoint_test_force_dir_fsync_failure)
-    {
-        return 0;
-    }
-
-    slash = strrchr(path, '/');
-    if (slash == NULL)
-    {
-        strcpy(dir_path, ".");
-    }
-    else if (slash == path)
-    {
-        strcpy(dir_path, "/");
-    }
-    else
-    {
-        size_t dir_len = (size_t)(slash - path);
-        if (dir_len + 1 > sizeof(dir_path))
-        {
-            return 0;
-        }
-        memcpy(dir_path, path, dir_len);
-        dir_path[dir_len] = '\0';
-    }
-
-    dir_fd = open(dir_path, O_RDONLY | O_DIRECTORY);
-    if (dir_fd < 0)
-    {
-        return 0;
-    }
-
-    if (fsync(dir_fd) == 0)
-    {
-        ok = 1;
-    }
-    close(dir_fd);
-    return ok;
 }
 
 static uint64_t checkpoint_hash_bytes(uint64_t hash, const uint8_t *bytes, uint64_t size)
@@ -615,99 +565,6 @@ static int checkpoint_load_page_tables(FILE *file,
     *page_covering_table_out = page_covering_table;
     *page_checksum_table_out = page_checksum_table;
     return 1;
-}
-
-int image_checkpoint_validate(const char *path)
-{
-    FILE *file;
-    ImageCheckpointHeader header;
-    uint64_t *page_state_table = NULL;
-    uint64_t *page_used_table = NULL;
-    uint64_t *page_first_table = NULL;
-    uint64_t *page_covering_table = NULL;
-    uint64_t *page_checksum_table = NULL;
-    uint8_t *page_buffer = NULL;
-    int valid = 0;
-
-    file = fopen(path, "rb");
-    if (file == NULL)
-    {
-        return 0;
-    }
-    if (fread(&header, sizeof(header), 1, file) != 1)
-    {
-        fclose(file);
-        return 0;
-    }
-
-    if (!checkpoint_load_page_tables(file, header.page_count,
-                                     &page_state_table,
-                                     &page_used_table, &page_first_table,
-                                     &page_covering_table, &page_checksum_table))
-    {
-        fclose(file);
-        return 0;
-    }
-    if (!checkpoint_header_is_valid(&header,
-                                    page_state_table,
-                                    page_used_table,
-                                    page_first_table,
-                                    page_covering_table,
-                                    page_checksum_table))
-    {
-        free(page_state_table);
-        free(page_used_table);
-        free(page_first_table);
-        free(page_covering_table);
-        free(page_checksum_table);
-        fclose(file);
-        return 0;
-    }
-
-    page_buffer = (uint8_t *)malloc((size_t)OM_PAGE_BYTES);
-    if (page_buffer == NULL)
-    {
-        free(page_state_table);
-        free(page_used_table);
-        free(page_first_table);
-        free(page_covering_table);
-        free(page_checksum_table);
-        fclose(file);
-        return 0;
-    }
-
-    valid = 1;
-    for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
-    {
-        if (fread(page_buffer, 1, (size_t)OM_PAGE_BYTES, file) != OM_PAGE_BYTES)
-        {
-            valid = 0;
-            break;
-        }
-        if (page_state_table[page_id] == OM_PAGE_STATE_FREE)
-        {
-            if (page_checksum_table[page_id] != checkpoint_page_checksum(page_buffer, OM_PAGE_BYTES))
-            {
-                valid = 0;
-                break;
-            }
-            continue;
-        }
-        if (checkpoint_page_checksum(page_buffer, OM_PAGE_BYTES) != page_checksum_table[page_id])
-        {
-            valid = 0;
-            break;
-        }
-    }
-
-    free(page_buffer);
-    free(page_state_table);
-    free(page_used_table);
-    free(page_first_table);
-    free(page_covering_table);
-    free(page_checksum_table);
-    fclose(file);
-    return valid;
 }
 
 static Oop smalltalk_lookup_loaded_global(Oop key)

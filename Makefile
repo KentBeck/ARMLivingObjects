@@ -19,7 +19,7 @@ CFLAGS += -DALO_INTERPRETER_ASM
 endif
 
 ASM_SRCS = $(wildcard src/arm/*.s)
-C_VM_SRCS = src/c_vm/tagged.c src/c_vm/object.c src/c_vm/lookup.c src/c_vm/stack_ops.c src/c_vm/frame.c src/c_vm/bytecode.c
+C_VM_SRCS = src/c_vm/tagged.c src/c_vm/object.c src/c_vm/lookup.c src/c_vm/stack_ops.c src/c_vm/frame.c src/c_vm/bytecode.c src/c_vm/checkpoint.c
 ASM_FILTER_OUT = src/arm/tagged.s src/arm/object.s src/arm/lookup.s src/arm/stack_ops.s src/arm/frame.s src/arm/bytecode.s
 ifeq ($(INTERPRETER),c)
 ASM_FILTER_OUT += src/arm/interpret.s
@@ -58,6 +58,9 @@ gc-stress: $(GC_STRESS_BIN)
 
 stress-smoke: $(STRESS_SMOKE_BIN)
 	./$(STRESS_SMOKE_BIN)
+
+stress: $(STRESS_SMOKE_BIN)
+	./$(STRESS_SMOKE_BIN) 25
 
 smalltalk-expr: $(SMALLTALK_EXPR_BIN)
 
@@ -123,4 +126,4 @@ clean:
 	rm -rf $(BIN_DIR)
 	rm -f *.o test test_new
 
-.PHONY: clean gc-stress stress-smoke smalltalk-expr smalltalk-lsp test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr test-smalltalk-lsp
+.PHONY: clean gc-stress stress-smoke stress smalltalk-expr smalltalk-lsp test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr test-smalltalk-lsp

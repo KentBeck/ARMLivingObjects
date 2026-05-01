@@ -202,8 +202,12 @@ void test_smalltalk_sources(TestContext *ctx)
               "Image.st declares Image");
     ASSERT_EQ(ctx, strstr(image_src, "checkpointTo: aPath") != NULL, 1,
               "Image class>>checkpointTo: exists");
+    ASSERT_EQ(ctx, strstr(image_src, "Error signal: 'checkpoint failed'") != NULL, 1,
+              "Image class>>checkpointTo: signals Error on primitive failure");
     ASSERT_EQ(ctx, strstr(image_src, "restartFrom: aPath valueOfGlobal: aKey") != NULL, 1,
               "Image class>>restartFrom:valueOfGlobal: exists");
+    ASSERT_EQ(ctx, strstr(image_src, "Error signal: 'restart failed'") != NULL, 1,
+              "Image class>>restartFrom:valueOfGlobal: signals Error on primitive failure");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/TransactionTest.st", transaction_test_src,
                              sizeof(transaction_test_src)), 1,

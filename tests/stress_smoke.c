@@ -1,6 +1,7 @@
 #include "test_defs.h"
 #include "smalltalk_world.h"
 
+#include <stdlib.h>
 #include <unistd.h>
 
 static const char *STRESS_CHECKPOINT_PATH = "/tmp/arlo_stress_smoke.image";
@@ -76,6 +77,20 @@ static void run_smalltalk_selectors(TestContext *ctx, SmalltalkWorld *world,
     print_smalltalk_suite_progress(class_name, pass_count, 0);
 }
 
+static void run_smalltalk_direct_selector(TestContext *ctx, SmalltalkWorld *world,
+                                          const char *class_name, const char *selector_name)
+{
+    uint64_t *test_class = smalltalk_world_lookup_class(world, class_name);
+    Oop test_case;
+    Oop result;
+
+    ASSERT_EQ(ctx, test_class != NULL, 1, "stress: direct selector class available");
+    test_case = sw_send0(world, ctx, (Oop)test_class, world->class_class, "new");
+    ASSERT_EQ(ctx, is_object_ptr(test_case), 1, "stress: direct selector instance exists");
+    result = sw_send0(world, ctx, test_case, NULL, selector_name);
+    ASSERT_EQ(ctx, result, TAGGED_TRUE, "stress: direct selector passes");
+}
+
 static void install_stress_world(TestContext *ctx, SmalltalkWorld *world)
 {
     ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(world, "src/smalltalk/Object.st") != NULL,
@@ -124,32 +139,65 @@ static void install_stress_world(TestContext *ctx, SmalltalkWorld *world)
               1, "stress: StressSmokeTest.st installs");
 }
 
-int main(void)
+static int run_stress_iteration(TestContext *ctx, int iteration, int total_iterations)
 {
     static uint8_t world_buf[128 * 1024 * 1024] __attribute__((aligned(8)));
-    TestContext ctx;
     SmalltalkWorld world;
-
-    memset(&ctx, 0, sizeof(ctx));
-    setbuf(stdout, NULL);
 
     txn_durable_log_clear();
     unlink(STRESS_CHECKPOINT_PATH);
     unlink("/tmp/arlo_stress_smoke.image.tmp");
 
+    if (total_iterations > 1)
+    {
+        printf("[stress] iteration %d/%d\n", iteration, total_iterations);
+    }
     printf("[stress] init world\n");
     smalltalk_world_init(&world, world_buf, sizeof(world_buf));
     printf("[stress] install world\n");
-    install_stress_world(&ctx, &world);
+    install_stress_world(ctx, &world);
 
     printf("[stress] run suite\n");
-    run_smalltalk_selectors(&ctx, &world, "StressSmokeTest", 7);
+    run_smalltalk_selectors(ctx, &world, "StressSmokeTest", 7);
+
+    printf("[stress] inject checkpoint failure\n");
+    checkpoint_set_test_dir_fsync_failure(1);
+    run_smalltalk_direct_selector(ctx, &world, "StressSmokeTest",
+                                  "testCheckpointFailureSignalsError");
+    checkpoint_set_test_dir_fsync_failure(0);
 
     printf("[stress] teardown\n");
     smalltalk_world_teardown(&world);
     txn_durable_log_clear();
     unlink(STRESS_CHECKPOINT_PATH);
     unlink("/tmp/arlo_stress_smoke.image.tmp");
+    return ctx->failures > 0 ? 1 : 0;
+}
+
+int main(int argc, char **argv)
+{
+    TestContext ctx;
+    int iterations = 1;
+
+    memset(&ctx, 0, sizeof(ctx));
+    setbuf(stdout, NULL);
+
+    if (argc > 1)
+    {
+        iterations = atoi(argv[1]);
+        if (iterations < 1)
+        {
+            iterations = 1;
+        }
+    }
+
+    for (int iteration = 1; iteration <= iterations; iteration++)
+    {
+        if (run_stress_iteration(&ctx, iteration, iterations) != 0)
+        {
+            break;
+        }
+    }
 
     printf("\n%d passed, %d failed\n", ctx.passes, ctx.failures);
     return ctx.failures > 0 ? 1 : 0;

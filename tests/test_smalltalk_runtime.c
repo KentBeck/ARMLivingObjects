@@ -34,6 +34,22 @@ static uint64_t runtime_checkpoint_page_data_offset(uint64_t page_count, uint64_
            (page_id * OM_PAGE_BYTES);
 }
 
+static uint64_t runtime_first_free_tail_page(Om om)
+{
+    uint64_t current_page = om_page_id_for_address(om, om[0]);
+    uint64_t page_count = om_page_count(om);
+
+    for (uint64_t page_id = current_page + 1; page_id < page_count; page_id++)
+    {
+        if (om_page_state(om, page_id) == OM_PAGE_STATE_FREE &&
+            om_page_used_bytes(om, page_id) == 0)
+        {
+            return page_id;
+        }
+    }
+    return UINT64_MAX;
+}
+
 static int byte_object_equals_cstring(uint64_t value, const char *text)
 {
     if (!is_object_ptr(value))
@@ -1276,41 +1292,30 @@ void test_smalltalk_runtime(TestContext *ctx)
             uint8_t clean_after[OM_PAGE_BYTES];
             uint8_t dirty_before[OM_PAGE_BYTES];
             uint8_t dirty_after[OM_PAGE_BYTES];
-            int advanced = 0;
+            uint64_t target_page;
 
             unlink(checkpoint_path);
             smalltalk_world_init(&checkpoint_world, checkpoint_world_buf, sizeof(checkpoint_world_buf));
+            ASSERT_EQ(ctx, smalltalk_world_install_class_file(&checkpoint_world, "src/smalltalk/Exception.st") != NULL,
+                      1, "runtime: incremental checkpoint world installs Exception");
+            ASSERT_EQ(ctx, smalltalk_world_install_class_file(&checkpoint_world, "src/smalltalk/Error.st") != NULL,
+                      1, "runtime: incremental checkpoint world installs Error");
             ASSERT_EQ(ctx, smalltalk_world_install_class_file(&checkpoint_world, "src/smalltalk/Image.st") != NULL,
                       1, "runtime: incremental checkpoint world installs Image");
             image_class = smalltalk_world_lookup_class(&checkpoint_world, "Image");
             ASSERT_EQ(ctx, image_class != NULL, 1, "runtime: incremental checkpoint world has Image");
 
-            for (int tries = 0; tries < 1024 && !advanced; tries++)
-            {
-                uint64_t current_page = om_page_id_for_address(checkpoint_world.om, checkpoint_world.om[0]);
-                while (om_page_id_for_address(checkpoint_world.om, checkpoint_world.om[0]) == current_page)
-                {
-                    probe_clean = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, 1);
-                    if (probe_clean == NULL)
-                    {
-                        break;
-                    }
-                }
-
-                if (probe_clean == NULL)
-                {
-                    break;
-                }
-
-                clean_page = om_page_id_for_address(checkpoint_world.om, (uint64_t)probe_clean);
-                filler_fields = (OM_PAGE_BYTES - om_page_used_bytes(checkpoint_world.om, clean_page)) / WORD_BYTES;
-                if (filler_fields > 5)
-                {
-                    advanced = 1;
-                }
-            }
-            ASSERT_EQ(ctx, advanced, 1,
-                      "runtime: found a fresh page with room for incremental checkpoint probes");
+            target_page = runtime_first_free_tail_page(checkpoint_world.om);
+            ASSERT_EQ(ctx, target_page != UINT64_MAX, 1,
+                      "runtime: found a free tail page for incremental checkpoint probes");
+            checkpoint_world.om[0] = om_page_start(checkpoint_world.om, target_page);
+            probe_clean = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, 1);
+            ASSERT_EQ(ctx, probe_clean != NULL, 1, "runtime: clean-page probe allocated");
+            clean_page = om_page_id_for_address(checkpoint_world.om, (uint64_t)probe_clean);
+            ASSERT_EQ(ctx, clean_page, target_page, "runtime: clean-page probe lands on reserved page");
+            filler_fields = (OM_PAGE_BYTES - om_page_used_bytes(checkpoint_world.om, clean_page)) / WORD_BYTES;
+            ASSERT_EQ(ctx, filler_fields > 5, 1,
+                      "runtime: reserved clean page has room for filler and dirty probe");
             filler_fields -= 5;
             page_filler = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, filler_fields);
             ASSERT_EQ(ctx, page_filler != NULL, 1, "runtime: clean page filler allocated");
@@ -1412,41 +1417,30 @@ void test_smalltalk_runtime(TestContext *ctx)
             uint8_t multi_first_after[OM_PAGE_BYTES];
             uint8_t multi_last_before[OM_PAGE_BYTES];
             uint8_t multi_last_after[OM_PAGE_BYTES];
-            int advanced = 0;
+            uint64_t target_page;
 
             unlink(checkpoint_path);
             smalltalk_world_init(&checkpoint_world, checkpoint_world_buf, sizeof(checkpoint_world_buf));
+            ASSERT_EQ(ctx, smalltalk_world_install_class_file(&checkpoint_world, "src/smalltalk/Exception.st") != NULL,
+                      1, "runtime: multipage checkpoint world installs Exception");
+            ASSERT_EQ(ctx, smalltalk_world_install_class_file(&checkpoint_world, "src/smalltalk/Error.st") != NULL,
+                      1, "runtime: multipage checkpoint world installs Error");
             ASSERT_EQ(ctx, smalltalk_world_install_class_file(&checkpoint_world, "src/smalltalk/Image.st") != NULL,
                       1, "runtime: multipage checkpoint world installs Image");
             image_class = smalltalk_world_lookup_class(&checkpoint_world, "Image");
             ASSERT_EQ(ctx, image_class != NULL, 1, "runtime: multipage checkpoint world has Image");
 
-            for (int tries = 0; tries < 1024 && !advanced; tries++)
-            {
-                uint64_t current_page = om_page_id_for_address(checkpoint_world.om, checkpoint_world.om[0]);
-                while (om_page_id_for_address(checkpoint_world.om, checkpoint_world.om[0]) == current_page)
-                {
-                    clean_probe = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, 1);
-                    if (clean_probe == NULL)
-                    {
-                        break;
-                    }
-                }
-
-                if (clean_probe == NULL)
-                {
-                    break;
-                }
-
-                clean_page = om_page_id_for_address(checkpoint_world.om, (uint64_t)clean_probe);
-                filler_fields = (OM_PAGE_BYTES - om_page_used_bytes(checkpoint_world.om, clean_page)) / WORD_BYTES;
-                if (filler_fields > 5)
-                {
-                    advanced = 1;
-                }
-            }
-            ASSERT_EQ(ctx, advanced, 1,
-                      "runtime: found a fresh page with room before multipage object");
+            target_page = runtime_first_free_tail_page(checkpoint_world.om);
+            ASSERT_EQ(ctx, target_page != UINT64_MAX, 1,
+                      "runtime: found a free tail page before multipage object");
+            checkpoint_world.om[0] = om_page_start(checkpoint_world.om, target_page);
+            clean_probe = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, 1);
+            ASSERT_EQ(ctx, clean_probe != NULL, 1, "runtime: clean-page probe before multipage object allocated");
+            clean_page = om_page_id_for_address(checkpoint_world.om, (uint64_t)clean_probe);
+            ASSERT_EQ(ctx, clean_page, target_page, "runtime: clean-page probe lands on reserved page");
+            filler_fields = (OM_PAGE_BYTES - om_page_used_bytes(checkpoint_world.om, clean_page)) / WORD_BYTES;
+            ASSERT_EQ(ctx, filler_fields > 0, 1,
+                      "runtime: reserved clean page has room before multipage object");
             clean_filler = om_alloc(checkpoint_world.om, (uint64_t)checkpoint_world.class_class, FORMAT_FIELDS, filler_fields);
             ASSERT_EQ(ctx, clean_filler != NULL, 1, "runtime: clean-page filler allocated");
 
