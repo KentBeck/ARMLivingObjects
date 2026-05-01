@@ -10,7 +10,9 @@ uint64_t *global_symbol_class;
 uint64_t *global_context_class;
 uint64_t *global_smalltalk_dictionary;
 
-static const char *DURABLE_TXN_LOG_PATH = "/tmp/arlo_transactions.log";
+static const char *DEFAULT_DURABLE_TXN_LOG_PATH = "/tmp/arlo_transactions.log";
+static char durable_txn_log_path_buffer[1024];
+static const char *durable_txn_log_path_override = NULL;
 static const uint64_t DURABLE_TXN_FRAME_MAGIC = UINT64_C(0x41524c4f54584e31);
 
 static uint64_t selector_token_from_cstring(const char *selector)
@@ -64,7 +66,28 @@ extern Om om_registered_for_address(uint64_t address);
 
 const char *txn_durable_log_path(void)
 {
-    return DURABLE_TXN_LOG_PATH;
+    return durable_txn_log_path_override != NULL
+               ? durable_txn_log_path_override
+               : DEFAULT_DURABLE_TXN_LOG_PATH;
+}
+
+void txn_set_durable_log_path(const char *path)
+{
+    if (path == NULL || path[0] == '\0')
+    {
+        durable_txn_log_path_override = NULL;
+        durable_txn_log_path_buffer[0] = '\0';
+        return;
+    }
+
+    size_t path_size = strlen(path);
+    if (path_size + 1 > sizeof(durable_txn_log_path_buffer))
+    {
+        return;
+    }
+
+    memcpy(durable_txn_log_path_buffer, path, path_size + 1);
+    durable_txn_log_path_override = durable_txn_log_path_buffer;
 }
 
 static int write_all(int fd, const void *buffer, size_t size)
@@ -136,7 +159,7 @@ int txn_log_append_fsync(const Oop *log, uint64_t heap_start, uint64_t heap_limi
         return 0;
     }
 
-    fd = open(DURABLE_TXN_LOG_PATH, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    fd = open(txn_durable_log_path(), O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd < 0)
     {
         return 0;
@@ -203,7 +226,7 @@ int txn_log_replay(uint64_t heap_start, uint64_t heap_used)
     uint64_t header[3];
     uint64_t *body = NULL;
 
-    file = fopen(DURABLE_TXN_LOG_PATH, "rb");
+    file = fopen(txn_durable_log_path(), "rb");
     if (file == NULL)
     {
         return errno == ENOENT ? 1 : 0;
@@ -308,7 +331,7 @@ int txn_log_replay(uint64_t heap_start, uint64_t heap_used)
 
 int txn_durable_log_clear(void)
 {
-    if (unlink(DURABLE_TXN_LOG_PATH) == 0)
+    if (unlink(txn_durable_log_path()) == 0)
     {
         return 1;
     }

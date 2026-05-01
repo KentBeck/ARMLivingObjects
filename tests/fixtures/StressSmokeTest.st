@@ -42,7 +42,7 @@ failureInjectionSelector
 
 !StressSmokeTest methodsFor: 'paths'!
 checkpointPath
-    ^ '/tmp/arlo_stress_smoke.image'
+    ^ Dictionary smalltalk at: #StressSmokeCheckpointPath
 !
 
 checkpointKey

@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-static const char *STRESS_CHECKPOINT_PATH = "/tmp/arlo_stress_smoke.image";
-
 static void print_smalltalk_suite_progress(const char *class_name, int pass_count, int failure_count)
 {
     int index;
@@ -143,10 +141,21 @@ static int run_stress_iteration(TestContext *ctx, int iteration, int total_itera
 {
     static uint8_t world_buf[128 * 1024 * 1024] __attribute__((aligned(8)));
     SmalltalkWorld world;
+    char checkpoint_path[128];
+    char checkpoint_temp_path[144];
+    char durable_log_path[128];
 
+    snprintf(checkpoint_path, sizeof(checkpoint_path),
+             "/tmp/arlo_stress_smoke_%d_%d.image", (int)getpid(), iteration);
+    snprintf(checkpoint_temp_path, sizeof(checkpoint_temp_path),
+             "%s.tmp", checkpoint_path);
+    snprintf(durable_log_path, sizeof(durable_log_path),
+             "/tmp/arlo_stress_smoke_%d_%d.log", (int)getpid(), iteration);
+
+    txn_set_durable_log_path(durable_log_path);
     txn_durable_log_clear();
-    unlink(STRESS_CHECKPOINT_PATH);
-    unlink("/tmp/arlo_stress_smoke.image.tmp");
+    unlink(checkpoint_path);
+    unlink(checkpoint_temp_path);
 
     if (total_iterations > 1)
     {
@@ -156,6 +165,8 @@ static int run_stress_iteration(TestContext *ctx, int iteration, int total_itera
     smalltalk_world_init(&world, world_buf, sizeof(world_buf));
     printf("[stress] install world\n");
     install_stress_world(ctx, &world);
+    smalltalk_world_put_global(&world, "StressSmokeCheckpointPath",
+                               (Oop)sw_make_string(&world, checkpoint_path));
 
     printf("[stress] run suite\n");
     run_smalltalk_selectors(ctx, &world, "StressSmokeTest", 7);
@@ -169,8 +180,9 @@ static int run_stress_iteration(TestContext *ctx, int iteration, int total_itera
     printf("[stress] teardown\n");
     smalltalk_world_teardown(&world);
     txn_durable_log_clear();
-    unlink(STRESS_CHECKPOINT_PATH);
-    unlink("/tmp/arlo_stress_smoke.image.tmp");
+    txn_set_durable_log_path(NULL);
+    unlink(checkpoint_path);
+    unlink(checkpoint_temp_path);
     return ctx->failures > 0 ? 1 : 0;
 }
 

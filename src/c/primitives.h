@@ -19,6 +19,7 @@ int txn_log_append_fsync(const Oop *log, uint64_t heap_start, uint64_t heap_limi
 int txn_log_replay(uint64_t heap_start, uint64_t heap_used) LO_NO_ALLOC;
 int txn_durable_log_clear(void) LO_NO_ALLOC;
 const char *txn_durable_log_path(void) LO_NO_ALLOC;
+void txn_set_durable_log_path(const char *path) LO_NO_ALLOC;
 
 Oop prim_string_eq(Oop receiver, Oop arg) LO_NO_ALLOC;
 Oop prim_string_hash_fnv(Oop receiver) LO_NO_ALLOC;
