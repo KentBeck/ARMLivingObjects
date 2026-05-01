@@ -2,6 +2,7 @@
 #include "bootstrap_compiler.h"
 #include "primitives.h"
 #include <string.h>
+#include <unistd.h>
 
 typedef struct PersistCheckpointHeader
 {
@@ -9,11 +10,13 @@ typedef struct PersistCheckpointHeader
     uint64_t used_size;
     uint64_t page_bytes;
     uint64_t page_count;
+    uint64_t generation;
     uint64_t symbol_table_offset;
     uint64_t symbol_class_offset;
     uint64_t context_class_offset;
     uint64_t smalltalk_dict_offset;
     uint64_t class_table_offset;
+    uint64_t metadata_checksum;
 } PersistCheckpointHeader;
 
 static uint64_t encode_checkpoint_offset(uint64_t address, uint64_t heap_base)
@@ -22,6 +25,52 @@ static uint64_t encode_checkpoint_offset(uint64_t address, uint64_t heap_base)
 }
 
 #define PERSIST_CHECKPOINT_MAGIC UINT64_C(0x41524c4f494d4731)
+
+static uint64_t persist_page_checksum(const uint8_t *bytes, uint64_t size)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+
+    for (uint64_t index = 0; index < size; index++)
+    {
+        hash ^= bytes[index];
+        hash *= UINT64_C(1099511628211);
+    }
+
+    return hash;
+}
+
+static uint64_t persist_hash_bytes(uint64_t hash, const uint8_t *bytes, uint64_t size)
+{
+    for (uint64_t index = 0; index < size; index++)
+    {
+        hash ^= bytes[index];
+        hash *= UINT64_C(1099511628211);
+    }
+
+    return hash;
+}
+
+static uint64_t persist_metadata_checksum(const PersistCheckpointHeader *header,
+                                          const uint64_t *page_used,
+                                          const uint64_t *page_first,
+                                          const uint64_t *page_covering,
+                                          const uint64_t *page_checksum)
+{
+    PersistCheckpointHeader copy = *header;
+    uint64_t hash = UINT64_C(1469598103934665603);
+
+    copy.metadata_checksum = 0;
+    hash = persist_hash_bytes(hash, (const uint8_t *)&copy, sizeof(copy));
+    if (copy.page_count != 0)
+    {
+        uint64_t table_bytes = copy.page_count * sizeof(uint64_t);
+        hash = persist_hash_bytes(hash, (const uint8_t *)page_used, table_bytes);
+        hash = persist_hash_bytes(hash, (const uint8_t *)page_first, table_bytes);
+        hash = persist_hash_bytes(hash, (const uint8_t *)page_covering, table_bytes);
+        hash = persist_hash_bytes(hash, (const uint8_t *)page_checksum, table_bytes);
+    }
+    return hash;
+}
 
 static uint64_t *make_test_string(uint64_t *om, uint64_t *string_class, const char *text)
 {
@@ -456,11 +505,14 @@ void test_persist(TestContext *ctx)
         uint64_t page_used[3];
         uint64_t page_first[3];
         uint64_t page_covering[3];
+        uint64_t page_checksum[3];
         FILE *fm;
         PersistCheckpointHeader loaded_header;
         uint64_t loaded_used[3];
         uint64_t loaded_first[3];
         uint64_t loaded_covering[3];
+        uint64_t loaded_checksum[3];
+        uint8_t page_image[OM_PAGE_BYTES];
 
         om_init(srcm, sizeof(srcm), sm);
         filler = om_alloc(sm, (uint64_t)class_class, FORMAT_FIELDS, 507);
@@ -481,23 +533,37 @@ void test_persist(TestContext *ctx)
         header.used_size = usedm;
         header.page_bytes = OM_PAGE_BYTES;
         header.page_count = om_page_count(sm);
+        header.generation = 7;
         header.symbol_table_offset = 0;
         header.symbol_class_offset = 0;
         header.context_class_offset = 0;
         header.smalltalk_dict_offset = 0;
         header.class_table_offset = 0;
+        header.metadata_checksum = 0;
         for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
         {
             page_used[page_id] = om_page_used_bytes(sm, page_id);
             page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(sm, page_id), (uint64_t)srcm);
             page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(sm, page_id), (uint64_t)srcm);
+            memset(page_image, 0, sizeof(page_image));
+            if (page_used[page_id] > 0)
+            {
+                memcpy(page_image, imgm + (page_id * OM_PAGE_BYTES), (size_t)page_used[page_id]);
+            }
+            page_checksum[page_id] = persist_page_checksum(page_image, OM_PAGE_BYTES);
         }
+        header.metadata_checksum = persist_metadata_checksum(&header,
+                                                            page_used,
+                                                            page_first,
+                                                            page_covering,
+                                                            page_checksum);
 
         fm = fopen("/tmp/arlo_pages_meta.image", "wb");
         fwrite(&header, sizeof(header), 1, fm);
         fwrite(page_used, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(page_first, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(page_covering, sizeof(uint64_t), (size_t)header.page_count, fm);
+        fwrite(page_checksum, sizeof(uint64_t), (size_t)header.page_count, fm);
         fwrite(imgm, 1, usedm, fm);
         fclose(fm);
 
@@ -513,6 +579,9 @@ void test_persist(TestContext *ctx)
         ASSERT_EQ(ctx, fread(loaded_covering, sizeof(uint64_t), (size_t)loaded_header.page_count, fm),
                   (size_t)loaded_header.page_count,
                   "persist pages meta: covering-object table read succeeds");
+        ASSERT_EQ(ctx, fread(loaded_checksum, sizeof(uint64_t), (size_t)loaded_header.page_count, fm),
+                  (size_t)loaded_header.page_count,
+                  "persist pages meta: checksum table read succeeds");
         fclose(fm);
 
         ASSERT_EQ(ctx, loaded_header.magic, PERSIST_CHECKPOINT_MAGIC,
@@ -521,6 +590,8 @@ void test_persist(TestContext *ctx)
                   "persist pages meta: page size preserved");
         ASSERT_EQ(ctx, loaded_header.page_count, (uint64_t)3,
                   "persist pages meta: page count preserved");
+        ASSERT_EQ(ctx, loaded_header.generation, (uint64_t)7,
+                  "persist pages meta: generation preserved");
         ASSERT_EQ(ctx, loaded_used[0], (uint64_t)(510 * WORD_BYTES),
                   "persist pages meta: first page used bytes preserved");
         ASSERT_EQ(ctx, loaded_used[1] > 0, (uint64_t)1,
@@ -533,6 +604,229 @@ void test_persist(TestContext *ctx)
                   "persist pages meta: continuation page has no first-object start");
         ASSERT_EQ(ctx, loaded_covering[2], encode_checkpoint_offset((uint64_t)large_spanning, (uint64_t)srcm),
                   "persist pages meta: continuation page covering-object offset preserved");
+        ASSERT_EQ(ctx, loaded_checksum[0], page_checksum[0],
+                  "persist pages meta: first page checksum preserved");
+        ASSERT_EQ(ctx, loaded_checksum[2], page_checksum[2],
+                  "persist pages meta: continuation page checksum preserved");
+        ASSERT_EQ(ctx, loaded_header.metadata_checksum,
+                  persist_metadata_checksum(&loaded_header,
+                                            loaded_used,
+                                            loaded_first,
+                                            loaded_covering,
+                                            loaded_checksum),
+                  "persist pages meta: metadata checksum validates");
+    }
+
+    // --- Checkpoint validation detects corrupted page bytes ---
+    {
+        static uint8_t srcc[12288] __attribute__((aligned(8)));
+        uint64_t sc[2];
+        uint64_t *filler;
+        uint64_t *small_after_boundary;
+        uint64_t *large_spanning;
+        uint64_t usedc;
+        PersistCheckpointHeader header;
+        uint64_t page_used[3];
+        uint64_t page_first[3];
+        uint64_t page_covering[3];
+        uint64_t page_checksum[3];
+        uint8_t page_image[OM_PAGE_BYTES];
+        FILE *fc;
+        const char *path = "/tmp/arlo_pages_validate.image";
+
+        om_init(srcc, sizeof(srcc), sc);
+        filler = om_alloc(sc, (uint64_t)class_class, FORMAT_FIELDS, 507);
+        small_after_boundary = om_alloc(sc, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        large_spanning = om_alloc(sc, (uint64_t)class_class, FORMAT_BYTES, 5000);
+        ASSERT_EQ(ctx, filler != NULL && small_after_boundary != NULL && large_spanning != NULL, 1,
+                  "persist validate: source objects allocated");
+        OBJ_FIELD(filler, 0) = (uint64_t)large_spanning;
+        ((uint8_t *)&OBJ_FIELD(large_spanning, 0))[123] = 0x5A;
+
+        usedc = sc[0] - (uint64_t)srcc;
+        header.magic = PERSIST_CHECKPOINT_MAGIC;
+        header.used_size = usedc;
+        header.page_bytes = OM_PAGE_BYTES;
+        header.page_count = om_page_count(sc);
+        header.generation = 1;
+        header.symbol_table_offset = 0;
+        header.symbol_class_offset = 0;
+        header.context_class_offset = 0;
+        header.smalltalk_dict_offset = 0;
+        header.class_table_offset = 0;
+        header.metadata_checksum = 0;
+
+        fc = fopen(path, "wb");
+        ASSERT_EQ(ctx, fc != NULL, 1, "persist validate: file opens for write");
+        for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
+        {
+            page_used[page_id] = om_page_used_bytes(sc, page_id);
+            page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(sc, page_id), (uint64_t)srcc);
+            page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(sc, page_id), (uint64_t)srcc);
+            memset(page_image, 0, sizeof(page_image));
+            if (page_used[page_id] > 0)
+            {
+                memcpy(page_image, srcc + (page_id * OM_PAGE_BYTES), (size_t)page_used[page_id]);
+            }
+            page_checksum[page_id] = persist_page_checksum(page_image, OM_PAGE_BYTES);
+        }
+        header.metadata_checksum = persist_metadata_checksum(&header,
+                                                            page_used,
+                                                            page_first,
+                                                            page_covering,
+                                                            page_checksum);
+        fwrite(&header, sizeof(header), 1, fc);
+        fwrite(page_used, sizeof(uint64_t), (size_t)header.page_count, fc);
+        fwrite(page_first, sizeof(uint64_t), (size_t)header.page_count, fc);
+        fwrite(page_covering, sizeof(uint64_t), (size_t)header.page_count, fc);
+        fwrite(page_checksum, sizeof(uint64_t), (size_t)header.page_count, fc);
+        for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
+        {
+            memset(page_image, 0, sizeof(page_image));
+            if (page_used[page_id] > 0)
+            {
+                memcpy(page_image, srcc + (page_id * OM_PAGE_BYTES), (size_t)page_used[page_id]);
+            }
+            fwrite(page_image, 1, sizeof(page_image), fc);
+        }
+        fclose(fc);
+
+        ASSERT_EQ(ctx, image_checkpoint_validate(path), 1,
+                  "persist validate: valid checkpoint passes checksum validation");
+
+        fc = fopen(path, "r+b");
+        ASSERT_EQ(ctx, fc != NULL, 1, "persist validate: file opens for corruption");
+        fseek(fc, (long)(sizeof(PersistCheckpointHeader) + (4 * header.page_count * sizeof(uint64_t)) + OM_PAGE_BYTES + 17), SEEK_SET);
+        fputc(0xA7, fc);
+        fclose(fc);
+
+        ASSERT_EQ(ctx, image_checkpoint_validate(path), 0,
+                  "persist validate: corrupted page fails checksum validation");
+    }
+
+    // --- Checkpoint validation detects corrupted metadata tables ---
+    {
+        static uint8_t srcmeta[12288] __attribute__((aligned(8)));
+        uint64_t smeta[2];
+        uint64_t *filler;
+        uint64_t *small_after_boundary;
+        uint64_t *large_spanning;
+        uint64_t usedmeta;
+        PersistCheckpointHeader header;
+        uint64_t page_used[3];
+        uint64_t page_first[3];
+        uint64_t page_covering[3];
+        uint64_t page_checksum[3];
+        uint8_t page_image[OM_PAGE_BYTES];
+        FILE *fm;
+        const char *path = "/tmp/arlo_pages_validate_meta.image";
+
+        om_init(srcmeta, sizeof(srcmeta), smeta);
+        filler = om_alloc(smeta, (uint64_t)class_class, FORMAT_FIELDS, 507);
+        small_after_boundary = om_alloc(smeta, (uint64_t)class_class, FORMAT_FIELDS, 1);
+        large_spanning = om_alloc(smeta, (uint64_t)class_class, FORMAT_BYTES, 5000);
+        ASSERT_EQ(ctx, filler != NULL && small_after_boundary != NULL && large_spanning != NULL, 1,
+                  "persist meta validate: source objects allocated");
+        OBJ_FIELD(filler, 0) = (uint64_t)large_spanning;
+        ((uint8_t *)&OBJ_FIELD(large_spanning, 0))[321] = 0x66;
+
+        usedmeta = smeta[0] - (uint64_t)srcmeta;
+        header.magic = PERSIST_CHECKPOINT_MAGIC;
+        header.used_size = usedmeta;
+        header.page_bytes = OM_PAGE_BYTES;
+        header.page_count = om_page_count(smeta);
+        header.generation = 2;
+        header.symbol_table_offset = 0;
+        header.symbol_class_offset = 0;
+        header.context_class_offset = 0;
+        header.smalltalk_dict_offset = 0;
+        header.class_table_offset = 0;
+        header.metadata_checksum = 0;
+        for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
+        {
+            page_used[page_id] = om_page_used_bytes(smeta, page_id);
+            page_first[page_id] = encode_checkpoint_offset((uint64_t)om_page_first_object_start(smeta, page_id), (uint64_t)srcmeta);
+            page_covering[page_id] = encode_checkpoint_offset((uint64_t)om_page_covering_object(smeta, page_id), (uint64_t)srcmeta);
+            memset(page_image, 0, sizeof(page_image));
+            if (page_used[page_id] > 0)
+            {
+                memcpy(page_image, srcmeta + (page_id * OM_PAGE_BYTES), (size_t)page_used[page_id]);
+            }
+            page_checksum[page_id] = persist_page_checksum(page_image, OM_PAGE_BYTES);
+        }
+        header.metadata_checksum = persist_metadata_checksum(&header,
+                                                            page_used,
+                                                            page_first,
+                                                            page_covering,
+                                                            page_checksum);
+        fm = fopen(path, "wb");
+        ASSERT_EQ(ctx, fm != NULL, 1, "persist meta validate: file opens for write");
+        fwrite(&header, sizeof(header), 1, fm);
+        fwrite(page_used, sizeof(uint64_t), (size_t)header.page_count, fm);
+        fwrite(page_first, sizeof(uint64_t), (size_t)header.page_count, fm);
+        fwrite(page_covering, sizeof(uint64_t), (size_t)header.page_count, fm);
+        fwrite(page_checksum, sizeof(uint64_t), (size_t)header.page_count, fm);
+        for (uint64_t page_id = 0; page_id < header.page_count; page_id++)
+        {
+            memset(page_image, 0, sizeof(page_image));
+            if (page_used[page_id] > 0)
+            {
+                memcpy(page_image, srcmeta + (page_id * OM_PAGE_BYTES), (size_t)page_used[page_id]);
+            }
+            fwrite(page_image, 1, sizeof(page_image), fm);
+        }
+        fclose(fm);
+
+        ASSERT_EQ(ctx, image_checkpoint_validate(path), 1,
+                  "persist meta validate: valid checkpoint passes validation");
+
+        fm = fopen(path, "r+b");
+        ASSERT_EQ(ctx, fm != NULL, 1, "persist meta validate: file opens for corruption");
+        fseek(fm, (long)(sizeof(PersistCheckpointHeader) + sizeof(uint64_t) + 3), SEEK_SET);
+        fputc(0x11, fm);
+        fclose(fm);
+
+        ASSERT_EQ(ctx, image_checkpoint_validate(path), 0,
+                  "persist meta validate: corrupted metadata fails validation");
+    }
+
+    // --- Directory fsync helper reports failure after atomic rename window ---
+    {
+        const char *final_path = "/tmp/arlo_checkpoint_dirsync.image";
+        const char *temp_path = "/tmp/arlo_checkpoint_dirsync.image.tmp";
+        FILE *file;
+        char final_bytes[16];
+
+        unlink(final_path);
+        unlink(temp_path);
+
+        file = fopen(final_path, "wb");
+        ASSERT_EQ(ctx, file != NULL, 1, "persist dir fsync: final file opens");
+        fwrite("old", 1, 3, file);
+        fclose(file);
+
+        file = fopen(temp_path, "wb");
+        ASSERT_EQ(ctx, file != NULL, 1, "persist dir fsync: temp file opens");
+        fwrite("new-content", 1, 11, file);
+        fclose(file);
+
+        checkpoint_set_test_dir_fsync_failure(1);
+        ASSERT_EQ(ctx, rename(temp_path, final_path), 0,
+                  "persist dir fsync: rename into place succeeds");
+        ASSERT_EQ(ctx, checkpoint_fsync_parent_directory(final_path), 0,
+                  "persist dir fsync: parent directory fsync failure is reported");
+        checkpoint_set_test_dir_fsync_failure(0);
+
+        file = fopen(final_path, "rb");
+        ASSERT_EQ(ctx, file != NULL, 1, "persist dir fsync: final file readable after failure");
+        memset(final_bytes, 0, sizeof(final_bytes));
+        ASSERT_EQ(ctx, fread(final_bytes, 1, 11, file), (size_t)11,
+                  "persist dir fsync: final file content readable");
+        fclose(file);
+        ASSERT_EQ(ctx, memcmp(final_bytes, "new-content", 11), 0,
+                  "persist dir fsync: rename completed before directory fsync failure");
+        ASSERT_EQ(ctx, access(temp_path, F_OK), -1,
+                  "persist dir fsync: temp file no longer exists after rename");
     }
 
     // --- Page-aware load uses page metadata to restore a straddling object ---

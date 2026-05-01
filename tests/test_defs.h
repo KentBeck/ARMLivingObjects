@@ -192,6 +192,9 @@ extern void image_offsets_to_live_pointers_paged(uint8_t *image_copy, uint64_t u
                                                  const uint64_t *page_first_table,
                                                  const uint64_t *page_covering_table,
                                                  uint64_t page_count);
+extern int image_checkpoint_validate(const char *path);
+extern int checkpoint_fsync_parent_directory(const char *path);
+extern void checkpoint_set_test_dir_fsync_failure(int enabled);
 
 // GC functions
 // gc_copy_object(obj, to_space) -> new_obj

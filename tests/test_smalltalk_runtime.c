@@ -19,16 +19,18 @@ typedef struct RuntimeCheckpointHeader
     uint64_t used_size;
     uint64_t page_bytes;
     uint64_t page_count;
+    uint64_t generation;
     uint64_t symbol_table_offset;
     uint64_t symbol_class_offset;
     uint64_t context_class_offset;
     uint64_t smalltalk_dict_offset;
     uint64_t class_table_offset;
+    uint64_t metadata_checksum;
 } RuntimeCheckpointHeader;
 
 static uint64_t runtime_checkpoint_page_data_offset(uint64_t page_count, uint64_t page_id)
 {
-    return sizeof(RuntimeCheckpointHeader) + (3 * page_count * sizeof(uint64_t)) +
+    return sizeof(RuntimeCheckpointHeader) + (4 * page_count * sizeof(uint64_t)) +
            (page_id * OM_PAGE_BYTES);
 }
 
@@ -1269,6 +1271,7 @@ void test_smalltalk_runtime(TestContext *ctx)
             Oop checkpoint_path_oop;
             FILE *file;
             RuntimeCheckpointHeader header;
+            RuntimeCheckpointHeader second_header;
             uint8_t clean_before[OM_PAGE_BYTES];
             uint8_t clean_after[OM_PAGE_BYTES];
             uint8_t dirty_before[OM_PAGE_BYTES];
@@ -1329,11 +1332,15 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     "checkpointTo:", checkpoint_path_oop),
                       checkpoint_path_oop,
                       "runtime: first checkpoint succeeds");
+            ASSERT_EQ(ctx, image_checkpoint_validate(checkpoint_path), 1,
+                      "runtime: first incremental checkpoint validates");
 
             file = fopen(checkpoint_path, "rb");
             ASSERT_EQ(ctx, file != NULL, 1, "runtime: checkpoint file created");
             ASSERT_EQ(ctx, fread(&header, sizeof(header), 1, file), (size_t)1,
                       "runtime: checkpoint header readable");
+            ASSERT_EQ(ctx, header.generation, (uint64_t)1,
+                      "runtime: first checkpoint generation starts at one");
             ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, clean_page), SEEK_SET), 0,
                       "runtime: seek to clean page body succeeds");
             ASSERT_EQ(ctx, fread(clean_before, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
@@ -1355,16 +1362,20 @@ void test_smalltalk_runtime(TestContext *ctx)
                       "runtime: second checkpoint succeeds");
             ASSERT_EQ(ctx, om_dirty_page_count(checkpoint_world.om), (uint64_t)0,
                       "runtime: checkpoint clears dirty pages");
+            ASSERT_EQ(ctx, image_checkpoint_validate(checkpoint_path), 1,
+                      "runtime: second incremental checkpoint validates");
 
             file = fopen(checkpoint_path, "rb");
             ASSERT_EQ(ctx, file != NULL, 1, "runtime: second checkpoint file readable");
-            ASSERT_EQ(ctx, fread(&header, sizeof(header), 1, file), (size_t)1,
+            ASSERT_EQ(ctx, fread(&second_header, sizeof(second_header), 1, file), (size_t)1,
                       "runtime: second checkpoint header readable");
-            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, clean_page), SEEK_SET), 0,
+            ASSERT_EQ(ctx, second_header.generation, header.generation + 1,
+                      "runtime: second checkpoint increments generation");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(second_header.page_count, clean_page), SEEK_SET), 0,
                       "runtime: seek to clean page body after second checkpoint succeeds");
             ASSERT_EQ(ctx, fread(clean_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
                       "runtime: clean page body after second checkpoint readable");
-            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, dirty_page), SEEK_SET), 0,
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(second_header.page_count, dirty_page), SEEK_SET), 0,
                       "runtime: seek to dirty page body after second checkpoint succeeds");
             ASSERT_EQ(ctx, fread(dirty_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
                       "runtime: dirty page body after second checkpoint readable");
@@ -1394,6 +1405,7 @@ void test_smalltalk_runtime(TestContext *ctx)
             Oop checkpoint_path_oop;
             FILE *file;
             RuntimeCheckpointHeader header;
+            RuntimeCheckpointHeader second_header;
             uint8_t clean_before[OM_PAGE_BYTES];
             uint8_t clean_after[OM_PAGE_BYTES];
             uint8_t multi_first_before[OM_PAGE_BYTES];
@@ -1465,11 +1477,15 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     "checkpointTo:", checkpoint_path_oop),
                       checkpoint_path_oop,
                       "runtime: first multipage checkpoint succeeds");
+            ASSERT_EQ(ctx, image_checkpoint_validate(checkpoint_path), 1,
+                      "runtime: first multipage checkpoint validates");
 
             file = fopen(checkpoint_path, "rb");
             ASSERT_EQ(ctx, file != NULL, 1, "runtime: multipage checkpoint file created");
             ASSERT_EQ(ctx, fread(&header, sizeof(header), 1, file), (size_t)1,
                       "runtime: multipage checkpoint header readable");
+            ASSERT_EQ(ctx, header.generation, (uint64_t)1,
+                      "runtime: first multipage checkpoint generation starts at one");
             ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, clean_page), SEEK_SET), 0,
                       "runtime: seek to clean page for multipage proof succeeds");
             ASSERT_EQ(ctx, fread(clean_before, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
@@ -1499,20 +1515,24 @@ void test_smalltalk_runtime(TestContext *ctx)
                                     "checkpointTo:", checkpoint_path_oop),
                       checkpoint_path_oop,
                       "runtime: second multipage checkpoint succeeds");
+            ASSERT_EQ(ctx, image_checkpoint_validate(checkpoint_path), 1,
+                      "runtime: second multipage checkpoint validates");
 
             file = fopen(checkpoint_path, "rb");
             ASSERT_EQ(ctx, file != NULL, 1, "runtime: second multipage checkpoint readable");
-            ASSERT_EQ(ctx, fread(&header, sizeof(header), 1, file), (size_t)1,
+            ASSERT_EQ(ctx, fread(&second_header, sizeof(second_header), 1, file), (size_t)1,
                       "runtime: second multipage header readable");
-            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, clean_page), SEEK_SET), 0,
+            ASSERT_EQ(ctx, second_header.generation, header.generation + 1,
+                      "runtime: second multipage checkpoint increments generation");
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(second_header.page_count, clean_page), SEEK_SET), 0,
                       "runtime: seek to clean page after multipage change succeeds");
             ASSERT_EQ(ctx, fread(clean_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
                       "runtime: clean page body after multipage change readable");
-            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, first_multi_page), SEEK_SET), 0,
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(second_header.page_count, first_multi_page), SEEK_SET), 0,
                       "runtime: seek to first multipage body after change succeeds");
             ASSERT_EQ(ctx, fread(multi_first_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
                       "runtime: first multipage body after change readable");
-            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(header.page_count, last_multi_page), SEEK_SET), 0,
+            ASSERT_EQ(ctx, fseek(file, (long)runtime_checkpoint_page_data_offset(second_header.page_count, last_multi_page), SEEK_SET), 0,
                       "runtime: seek to last multipage body after change succeeds");
             ASSERT_EQ(ctx, fread(multi_last_after, 1, OM_PAGE_BYTES, file), (size_t)OM_PAGE_BYTES,
                       "runtime: last multipage body after change readable");
