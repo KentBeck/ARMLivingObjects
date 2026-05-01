@@ -542,6 +542,31 @@ MCP
 - [ ] Still planned only
 - [ ] No live Smalltalk MCP server or exposed tool/resource surface exists yet
 
+Stress / Burn-In
+
+- [~] Opt-in stress coverage exists today:
+  - `make INTERPRETER=c stress-smoke`
+  - `make INTERPRETER=c stress`
+  - `make INTERPRETER=c stress-loop`
+  - `tools/run_stress_loop.sh`
+  - `tools/launchd/com.arlo.stress-loop.plist`
+- [x] Current stress coverage includes:
+  - large multi-page arrays
+  - long and wide connected object graphs
+  - immediately dead allocation churn
+  - deep recursion with `thisContext`
+  - checkpoint/restart
+  - durable replay after allocation pressure
+  - injected checkpoint directory-`fsync` failure surfaced as catchable `Error`
+- [x] Stress runs are now isolated by per-run checkpoint path and durable-log path, so concurrent runs no longer collide on shared temp files
+- [ ] Add durable-log failure injection to the stress harness:
+  - append failure
+  - `fsync` failure
+  - verify `Transaction durable:` rolls back and signals `Error`
+- [ ] Add seed logging / replay so failures can be reproduced exactly from the stress runner
+- [ ] Add a supervisor mode that keeps only failing seeds/log bundles and rotates successful burn-in logs
+- [ ] Expand stress from deterministic smoke toward longer randomized runs once seed replay exists
+
 ---
 
 ## Deferred
