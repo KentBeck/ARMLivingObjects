@@ -10,6 +10,7 @@ GC_STRESS_BIN = $(BIN_DIR)/gc_stress
 C_INTERPRETER_SMOKE_BIN = $(BIN_DIR)/c_interpreter_smoke
 SMALLTALK_EXPR_BIN = $(BIN_DIR)/smalltalk_expr
 SMALLTALK_LSP_BIN = $(BIN_DIR)/smalltalk_lsp
+STRESS_SMOKE_BIN = $(BIN_DIR)/stress_smoke
 INTERPRETER ?= c
 ifeq ($(INTERPRETER),c)
 CFLAGS += -DALO_INTERPRETER_C
@@ -29,11 +30,12 @@ ASM_OBJS = $(patsubst src/arm/%.s,$(BIN_DIR)/%.o,$(ASM_SRCS))
 C_VM_OBJS = $(patsubst src/c_vm/%.c,$(BIN_DIR)/c_vm_%.o,$(C_VM_SRCS))
 GC_STRESS_OBJS = $(BIN_DIR)/c_vm_object.o $(BIN_DIR)/gc.o $(BIN_DIR)/c_vm_tagged.o
 
-TEST_SRCS = $(filter-out tests/test_c_interpreter_smoke.c,$(wildcard tests/*.c)) src/c/bootstrap_compiler.c src/c/primitives.c
+TEST_SRCS = $(filter-out tests/test_c_interpreter_smoke.c tests/stress_smoke.c,$(wildcard tests/*.c)) src/c/bootstrap_compiler.c src/c/primitives.c
 C_INTERPRETER_SMOKE_SRCS = tests/test_c_interpreter_smoke.c src/c/primitives.c
 GC_STRESS_SRCS = tools/gc_stress.c
 SMALLTALK_EXPR_SRCS = tools/smalltalk_expr.c tests/smalltalk_world.c src/c/bootstrap_compiler.c src/c/primitives.c src/c/smalltalk_tool_support.c
 SMALLTALK_LSP_SRCS = tools/smalltalk_lsp.c tests/smalltalk_world.c src/c/bootstrap_compiler.c src/c/primitives.c src/c/smalltalk_tool_support.c
+STRESS_SMOKE_SRCS = tests/stress_smoke.c tests/smalltalk_world.c src/c/bootstrap_compiler.c src/c/primitives.c
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)
@@ -53,6 +55,9 @@ test-c-interpreter-smoke:
 	./$(C_INTERPRETER_SMOKE_BIN)
 
 gc-stress: $(GC_STRESS_BIN)
+
+stress-smoke: $(STRESS_SMOKE_BIN)
+	./$(STRESS_SMOKE_BIN)
 
 smalltalk-expr: $(SMALLTALK_EXPR_BIN)
 
@@ -99,6 +104,9 @@ $(SMALLTALK_EXPR_BIN): $(SMALLTALK_EXPR_SRCS) tests/test_defs.h tests/smalltalk_
 $(SMALLTALK_LSP_BIN): $(SMALLTALK_LSP_SRCS) tests/test_defs.h tests/smalltalk_world.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(SMALLTALK_LSP_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
 
+$(STRESS_SMOKE_BIN): $(STRESS_SMOKE_SRCS) tests/test_defs.h tests/smalltalk_world.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
+	$(CC) $(CFLAGS) -o $@ $(STRESS_SMOKE_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
+
 $(C_INTERPRETER_SMOKE_BIN): $(C_INTERPRETER_SMOKE_SRCS) tests/test_defs.h $(ASM_OBJS) $(C_VM_OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(C_INTERPRETER_SMOKE_SRCS) $(ASM_OBJS) $(C_VM_OBJS)
 
@@ -115,4 +123,4 @@ clean:
 	rm -rf $(BIN_DIR)
 	rm -f *.o test test_new
 
-.PHONY: clean gc-stress smalltalk-expr smalltalk-lsp test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr test-smalltalk-lsp
+.PHONY: clean gc-stress stress-smoke smalltalk-expr smalltalk-lsp test-c test-asm test-both-interpreters test-c-interpreter-smoke test-smalltalk-expr test-smalltalk-lsp
