@@ -496,14 +496,37 @@ static Oop sw_send_common(SmalltalkWorld *world, TestContext *ctx,
                           Oop receiver, uint32_t arg_count,
                           const Oop *args, const char *selector)
 {
+    static const char *receiver_root_name = "__swSendReceiver";
+    static const char *arg_root_names[] = {
+        "__swSendArg0", "__swSendArg1", "__swSendArg2", "__swSendArg3"
+    };
+    static const char *literals_root_name = "__swSendLiterals";
+    static const char *bytecodes_root_name = "__swSendBytecodes";
+    static const char *method_root_name = "__swSendMethod";
     Oop selector_oop = intern_cstring_symbol(world->om, selector);
-    ObjPtr literals = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_INDEXABLE, 1);
-    ObjPtr bytecodes = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_BYTES,
-                                11 + (5 * arg_count));
-    ObjPtr method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 6);
+    ObjPtr literals;
+    ObjPtr bytecodes;
+    ObjPtr method;
     Oop *sp = ctx->stack + STACK_WORDS;
     ObjPtr fp = (ObjPtr)0xCAFE;
 
+    sw_dict_put(world, receiver_root_name, receiver);
+    for (uint32_t index = 0; index < arg_count && index < (sizeof(arg_root_names) / sizeof(arg_root_names[0])); index++)
+    {
+        sw_dict_put(world, arg_root_names[index], args[index]);
+    }
+
+    literals = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_INDEXABLE, 1);
+    sw_dict_put(world, literals_root_name, (Oop)literals);
+    bytecodes = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_BYTES,
+                         11 + (5 * arg_count));
+    sw_dict_put(world, bytecodes_root_name, (Oop)bytecodes);
+    method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 6);
+    sw_dict_put(world, method_root_name, (Oop)method);
+
+    literals = (ObjPtr)smalltalk_world_lookup_global(world, literals_root_name);
+    bytecodes = (ObjPtr)smalltalk_world_lookup_global(world, bytecodes_root_name);
+    method = (ObjPtr)smalltalk_world_lookup_global(world, method_root_name);
     OBJ_FIELD(literals, 0) = selector_oop;
 
     uint8_t *bc = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
@@ -529,11 +552,20 @@ static Oop sw_send_common(SmalltalkWorld *world, TestContext *ctx,
     OBJ_FIELD(method, CM_BYTECODES) = (Oop)bytecodes;
     OBJ_FIELD(method, CM_SOURCE) = tagged_nil();
 
+    receiver = smalltalk_world_lookup_global(world, receiver_root_name);
     stack_push(&sp, ctx->stack, receiver);
     for (uint32_t index = 0; index < arg_count; index++)
     {
-        stack_push(&sp, ctx->stack, args[index]);
+        stack_push(&sp, ctx->stack, smalltalk_world_lookup_global(world, arg_root_names[index]));
     }
+    sw_dict_put(world, receiver_root_name, tagged_nil());
+    for (uint32_t index = 0; index < arg_count && index < (sizeof(arg_root_names) / sizeof(arg_root_names[0])); index++)
+    {
+        sw_dict_put(world, arg_root_names[index], tagged_nil());
+    }
+    sw_dict_put(world, literals_root_name, tagged_nil());
+    sw_dict_put(world, bytecodes_root_name, tagged_nil());
+    sw_dict_put(world, method_root_name, tagged_nil());
     activate_method(&sp, &fp, 0, (Oop)method, arg_count, 0);
     return interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(bytecodes, 0), world->class_table, world->om, NULL);
 }

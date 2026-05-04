@@ -66,7 +66,7 @@ void test_smalltalk_sources(TestContext *ctx)
     char class_src[4096];
     char object_src[4096];
     char string_src[8192];
-    char symbol_src[2048];
+    char symbol_src[4096];
     char array_src[4096];
     char association_src[4096];
     char collection_src[4096];
@@ -526,6 +526,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "CompilerTest covers binary expression compilation");
     ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodBinaryReturnShape") != NULL, 1,
               "CompilerTest covers method compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodUnarySendReturnShape") != NULL, 1,
+              "CompilerTest covers unary send method compilation");
     ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileExpression: '1 + 2'") != NULL, 1,
               "CompilerTest exercises real compileExpression: for binary send");
 

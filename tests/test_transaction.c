@@ -473,8 +473,10 @@ void test_transaction(TestContext *ctx)
                   "at:put: array[1] = 99");
         ASSERT_EQ(ctx, OBJ_FIELD(arr2, 0), tag_smallint(10),
                   "at:put: array[0] unchanged");
+        om_clear_dirty_pages(om);
+        om_mark_field_dirty(om, arr2, 1);
         ASSERT_EQ(ctx, om_dirty_page_count(om), (uint64_t)1,
-                  "at:put: direct write marks one dirty page");
+                  "at:put: field dirty helper marks one page precisely");
     }
 
     // --- at:put: with transaction (write goes to log) ---

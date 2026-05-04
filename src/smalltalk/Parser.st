@@ -90,16 +90,26 @@ parseTemporaries
     | token temps |
     token := tokenizer peek.
     (token isSpecialText: '|')
-        ifTrue: [0]
-        ifFalse: [
-            token isBinarySelector
-                ifTrue: [0]
-                ifFalse: [^ Array new: 0]
-        ].
+        ifTrue: [
+            tokenizer next.
+            temps := Array new: 16.
+            ^ self collectTemporaries: temps at: 1
+        ]
+        ifFalse: [0].
 
-    tokenizer next.
-    temps := Array new: 16.
-    ^ self collectTemporaries: temps at: 1
+    token isBinarySelector
+        ifTrue: [
+            (token text = '|')
+                ifTrue: [
+                    tokenizer next.
+                    temps := Array new: 16.
+                    ^ self collectTemporaries: temps at: 1
+                ]
+                ifFalse: [0]
+        ]
+        ifFalse: [0].
+
+    ^ Array new: 0
 !
 
 collectTemporaries: buffer at: index
@@ -120,10 +130,15 @@ collectTemporaries: buffer at: index
         ifFalse: [0].
     token isBinarySelector
         ifTrue: [
-            tokenizer next.
-            ^ self trimArray: buffer to: index - 1
+            (token text = '|')
+                ifTrue: [
+                    tokenizer next.
+                    ^ self trimArray: buffer to: index - 1
+                ]
+                ifFalse: [0]
         ]
-        ifFalse: [^ self trimArray: buffer to: index - 1]
+        ifFalse: [0].
+    ^ self trimArray: buffer to: index - 1
 !
 
 parseStatements

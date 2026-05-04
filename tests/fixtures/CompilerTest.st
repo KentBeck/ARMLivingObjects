@@ -72,3 +72,12 @@ testCompileExpressionKeywordSendShape
     self assertLiteral: 1 of: generator equals: #yourself.
     ^ self assertLiteral: 2 of: generator equals: #perform:
 !
+
+testCompileMethodUnarySendReturnShape
+    | generator |
+    generator := Compiler compileMethod: 'bar ^ self foo'.
+    self assert: generator tempCount equals: 0.
+    self assert: generator literalCount equals: 1.
+    self assert: generator bytecodeCount equals: 11.
+    ^ self assertLiteral: 1 of: generator equals: #foo
+!
