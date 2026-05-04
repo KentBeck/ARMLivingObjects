@@ -79,6 +79,9 @@ Current next boundary:
   - binary-send expressions
   - simple keyword-send expressions
   - simple methods with binary-return bodies
+  - unary-send return methods such as `bar ^ self foo`
+- [x] `tests/ExpressionSpecs.txt` now runs through the real Smalltalk compiler
+  in the default `make test` path, not only through the bootstrap compiler
 - [ ] Widen that corpus toward real library/compiler code:
   - assignments and temporaries
   - blocks
@@ -341,6 +344,9 @@ be part of the normal development loop.
   - `BlockActivationTest`
   - `ExceptionHandlingTest`
   - `MultipleFailureTest`
+  - `CompilerTest`
+  - `TransactionTest`
+  - `DurableTransactionTest`
 - [x] `TestCase>>runOn:` is selector-driven and continues after `TestFailure`
 - [x] `MultipleFailureTest` proves the framework records multiple failures correctly
 - [~] Current harness boundary:
@@ -464,16 +470,17 @@ current repository rather than only the intended destination.
 
 Persistence
 
-- [~] Real save/load and relocation substrate exists
-- [~] Persistence tests cover image reload, method survival, and log replay
-- [ ] Page-based object storage is not implemented yet
-- [ ] Persistent layout / paging architecture is not settled yet
-- [~] See `pages-plan.md` for the first concrete paging design and slice order:
-  - fixed-size pages
-  - dirty-page checkpointing
-  - restart + journal replay on top of pages
-  - explicit follow-on support for multi-page large objects
-  - first milestone goal: checkpoint cost proportional to dirty pages, not total heap size
+- [x] Real save/load and relocation substrate exists
+- [x] Persistence tests cover image reload, method survival, and log replay
+- [x] Fixed-size page metadata, free-page state, and multi-page object support exist
+- [x] Dirty-page checkpointing is implemented
+- [x] Restart + journal replay on top of paged checkpoints is implemented
+- [x] First paging milestone reached: checkpoint cost is proportional to dirty pages plus metadata, not total heap size
+- [~] Persistent layout / paging architecture still needs higher-level policy work:
+  - better page-store lifecycle / placement policy
+  - stronger large-object/page layout policy
+  - richer recovery policy on top of the current page store
+- [~] See `pages-plan.md` for the remaining paging follow-on work
 
 Reliability / Transaction Log
 
