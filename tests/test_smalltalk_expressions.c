@@ -2,6 +2,7 @@
 #include "bootstrap_compiler.h"
 #include "primitives.h"
 #include "smalltalk_test_support.h"
+#include "smalltalk_world.h"
 #include <ctype.h>
 
 static int read_file(const char *path, char *buf, size_t cap)
@@ -111,6 +112,111 @@ static int load_expression_specs(const char *path, ExpressionSpec *specs, int ma
     return 1;
 }
 
+static uint64_t *materialize_codegen_method(SmalltalkWorld *world, uint64_t *generator_ptr)
+{
+    uint64_t bytecode_count = (uint64_t)untag_smallint(OBJ_FIELD(generator_ptr, 1));
+    uint64_t literal_count = (uint64_t)untag_smallint(OBJ_FIELD(generator_ptr, 3));
+    uint64_t temp_count = (uint64_t)untag_smallint(OBJ_FIELD(generator_ptr, 5));
+    uint64_t arg_count = (uint64_t)untag_smallint(OBJ_FIELD(generator_ptr, 7));
+    uint64_t *bytecodes = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_BYTES, bytecode_count);
+    uint64_t *literals = NULL;
+    uint64_t *method = NULL;
+
+    if (bytecodes == NULL)
+    {
+        return NULL;
+    }
+    memcpy(&OBJ_FIELD(bytecodes, 0),
+           &OBJ_FIELD((uint64_t *)OBJ_FIELD(generator_ptr, 0), 0),
+           (size_t)bytecode_count);
+
+    if (literal_count > 0)
+    {
+        literals = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_INDEXABLE, literal_count);
+        if (literals == NULL)
+        {
+            return NULL;
+        }
+        for (uint64_t index = 0; index < literal_count; index++)
+        {
+            OBJ_FIELD(literals, index) = OBJ_FIELD((uint64_t *)OBJ_FIELD(generator_ptr, 2), index);
+        }
+    }
+
+    method = om_alloc(world->om, (uint64_t)world->class_class, FORMAT_FIELDS, 6);
+    if (method == NULL)
+    {
+        return NULL;
+    }
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint((int64_t)arg_count);
+    OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint((int64_t)temp_count);
+    OBJ_FIELD(method, CM_LITERALS) = literals != NULL ? (uint64_t)literals : tagged_nil();
+    OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = tagged_nil();
+    return method;
+}
+
+static uint64_t *compile_smalltalk_method(SmalltalkWorld *world,
+                                          TestContext *ctx,
+                                          uint64_t *compiler_class,
+                                          const char *method_source)
+{
+    uint64_t source = (uint64_t)sw_make_string(world, method_source);
+    uint64_t generator = sw_send1(world, ctx, (uint64_t)compiler_class, world->class_class,
+                                  "compileMethod:", source);
+
+    if (!is_object_ptr(generator))
+    {
+        return NULL;
+    }
+    return materialize_codegen_method(world, (uint64_t *)generator);
+}
+
+static void install_rooted_method(TestContext *ctx,
+                                  SmalltalkWorld *world,
+                                  const char *class_name,
+                                  const char *selector_name,
+                                  const char *temp_global_name,
+                                  Oop method_oop)
+{
+    ObjPtr klass;
+    Oop selector_oop;
+    Oop old_md_oop;
+    ObjPtr old_md;
+    uint64_t old_size;
+    ObjPtr new_md;
+
+    smalltalk_world_put_global(world, temp_global_name, method_oop);
+    method_oop = smalltalk_world_lookup_global(world, temp_global_name);
+    ASSERT_EQ(ctx, is_object_ptr(method_oop), 1, "expression runtime: rooted compiled method stays live");
+
+    selector_oop = intern_cstring_symbol(world->om, selector_name);
+    klass = smalltalk_world_lookup_class(world, class_name);
+    ASSERT_EQ(ctx, klass != NULL, 1, "expression runtime: target class exists for rooted install");
+
+    old_md_oop = OBJ_FIELD(klass, CLASS_METHOD_DICT);
+    old_md = (old_md_oop != tagged_nil() && is_object_ptr(old_md_oop)) ? (ObjPtr)old_md_oop : NULL;
+    old_size = old_md != NULL ? OBJ_SIZE(old_md) : 0;
+    new_md = om_alloc(world->om, (Oop)world->class_class, FORMAT_INDEXABLE, old_size + 2);
+    ASSERT_EQ(ctx, new_md != NULL, 1, "expression runtime: rooted method dict allocation succeeds");
+
+    klass = smalltalk_world_lookup_class(world, class_name);
+    method_oop = smalltalk_world_lookup_global(world, temp_global_name);
+    old_md_oop = OBJ_FIELD(klass, CLASS_METHOD_DICT);
+    old_md = (old_md_oop != tagged_nil() && is_object_ptr(old_md_oop)) ? (ObjPtr)old_md_oop : NULL;
+    old_size = old_md != NULL ? OBJ_SIZE(old_md) : 0;
+
+    for (uint64_t index = 0; index < old_size; index++)
+    {
+        OBJ_FIELD(new_md, index) = OBJ_FIELD(old_md, index);
+    }
+    OBJ_FIELD(new_md, old_size) = selector_oop;
+    OBJ_FIELD(new_md, old_size + 1) = method_oop;
+    OBJ_FIELD(klass, CLASS_METHOD_DICT) = (Oop)new_md;
+    smalltalk_world_put_global(world, temp_global_name, tagged_nil());
+}
+
 
 static uint64_t send_selector0(uint64_t *stack, uint64_t *class_table, uint64_t *om,
                                uint64_t receiver, uint64_t *receiver_class, const char *selector)
@@ -202,6 +308,119 @@ void test_smalltalk_expressions(TestContext *ctx)
     const char *association_ivars[] = {"key", "value"};
     const char *dictionary_ivars[] = {"associations", "tally"};
     uint64_t *saved_global_smalltalk_dictionary = global_smalltalk_dictionary;
+
+    {
+        static uint8_t world_buf[32 * 1024 * 1024] __attribute__((aligned(8)));
+        SmalltalkWorld world;
+        ExpressionSpec specs[128];
+        int spec_count = 0;
+        uint64_t *expr_spec_class;
+        uint64_t *compiler_class;
+
+        smalltalk_world_init(&world, world_buf, sizeof(world_buf));
+        ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Token.st") != NULL,
+                  1, "expression runtime: Token.st defines class and installs methods");
+        ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/ReadStream.st") != NULL,
+                  1, "expression runtime: ReadStream.st defines class and installs methods");
+        ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Tokenizer.st") != NULL,
+                  1, "expression runtime: Tokenizer.st defines class and installs methods");
+        ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/True.st") != NULL,
+                  1, "expression runtime: True.st installs methods onto the existing True class");
+        ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/False.st") != NULL,
+                  1, "expression runtime: False.st installs methods onto the existing False class");
+        ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/Object.st") != NULL,
+                  1, "expression runtime: Object.st installs methods onto the existing Object class");
+        ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/UndefinedObject.st") != NULL,
+                  1, "expression runtime: UndefinedObject.st installs methods onto the existing UndefinedObject class");
+        ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/SmallInteger.st") != NULL,
+                  1, "expression runtime: SmallInteger.st installs methods onto the existing SmallInteger class");
+        ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Class.st"),
+                  1, "expression runtime: Class.st installs methods onto the existing Class class");
+        ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/Array.st") != NULL,
+                  1, "expression runtime: Array.st installs methods onto the existing Array class");
+        ASSERT_EQ(ctx, smalltalk_world_install_existing_class_file(&world, "src/smalltalk/String.st") != NULL,
+                  1, "expression runtime: String.st installs methods onto the existing String class");
+        ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Association.st"),
+                  1, "expression runtime: Association.st installs methods onto the existing Association class");
+        ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Dictionary.st"),
+                  1, "expression runtime: Dictionary.st installs methods onto the existing Dictionary class");
+        ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "src/smalltalk/Context.st"),
+                  1, "expression runtime: Context.st installs methods onto the existing Context class");
+        ASSERT_EQ(ctx,
+                  bc_compile_and_install_classes_file(world.om, world.class_class,
+                                                      world.string_class, world.array_class,
+                                                      world.association_class,
+                                                      NULL, 0, "src/smalltalk/ASTNodes.st"),
+                  1, "expression runtime: ASTNodes.st defines classes and installs methods");
+        ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Parser.st") != NULL,
+                  1, "expression runtime: Parser.st defines class and installs methods");
+        ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/CodeGenerator.st") != NULL,
+                  1, "expression runtime: CodeGenerator.st defines class and installs methods");
+        ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/Compiler.st") != NULL,
+                  1, "expression runtime: Compiler.st defines class and installs methods");
+        ASSERT_EQ(ctx, load_expression_specs("tests/ExpressionSpecs.txt", specs, 128, &spec_count),
+                  1, "expression runtime: ExpressionSpecs.txt loads");
+        expr_spec_class = smalltalk_world_define_class(&world, "ExprSpec", world.object_class, NULL, 0, FORMAT_FIELDS);
+        ASSERT_EQ(ctx, expr_spec_class != NULL, 1, "expression runtime: ExprSpec class defined");
+        compiler_class = smalltalk_world_lookup_class(&world, "Compiler");
+        ASSERT_EQ(ctx, compiler_class != NULL, 1, "expression runtime: Compiler in Smalltalk dict");
+
+        {
+            uint64_t *helper_method = compile_smalltalk_method(&world, ctx, compiler_class,
+                                                               "foo\n"
+                                                               "    ^ 7");
+            ASSERT_EQ(ctx, helper_method != NULL, 1,
+                      "expression runtime: Smalltalk compiler compiles ExprSpec>>foo");
+            install_rooted_method(ctx, &world, "ExprSpec", "foo",
+                                  "CurrentCompilerInstalledMethod", (Oop)helper_method);
+
+            helper_method = compile_smalltalk_method(&world, ctx, compiler_class,
+                                                     "bar\n"
+                                                     "    ^ self foo");
+            ASSERT_EQ(ctx, helper_method != NULL, 1,
+                      "expression runtime: Smalltalk compiler compiles ExprSpec>>bar");
+            install_rooted_method(ctx, &world, "ExprSpec", "bar",
+                                  "CurrentCompilerInstalledMethod", (Oop)helper_method);
+        }
+
+        for (int index = 0; index < spec_count; index++)
+        {
+            char selector[32];
+            char method_source_buf[1024];
+            uint64_t *expr_method;
+            uint64_t *expr_receiver;
+            uint64_t expr_result;
+
+            snprintf(selector, sizeof(selector), "expr%d", index + 1);
+            snprintf(method_source_buf, sizeof(method_source_buf),
+                     "%s\n"
+                     "    ^ %s",
+                     selector, specs[index].expression);
+            expr_method = compile_smalltalk_method(&world, ctx, compiler_class, method_source_buf);
+            ASSERT_EQ(ctx, expr_method != NULL, 1, specs[index].name);
+            install_rooted_method(ctx, &world, "ExprSpec", selector,
+                                  "CurrentCompilerInstalledMethod", (Oop)expr_method);
+
+            expr_receiver = om_alloc(world.om, (uint64_t)expr_spec_class, FORMAT_FIELDS, 0);
+            ASSERT_EQ(ctx, expr_receiver != NULL, 1, "expression runtime: ExprSpec receiver allocates");
+            expr_result = sw_send0(&world, ctx, (uint64_t)expr_receiver, expr_spec_class, selector);
+
+            if (specs[index].expected_kind == EXPR_EXPECT_SMALLINT)
+            {
+                ASSERT_EQ(ctx, expr_result, tag_smallint(specs[index].expected_smallint), specs[index].name);
+            }
+            else if (specs[index].expected_kind == EXPR_EXPECT_TRUE)
+            {
+                ASSERT_EQ(ctx, expr_result, tagged_true(), specs[index].name);
+            }
+            else
+            {
+                ASSERT_EQ(ctx, expr_result, tagged_false(), specs[index].name);
+            }
+        }
+
+        smalltalk_world_teardown(&world);
+    }
 
     stt_md_append(ctx->om, ctx->class_class, ctx->smallint_class, "+",
                   (uint64_t)stt_make_primitive_cm(ctx->om, ctx->class_class, PRIM_SMALLINT_ADD, 1));
