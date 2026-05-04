@@ -36,6 +36,11 @@ includesSelector: aSelector
     ^ false
 !
 
+instanceVariableNames
+    <primitive: 45>
+    ^ nil
+!
+
 sourceAtSelector: aSelector
     ^ Dictionary smalltalk methodSourceForClass: self name selector: aSelector
 !

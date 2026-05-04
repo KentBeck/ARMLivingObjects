@@ -25,6 +25,7 @@ extern Oop intern_cstring_symbol(Om om, const char *text);
 extern Oop prim_class_superclass(Oop receiver);
 extern Oop prim_class_name(Oop receiver);
 extern Oop prim_class_includes_selector(Oop receiver, Oop selector);
+extern Oop prim_class_instance_variable_names(Oop receiver);
 extern Oop prim_smalltalk_globals(void);
 extern Oop prim_method_source_for_class_selector(Oop class_name, Oop selector, Om om);
 extern Oop prim_read_fd_count(Oop fd, Oop count, Om om);
@@ -2236,6 +2237,19 @@ static PrimitiveResult try_live_image_primitive(Oop **sp_ptr, Oop primitive,
             return PRIMITIVE_UNSUPPORTED;
         }
         replace_receiver_and_arg(sp_ptr, prim_class_includes_selector(receiver, sp[0]));
+        return PRIMITIVE_SUCCEEDED;
+
+    case PRIM_CLASS_INSTANCE_VARIABLE_NAMES:
+        if (arg_count != 0)
+        {
+            return PRIMITIVE_FAILED;
+        }
+        if (!is_object_value(receiver))
+        {
+            raise(SIGTRAP);
+            return PRIMITIVE_UNSUPPORTED;
+        }
+        replace_receiver(sp_ptr, prim_class_instance_variable_names(receiver));
         return PRIMITIVE_SUCCEEDED;
 
     case PRIM_SMALLTALK_GLOBALS:

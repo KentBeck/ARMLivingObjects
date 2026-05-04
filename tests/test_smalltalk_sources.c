@@ -165,6 +165,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "Class>>name uses live-image primitive");
     ASSERT_EQ(ctx, strstr(class_src, "includesSelector: aSelector\n    <primitive: 32>") != NULL, 1,
               "Class>>includesSelector: uses live-image primitive");
+    ASSERT_EQ(ctx, strstr(class_src, "instanceVariableNames\n    <primitive: 45>") != NULL, 1,
+              "Class>>instanceVariableNames uses live-image primitive");
     ASSERT_EQ(ctx, strstr(class_src, "handlesSignalClass: aClass") != NULL, 1,
               "Class defines Smalltalk-side exception handler matching");
     ASSERT_EQ(ctx, strstr(class_src, "self handlesSignalClass: aClass superclass") != NULL, 1,
@@ -182,7 +184,7 @@ void test_smalltalk_sources(TestContext *ctx)
               "Class does not carry extra default exception matching helper");
     ASSERT_EQ(ctx, bc_compile_source_methods(class_src, methods, 64, &method_count), 1,
               "Class.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 9, "Class.st method count");
+    ASSERT_EQ(ctx, method_count, 10, "Class.st method count");
     ASSERT_EQ(ctx, strcmp(methods[0].class_name, "Class"), 0, "Class.st compiled class name");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Transaction.st", transaction_src, sizeof(transaction_src)), 1,
@@ -528,9 +530,20 @@ void test_smalltalk_sources(TestContext *ctx)
               "CompilerTest covers method compilation");
     ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodUnarySendReturnShape") != NULL, 1,
               "CompilerTest covers unary send method compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodPrimitiveShape") != NULL, 1,
+              "CompilerTest covers primitive pragma compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodPrimitiveFallbackBodyShape") != NULL, 1,
+              "CompilerTest covers primitive fallback body compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodTemporariesShape") != NULL, 1,
+              "CompilerTest covers temporary variable compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodGlobalReferenceShape") != NULL, 1,
+              "CompilerTest covers global reference compilation");
     ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileExpression: '1 + 2'") != NULL, 1,
               "CompilerTest exercises real compileExpression: for binary send");
-
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'identity: anObject") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for primitive methods");
+    ASSERT_EQ(ctx, strstr(symbol_src, "basicNew primitive failed") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for primitive fallback bodies");
     ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,
                              sizeof(smalltalk_self_test_suite_src)), 1,
               "tests/fixtures/SmalltalkSelfTestSuite.st exists");

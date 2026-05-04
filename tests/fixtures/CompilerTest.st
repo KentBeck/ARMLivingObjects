@@ -9,11 +9,16 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 4.
+    selectors := Array new: 9.
     selectors at: 1 put: #testCompileExpressionLiteralShape.
     selectors at: 2 put: #testCompileExpressionBinarySendShape.
     selectors at: 3 put: #testCompileMethodBinaryReturnShape.
     selectors at: 4 put: #testCompileExpressionKeywordSendShape.
+    selectors at: 5 put: #testCompileMethodConditionalNonLocalReturnShape.
+    selectors at: 6 put: #testCompileMethodPrimitiveShape.
+    selectors at: 7 put: #testCompileMethodPrimitiveFallbackBodyShape.
+    selectors at: 8 put: #testCompileMethodTemporariesShape.
+    selectors at: 9 put: #testCompileMethodGlobalReferenceShape.
     ^ selectors
 !
 
@@ -58,7 +63,7 @@ testCompileMethodBinaryReturnShape
     | generator |
     generator := Compiler compileMethod: 'answer ^ 1 + 2'.
     self assert: generator literalCount equals: 3.
-    self assert: generator bytecodeCount equals: 20.
+    self assert: generator bytecodeCount equals: 19.
     self assertLiteral: 1 of: generator equals: 1.
     self assertLiteral: 2 of: generator equals: 2.
     ^ self assertLiteral: 3 of: generator equals: #+
@@ -80,4 +85,62 @@ testCompileMethodUnarySendReturnShape
     self assert: generator literalCount equals: 1.
     self assert: generator bytecodeCount equals: 11.
     ^ self assertLiteral: 1 of: generator equals: #foo
+!
+
+testCompileMethodConditionalNonLocalReturnShape
+    | generator |
+    generator := Compiler compileMethod: 'handlesSignalClass: aClass
+    aClass == nil
+        ifTrue: [^ false]
+        ifFalse: [
+            self == aClass
+                ifTrue: [^ true]
+                ifFalse: [^ self handlesSignalClass: aClass superclass]
+        ]'.
+    self assert: generator literalCount equals: 8.
+    ^ self assertLiteral: 8 of: generator equals: #ifTrue:ifFalse:
+!
+
+testCompileMethodPrimitiveShape
+    | generator |
+    generator := Compiler compileMethod: 'identity: anObject
+    <primitive: 12>
+    ^ false'.
+    self assert: generator primitiveIndex equals: 12.
+    self assert: generator literalCount equals: 1.
+    self assert: generator bytecodeCount equals: 6.
+    ^ self assertLiteral: 1 of: generator equals: false
+!
+
+testCompileMethodPrimitiveFallbackBodyShape
+    | generator |
+    generator := Compiler compileMethod: 'basicNew
+    <primitive: 8>
+    self error: ''basicNew primitive failed'''.
+    self assert: generator primitiveIndex equals: 8.
+    self assert: generator literalCount equals: 2.
+    self assert: generator bytecodeCount equals: 16.
+    self assertLiteral: 1 of: generator equals: 'basicNew primitive failed'.
+    ^ self assertLiteral: 2 of: generator equals: #error:
+!
+
+testCompileMethodTemporariesShape
+    | generator |
+    generator := Compiler compileMethod: 'with: a
+    | arr |
+    arr := Array new: 1.
+    arr at: 1 put: a.
+    ^ arr'.
+    self assert: generator tempCount equals: 1.
+    ^ self assert: generator bytecodeCount equals: 55
+!
+
+testCompileMethodGlobalReferenceShape
+    | generator association |
+    generator := Compiler compileMethod: 'smalltalkDictionary ^ Dictionary smalltalk'.
+    self assert: generator literalCount equals: 2.
+    self assert: generator bytecodeAt: 1 equals: 18.
+    association := generator literalAt: 1.
+    self assert: (association == nil) equals: false.
+    ^ self assertLiteral: 2 of: generator equals: #smalltalk
 !

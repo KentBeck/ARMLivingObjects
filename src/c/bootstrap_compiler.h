@@ -23,7 +23,7 @@ typedef enum
 typedef struct
 {
     BTokenType type;
-    char text[128];
+    char text[512];
     int64_t int_value;
 } BToken;
 

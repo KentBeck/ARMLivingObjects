@@ -989,11 +989,26 @@ void test_bootstrap_compiler(TestContext *ctx)
                 {"Exception", exception_class},
                 {"Error", error_class},
             };
+            BCompiledMethodDef methods[2];
+            int method_count = 0;
             const char *source =
                 "!HandlerGlobalRefTest methodsFor: 'testing'!\n"
                 "blockReferencesGlobal\n"
                 "    ^ [Error] value\n"
+                "!\n"
+                "\n"
+                "blockReturnsSelf\n"
+                "    ^ true ifTrue: [self] ifFalse: [nil]\n"
                 "!\n";
+            ASSERT_EQ(ctx, bc_compile_source_methods(source, methods, 2, &method_count), 1,
+                      "compile block self/global source");
+            ASSERT_EQ(ctx, method_count, 2, "compile block self/global method count");
+            ASSERT_EQ(ctx, strcmp(methods[1].header.selector, "blockReturnsSelf"), 0, "blockReturnsSelf selector");
+            ASSERT_EQ(ctx, methods[1].body.block_count, 2, "blockReturnsSelf compiles both blocks");
+            ASSERT_EQ(ctx, methods[1].body.blocks[0].bytecodes[0], BC_PUSH_SELF,
+                      "bootstrap [self] block emits push self");
+            ASSERT_EQ(ctx, methods[1].body.blocks[0].bytecodes[1], BC_RETURN,
+                      "bootstrap [self] block returns locally");
             ASSERT_EQ(ctx,
                       bc_compile_and_install_source_methods(ctx->om, ctx->class_class, bindings, 3, source),
                       1, "compile global reference inside block");
@@ -1009,6 +1024,16 @@ void test_bootstrap_compiler(TestContext *ctx)
         activate_method(&sp, &fp, 0, (uint64_t)handler_cm, 0, 0);
         result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(handler_bc, 0), ctx->class_table, ctx->om, NULL);
         ASSERT_EQ(ctx, result, (uint64_t)error_class, "global references resolve correctly inside blocks");
+
+        handler_cm = (uint64_t *)class_lookup(handler_test_class, intern_cstring_symbol(ctx->om, "blockReturnsSelf"));
+        ASSERT_EQ(ctx, handler_cm != NULL, 1, "HandlerGlobalRefTest>>blockReturnsSelf installed");
+        handler_bc = (uint64_t *)OBJ_FIELD(handler_cm, CM_BYTECODES);
+        sp = (uint64_t *)((uint8_t *)ctx->stack + STACK_WORDS * sizeof(uint64_t));
+        fp = (uint64_t *)0xCAFE;
+        stack_push(&sp, ctx->stack, (uint64_t)handler_test_instance);
+        activate_method(&sp, &fp, 0, (uint64_t)handler_cm, 0, 0);
+        result = interpret(&sp, &fp, (uint8_t *)&OBJ_FIELD(handler_bc, 0), ctx->class_table, ctx->om, NULL);
+        ASSERT_EQ(ctx, result, (uint64_t)handler_test_instance, "bootstrap block [self] returns receiver");
 
         global_smalltalk_dictionary = saved_smalltalk;
     }
@@ -1259,6 +1284,8 @@ void test_bootstrap_compiler(TestContext *ctx)
                   "Point class starts with empty method dictionary");
         uint64_t *point_ivars = (uint64_t *)OBJ_FIELD(point_class, CLASS_INST_VARS);
         ASSERT_EQ(ctx, point_ivars != NULL, 1, "Point class stores ivar array");
+        ASSERT_EQ(ctx, OBJ_CLASS(point_ivars), (uint64_t)array_class,
+                  "Point ivar array is an Array");
         ASSERT_EQ(ctx, OBJ_SIZE(point_ivars), 2, "Point ivar array has two entries");
         ASSERT_EQ(ctx, byte_object_equals_cstring(OBJ_FIELD(point_ivars, 0), "x"), 1,
                   "Point first ivar is x");
@@ -1380,8 +1407,8 @@ void test_bootstrap_compiler(TestContext *ctx)
             ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
             class_bindings, 4, "src/smalltalk/Parser.st");
         ASSERT_EQ(ctx, parser_class != NULL, 1, "Parser.st defines class and installs methods");
-        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(parser_class, CLASS_INST_SIZE)), 1,
-                  "Parser.st class declaration has one instance variable");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(parser_class, CLASS_INST_SIZE)), 2,
+                  "Parser.st class declaration has two instance variables");
         ASSERT_EQ(ctx, class_lookup(parser_class, intern_cstring_symbol(ctx->om, "parseMethod")) != 0,
                   1, "Parser.st installs parseMethod");
 
@@ -1390,8 +1417,8 @@ void test_bootstrap_compiler(TestContext *ctx)
             ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
             class_bindings, 4, "src/smalltalk/CodeGenerator.st");
         ASSERT_EQ(ctx, codegen_class != NULL, 1, "CodeGenerator.st defines class and installs methods");
-        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(codegen_class, CLASS_INST_SIZE)), 11,
-                  "CodeGenerator.st class declaration has eleven instance variables");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(codegen_class, CLASS_INST_SIZE)), 14,
+                  "CodeGenerator.st class declaration has fourteen instance variables");
         ASSERT_EQ(ctx, class_lookup(codegen_class, intern_cstring_symbol(ctx->om, "compileExpression:")) != 0,
                   1, "CodeGenerator.st installs compileExpression:");
         // Minimal test: Parser class ref inside a CodeGenerator method

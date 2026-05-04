@@ -75,7 +75,8 @@ static uint64_t *sw_make_class_full(SmalltalkWorld *world, uint64_t *superclass,
     }
     else
     {
-        uint64_t *iv = om_alloc(world->om, (uint64_t)class_class, FORMAT_INDEXABLE, ivar_count);
+        uint64_t *ivar_array_class = world->array_class != NULL ? world->array_class : class_class;
+        uint64_t *iv = om_alloc(world->om, (uint64_t)ivar_array_class, FORMAT_INDEXABLE, ivar_count);
         for (int i = 0; i < ivar_count; i++)
         {
             uint64_t len = (uint64_t)strlen(ivars[i]);

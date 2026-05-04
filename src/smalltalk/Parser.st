@@ -1,7 +1,7 @@
 "Parser — Recursive descent parser for Smalltalk"
-"Instance variables: tokenizer"
+"Instance variables: tokenizer primitiveIndex"
 
-Object subclass: #Parser instanceVariableNames: 'tokenizer'
+Object subclass: #Parser instanceVariableNames: 'tokenizer primitiveIndex'
 
 !Parser class methodsFor: 'instance creation'!
 on: aString
@@ -11,7 +11,13 @@ on: aString
 !Parser methodsFor: 'initialization'!
 initializeOn: aString
     tokenizer := Tokenizer on: aString.
+    primitiveIndex := 0 - 1.
     ^ self
+!
+
+!Parser methodsFor: 'accessing'!
+primitiveIndex
+    ^ primitiveIndex
 !
 
 !Parser methodsFor: 'parsing - entry points'!
@@ -80,63 +86,86 @@ parseKeywordMethodFrom: firstKeyword selector: selectorSoFar args: argsBuffer ar
 
 parseMethodBody
     | temps statements |
+    primitiveIndex := self parseOptionalPrimitiveIndex.
     temps := self parseTemporaries.
     statements := self parseStatements.
     ^ SequenceNode temporaries: temps statements: statements
 !
 
+parseOptionalPrimitiveIndex
+    | token keyword integerToken closingToken |
+    token := tokenizer peek.
+    (self isPrimitiveOpenToken: token)
+        ifTrue: [0]
+        ifFalse: [^ 0 - 1].
+
+    tokenizer next.
+    keyword := tokenizer next.
+    keyword isKeyword
+        ifTrue: [0]
+        ifFalse: [^ 0 - 1].
+    (keyword text = 'primitive:')
+        ifTrue: [0]
+        ifFalse: [^ 0 - 1].
+
+    integerToken := tokenizer next.
+    integerToken isInteger
+        ifTrue: [0]
+        ifFalse: [^ 0 - 1].
+
+    closingToken := tokenizer next.
+    (self isPrimitiveCloseToken: closingToken)
+        ifTrue: [^ integerToken value]
+        ifFalse: [^ 0 - 1]
+!
+
+isPrimitiveOpenToken: aToken
+    aToken isSpecial
+        ifTrue: [^ aToken text = '<']
+        ifFalse: [0].
+    aToken isBinarySelector
+        ifTrue: [^ aToken text = '<']
+        ifFalse: [^ false]
+!
+
+isPrimitiveCloseToken: aToken
+    aToken isSpecial
+        ifTrue: [^ aToken text = '>']
+        ifFalse: [0].
+    aToken isBinarySelector
+        ifTrue: [^ aToken text = '>']
+        ifFalse: [^ false]
+!
+
 !Parser methodsFor: 'parsing - statements'!
 parseTemporaries
     | token temps |
-    token := tokenizer peek.
-    (token isSpecialText: '|')
+    token := tokenizer next.
+    (token text = '|')
         ifTrue: [
-            tokenizer next.
             temps := Array new: 16.
             ^ self collectTemporaries: temps at: 1
         ]
-        ifFalse: [0].
-
-    token isBinarySelector
-        ifTrue: [
-            (token text = '|')
-                ifTrue: [
-                    tokenizer next.
-                    temps := Array new: 16.
-                    ^ self collectTemporaries: temps at: 1
-                ]
-                ifFalse: [0]
+        ifFalse: [
+            tokenizer unread: token.
+            ^ Array new: 0
         ]
-        ifFalse: [0].
-
-    ^ Array new: 0
 !
 
 collectTemporaries: buffer at: index
     | token |
-    token := tokenizer peek.
+    token := tokenizer next.
     token isIdentifier
         ifTrue: [
-            tokenizer next.
             buffer at: index put: token text.
             ^ self collectTemporaries: buffer at: index + 1
         ]
         ifFalse: [0].
-    (token isSpecialText: '|')
-        ifTrue: [
-            tokenizer next.
-            ^ self trimArray: buffer to: index - 1
-        ]
+    (token text = '|')
+        ifTrue: [^ self trimArray: buffer to: index - 1]
         ifFalse: [0].
-    token isBinarySelector
-        ifTrue: [
-            (token text = '|')
-                ifTrue: [
-                    tokenizer next.
-                    ^ self trimArray: buffer to: index - 1
-                ]
-                ifFalse: [0]
-        ]
+    token isEof
+        ifTrue: [^ self trimArray: buffer to: index - 1]
         ifFalse: [0].
     ^ self trimArray: buffer to: index - 1
 !
@@ -188,26 +217,19 @@ parseStatement
 !
 
 parseExpressionOrAssignment
-    | token expr nextToken |
-    token := tokenizer peek.
-
-    token isIdentifier
+    | expr nextToken |
+    expr := self parseExpression.
+    expr isVariable
         ifTrue: [0]
-        ifFalse: [^ self parseExpression]
-.
+        ifFalse: [^ expr].
 
-    tokenizer next.
     nextToken := tokenizer peek.
     (nextToken isSpecialText: ':=')
-        ifFalse: [
-            tokenizer unread: token.
-            ^ self parseExpression
-        ].
+        ifTrue: [0]
+        ifFalse: [^ expr].
 
     tokenizer next.
-    ^ AssignmentNode
-        variable: (VariableNode name: token text)
-        value: self parseExpression
+    ^ AssignmentNode variable: expr value: self parseExpression
 !
 
 !Parser methodsFor: 'parsing - expressions'!

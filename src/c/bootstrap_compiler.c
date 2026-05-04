@@ -1679,6 +1679,7 @@ static int cg_parse_statements(CgState *state)
                     index = cg_inst_var_index(state, token.text);
                     if (index < 0)
                     {
+                        fprintf(stderr, "bc assignment unresolved identifier '%s'\n", token.text);
                         return 0;
                     }
                     if (!cg_parse_expression(state))
@@ -2891,6 +2892,7 @@ int bc_compile_and_install_source_methods(Om om, ObjPtr class_class,
 
         if (!bc_parse_method_header(header_source, &method.header))
         {
+            fprintf(stderr, "bc parse header failed for method chunk:\n%s\n", chunk->method_source);
             bc_active_class_bindings = saved_bindings;
             bc_active_class_count = saved_binding_count;
             return 0;
@@ -2916,6 +2918,7 @@ int bc_compile_and_install_source_methods(Om om, ObjPtr class_class,
                 }
                 if (*body_source != '\0' && !bc_codegen_body(body_source, &method.body, 0, &method.header, target_class))
                 {
+                    fprintf(stderr, "bc codegen failed for primitive method chunk:\n%s\n", chunk->method_source);
                     bc_active_class_bindings = saved_bindings;
                     bc_active_class_count = saved_binding_count;
                     return 0;
@@ -2924,6 +2927,7 @@ int bc_compile_and_install_source_methods(Om om, ObjPtr class_class,
         }
         else if (!bc_codegen_body(body_source, &method.body, 0, &method.header, target_class))
         {
+            fprintf(stderr, "bc codegen failed for method chunk:\n%s\n", chunk->method_source);
             bc_active_class_bindings = saved_bindings;
             bc_active_class_count = saved_binding_count;
             return 0;
@@ -3001,7 +3005,7 @@ ObjPtr bc_define_class(Om om, ObjPtr class_class, ObjPtr string_class,
     }
     else
     {
-        uint64_t *ivar_array = om_alloc(om, (uint64_t)class_class, BC_FORMAT_INDEXABLE,
+        uint64_t *ivar_array = om_alloc(om, (uint64_t)array_class, BC_FORMAT_INDEXABLE,
                                         (uint64_t)ivar_count);
         if (ivar_array == NULL)
         {

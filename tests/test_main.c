@@ -1,4 +1,5 @@
 #include "test_defs.h"
+#include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -241,6 +242,7 @@ int run_trap_test(TestContext *ctx, TrapTestFn fn)
 
 int main()
 {
+    const char *only_test = getenv("ALO_ONLY_TEST");
     static uint8_t om_buffer[OM_SIZE] __attribute__((aligned(8)));
     uint64_t om[2];
     om_init(om_buffer, OM_SIZE, om);
@@ -416,23 +418,23 @@ int main()
     ctx.passes = 0;
     ctx.failures = 0;
 
-    test_stack(&ctx);
-    test_tagged(&ctx);
-    test_object(&ctx);
-    test_dispatch(&ctx);
-    test_blocks(&ctx);
-    test_transaction(&ctx);
-    test_gc(&ctx);
-    test_persist(&ctx);
-    test_primitives(&ctx);
-    test_smalltalk_sources(&ctx);
-    test_string_dispatch(&ctx);
-    test_array_dispatch(&ctx);
-    test_symbol_dispatch(&ctx);
-    test_bootstrap_compiler(&ctx);
-    test_smalltalk_expressions(&ctx);
-    test_expression_fixtures(&ctx);
-    test_smalltalk_runtime(&ctx);
+    if (only_test == NULL || strcmp(only_test, "stack") == 0) test_stack(&ctx);
+    if (only_test == NULL || strcmp(only_test, "tagged") == 0) test_tagged(&ctx);
+    if (only_test == NULL || strcmp(only_test, "object") == 0) test_object(&ctx);
+    if (only_test == NULL || strcmp(only_test, "dispatch") == 0) test_dispatch(&ctx);
+    if (only_test == NULL || strcmp(only_test, "blocks") == 0) test_blocks(&ctx);
+    if (only_test == NULL || strcmp(only_test, "transaction") == 0) test_transaction(&ctx);
+    if (only_test == NULL || strcmp(only_test, "gc") == 0) test_gc(&ctx);
+    if (only_test == NULL || strcmp(only_test, "persist") == 0) test_persist(&ctx);
+    if (only_test == NULL || strcmp(only_test, "primitives") == 0) test_primitives(&ctx);
+    if (only_test == NULL || strcmp(only_test, "smalltalk_sources") == 0) test_smalltalk_sources(&ctx);
+    if (only_test == NULL || strcmp(only_test, "string_dispatch") == 0) test_string_dispatch(&ctx);
+    if (only_test == NULL || strcmp(only_test, "array_dispatch") == 0) test_array_dispatch(&ctx);
+    if (only_test == NULL || strcmp(only_test, "symbol_dispatch") == 0) test_symbol_dispatch(&ctx);
+    if (only_test == NULL || strcmp(only_test, "bootstrap_compiler") == 0) test_bootstrap_compiler(&ctx);
+    if (only_test == NULL || strcmp(only_test, "smalltalk_expressions") == 0) test_smalltalk_expressions(&ctx);
+    if (only_test == NULL || strcmp(only_test, "expression_fixtures") == 0) test_expression_fixtures(&ctx);
+    if (only_test == NULL || strcmp(only_test, "smalltalk_runtime") == 0) test_smalltalk_runtime(&ctx);
 
     printf("\n%d passed, %d failed\n", ctx.passes, ctx.failures);
     return ctx.failures > 0 ? 1 : 0;

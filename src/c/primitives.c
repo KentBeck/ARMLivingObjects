@@ -486,6 +486,15 @@ Oop prim_class_includes_selector(Oop receiver, Oop selector)
                : tagged_false();
 }
 
+Oop prim_class_instance_variable_names(Oop receiver)
+{
+    if (!is_object_ptr(receiver))
+    {
+        return tagged_nil();
+    }
+    return OBJ_FIELD((ObjPtr)receiver, CLASS_INST_VARS);
+}
+
 Oop prim_smalltalk_globals(void)
 {
     return global_smalltalk_dictionary == NULL ? tagged_nil() : (Oop)global_smalltalk_dictionary;

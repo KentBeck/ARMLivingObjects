@@ -488,6 +488,7 @@ isBinarySelectorCharExtended: aValue
     (aValue = 124) ifTrue: [^ true].
     (aValue = 64) ifTrue: [^ true].
     (aValue = 37) ifTrue: [^ true].
+    (aValue = 44) ifTrue: [^ true].
     (aValue = 92) ifTrue: [^ true].
     (aValue = 63) ifTrue: [^ true].
     ^ false

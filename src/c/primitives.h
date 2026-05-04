@@ -11,6 +11,7 @@ extern uint64_t *global_smalltalk_dictionary;
 Oop prim_class_superclass(Oop receiver) LO_NO_ALLOC;
 Oop prim_class_name(Oop receiver) LO_NO_ALLOC;
 Oop prim_class_includes_selector(Oop receiver, Oop selector) LO_NO_ALLOC;
+Oop prim_class_instance_variable_names(Oop receiver) LO_NO_ALLOC;
 Oop prim_smalltalk_globals(void) LO_NO_ALLOC;
 Oop prim_method_source_for_class_selector(Oop class_name, Oop selector, Om om) LO_ALLOCATES;
 Oop prim_read_fd_count(Oop fd, Oop count, Om om) LO_ALLOCATES;
