@@ -49,3 +49,31 @@ Treat these public calls as allocation-capable but not GC-capable:
 The practical rule is simple: across `LO_MAY_GC`, store object references as
 oops in VM roots, stack slots, object fields, or explicit root arrays. Reload
 raw object pointers only after the call returns.
+
+## Hard Rule
+
+When writing or editing C in this repository:
+
+- Never keep a raw `ObjPtr`/`uint64_t *` to a heap object across any call
+  marked `LO_MAY_GC`.
+- If a helper may allocate today and could plausibly grow into a GC boundary
+  later, prefer rooting the oop anyway and reloading after the call.
+- Prefer carrying oops, not raw pointers, through multi-step logic.
+- After any send/interpreter/GC call, assume every raw heap pointer may now be
+  stale unless it was reloaded from a root.
+
+## Review Checklist
+
+Before committing C changes near the runtime, compiler harness, or persistence
+paths, check each edited function for:
+
+1. A raw heap pointer surviving across `interpret`, `sw_send*`, or `gc_*`.
+2. A raw heap pointer surviving across a helper that may later become
+   `LO_MAY_GC`.
+3. A rooted oop that is converted to a raw pointer once and then reused after a
+   GC-capable call without reloading.
+4. A class/method/literal/source pointer cached before a send and reused after
+   the send.
+
+If any of those are true, fix the code by rooting the oop and reloading the
+pointer after the boundary.
