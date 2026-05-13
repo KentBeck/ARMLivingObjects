@@ -379,7 +379,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ self", &compiled), 1,
                   "codegen return self");
         ASSERT_EQ(ctx, compiled.literal_count, 0, "return self has no literals");
@@ -389,7 +389,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ #foo", &compiled), 1,
                   "codegen return literal");
         ASSERT_EQ(ctx, compiled.literal_count, 1, "return literal count");
@@ -402,7 +402,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("| x | x := 1. ^ x", &compiled), 1,
                   "codegen temp assign and return");
         ASSERT_EQ(ctx, compiled.literal_count, 1, "assignment literal count");
@@ -419,7 +419,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ 1 + 2", &compiled), 1,
                   "codegen binary send return");
         ASSERT_EQ(ctx, compiled.literal_count, 3, "binary send literal count");
@@ -434,7 +434,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ self at: 1 put: 2", &compiled), 1,
                   "codegen keyword send return");
         ASSERT_EQ(ctx, compiled.literal_count, 3, "keyword send literal count");
@@ -450,7 +450,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ foo", &compiled), 1,
                   "codegen ivar read return");
         ASSERT_EQ(ctx, compiled.inst_var_count, 1, "ivar count after read");
@@ -461,7 +461,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("foo := 1. ^ foo", &compiled), 1,
                   "codegen ivar write then read");
         ASSERT_EQ(ctx, compiled.inst_var_count, 1, "ivar count after write/read");
@@ -475,7 +475,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("foo := 1. bar := 2. ^ bar", &compiled), 1,
                   "codegen multiple ivars deterministic slots");
         ASSERT_EQ(ctx, compiled.inst_var_count, 2, "multiple ivar count");
@@ -484,7 +484,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ #(1 #+ 3)", &compiled), 1,
                   "codegen literal array expression");
         ASSERT_EQ(ctx, compiled.literal_count, 1, "literal array stored as one composite literal");
@@ -497,7 +497,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ [ 1 ] value", &compiled), 1,
                   "codegen block literal with unary send");
         ASSERT_EQ(ctx, compiled.block_count, 1, "block literal compiles one block body");
@@ -520,7 +520,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ [ [ 1 ] value ] value", &compiled), 1,
                   "codegen nested block literal balancing");
         ASSERT_EQ(ctx, compiled.block_count >= 1, 1, "nested block creates at least outer block body");
@@ -529,7 +529,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("^ [ ^ 1 ] value", &compiled), 1,
                   "codegen explicit return inside block");
         ASSERT_EQ(ctx, compiled.block_count, 1, "non-local-return source compiles one block");
@@ -538,7 +538,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("| i | i := 1. [i < 3] whileTrue: [i := i + 1]. ^ i", &compiled), 1,
                   "codegen whileTrue loop");
         ASSERT_EQ(ctx, compiled.block_count, 0, "whileTrue compiles condition and body inline");
@@ -549,7 +549,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("true ifTrue: [1] ifFalse: [0]. ^ self", &compiled), 1,
                   "codegen statement after ifTrue:ifFalse:");
         ASSERT_EQ(ctx, compiled.bytecodes[compiled.bytecode_count - 2], BC_PUSH_SELF,
@@ -559,7 +559,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("| selectorIndex | true ifTrue: [1]. selectorIndex := 1. ^ self", &compiled), 1,
                   "codegen statement after ifTrue: with assignment");
         ASSERT_EQ(ctx, compiled.bytecodes[compiled.bytecode_count - 2], BC_PUSH_SELF,
@@ -574,9 +574,9 @@ void test_bootstrap_compiler(TestContext *ctx)
             "with: arg\n"
             "    ^ arg\n"
             "!\n";
-        BMethodChunk chunks[4];
+        static BMethodChunk chunks[4];
         int chunk_count = 0;
-        BCompiledMethodDef methods[4];
+        static BCompiledMethodDef methods[4];
         int method_count = 0;
 
         ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 4, &chunk_count), 1,
@@ -596,9 +596,9 @@ void test_bootstrap_compiler(TestContext *ctx)
             "with: arg\n"
             "    ^ [ arg ] value\n"
             "!\n";
-        BMethodChunk chunks[4];
+        static BMethodChunk chunks[4];
         int chunk_count = 0;
-        BCompiledMethodDef methods[4];
+        static BCompiledMethodDef methods[4];
         int method_count = 0;
 
         ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 4, &chunk_count), 1,
@@ -616,7 +616,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("self", &compiled), 1,
                   "implicit return for final expression");
         ASSERT_EQ(ctx, compiled.bytecode_count, 2, "implicit return bytecode count");
@@ -625,7 +625,7 @@ void test_bootstrap_compiler(TestContext *ctx)
     }
 
     {
-        BCompiledBody compiled;
+        static BCompiledBody compiled;
         ASSERT_EQ(ctx, bc_codegen_method_body("thisContext", &compiled), 1,
                   "implicit return for thisContext pseudo-variable");
         ASSERT_EQ(ctx, compiled.bytecode_count, 2, "thisContext implicit return bytecode count");
@@ -644,7 +644,7 @@ void test_bootstrap_compiler(TestContext *ctx)
             "on: aCollection\n"
             "    ^ self new initializeOn: aCollection\n"
             "!\n";
-        BMethodChunk chunks[8];
+        static BMethodChunk chunks[8];
         int count = 0;
         ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 8, &count), 1,
                   "parse chunk methods source");
@@ -673,9 +673,9 @@ void test_bootstrap_compiler(TestContext *ctx)
             "new\n"
             "    ^ self basicNew\n"
             "!\n";
-        BMethodChunk chunks[8];
+        static BMethodChunk chunks[8];
         int chunk_count = 0;
-        BCompiledMethodDef methods[8];
+        static BCompiledMethodDef methods[8];
         int method_count = 0;
 
         ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 8, &chunk_count), 1,
@@ -706,9 +706,9 @@ void test_bootstrap_compiler(TestContext *ctx)
             "    <primitive: 19>\n"
             "    ^ 0\n"
             "!\n";
-        BMethodChunk chunks[4];
+        static BMethodChunk chunks[4];
         int chunk_count = 0;
-        BCompiledMethodDef methods[4];
+        static BCompiledMethodDef methods[4];
         int method_count = 0;
 
         ASSERT_EQ(ctx, bc_parse_method_chunks(source, chunks, 4, &chunk_count), 1,
@@ -989,7 +989,7 @@ void test_bootstrap_compiler(TestContext *ctx)
                 {"Exception", exception_class},
                 {"Error", error_class},
             };
-            BCompiledMethodDef methods[2];
+            static BCompiledMethodDef methods[2];
             int method_count = 0;
             const char *source =
                 "!HandlerGlobalRefTest methodsFor: 'testing'!\n"
@@ -1417,8 +1417,8 @@ void test_bootstrap_compiler(TestContext *ctx)
             ctx->om, ctx->class_class, ctx->string_class, array_class, association_class,
             class_bindings, 4, "src/smalltalk/CodeGenerator.st");
         ASSERT_EQ(ctx, codegen_class != NULL, 1, "CodeGenerator.st defines class and installs methods");
-        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(codegen_class, CLASS_INST_SIZE)), 14,
-                  "CodeGenerator.st class declaration has fourteen instance variables");
+        ASSERT_EQ(ctx, untag_smallint(OBJ_FIELD(codegen_class, CLASS_INST_SIZE)), 12,
+                  "CodeGenerator.st class declaration has twelve instance variables");
         ASSERT_EQ(ctx, class_lookup(codegen_class, intern_cstring_symbol(ctx->om, "compileExpression:")) != 0,
                   1, "CodeGenerator.st installs compileExpression:");
         // Minimal test: Parser class ref inside a CodeGenerator method

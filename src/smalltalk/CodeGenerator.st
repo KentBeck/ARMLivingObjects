@@ -1,7 +1,7 @@
 "CodeGenerator — Emits bytecodes from AST nodes"
-"Instance variables: bytecodes, bytecodeCount, literals, literalCount, temps, tempCount, args, argCount, instVarNames, instVarCount, inBlock"
+"Instance variables: bytecodes, bytecodeCount, literals, literalCount, temps, tempCount, args, argCount, instVarNames, instVarCount, inBlock, primitiveIndex"
 
-Object subclass: #CodeGenerator instanceVariableNames: 'bytecodes bytecodeCount literals literalCount temps tempCount args argCount instVarNames instVarCount inBlock'
+Object subclass: #CodeGenerator instanceVariableNames: 'bytecodes bytecodeCount literals literalCount temps tempCount args argCount instVarNames instVarCount inBlock primitiveIndex'
 
 !CodeGenerator class methodsFor: 'instance creation'!
 new
@@ -25,6 +25,7 @@ initialize
     instVarNames := Array new: 16.
     instVarCount := 0.
     inBlock := false.
+    primitiveIndex := 0 - 1.
     ^ self
 !
 
@@ -45,6 +46,10 @@ literalCount
 
 tempCount
     ^ tempCount
+!
+
+primitiveIndex
+    ^ primitiveIndex
 !
 
 bytecodeAt: index
@@ -430,6 +435,7 @@ compileMethod: aString
     | parser method |
     parser := Parser on: aString.
     method := parser parseMethod.
+    primitiveIndex := parser primitiveIndex.
     self arguments: method arguments.
     self visitSequence: method body.
     self emitReturn.

@@ -3,6 +3,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+extern uint64_t intern_cstring_symbol(uint64_t *om, const char *s);
+
 static uint64_t *make_byte_string(uint64_t *om, uint64_t *string_class, const char *text)
 {
     size_t len = strlen(text);
@@ -12,6 +14,67 @@ static uint64_t *make_byte_string(uint64_t *om, uint64_t *string_class, const ch
         memcpy(&OBJ_FIELD(string, 0), text, len);
     }
     return string;
+}
+
+static uint64_t *make_primitive_method(uint64_t *om, uint64_t *class_class, int primitive, int num_args)
+{
+    uint64_t *bytecodes = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 1);
+    ((uint8_t *)&OBJ_FIELD(bytecodes, 0))[0] = BC_HALT;
+
+    uint64_t *method = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(primitive);
+    OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint(num_args);
+    OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(method, CM_LITERALS) = tagged_nil();
+    OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = tagged_nil();
+    return method;
+}
+
+static uint64_t *make_send_value_arg_method(uint64_t *om, uint64_t *class_class,
+                                            uint64_t value_selector, uint32_t arg_index)
+{
+    uint64_t *literals = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    uint64_t *bytecodes = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 15);
+    uint64_t *method = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+    uint8_t *bytes = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+
+    OBJ_FIELD(literals, 0) = value_selector;
+    bytes[0] = BC_PUSH_ARG;
+    WRITE_U32(&bytes[1], arg_index);
+    bytes[5] = BC_SEND_MESSAGE;
+    WRITE_U32(&bytes[6], 0);
+    WRITE_U32(&bytes[10], 0);
+    bytes[14] = BC_RETURN;
+
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint(1);
+    OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(method, CM_LITERALS) = (uint64_t)literals;
+    OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = tagged_nil();
+    return method;
+}
+
+static uint64_t *make_return_literal_method(uint64_t *om, uint64_t *class_class, uint64_t literal)
+{
+    uint64_t *literals = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 1);
+    uint64_t *bytecodes = om_alloc(om, (uint64_t)class_class, FORMAT_BYTES, 6);
+    uint64_t *method = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 6);
+    uint8_t *bytes = (uint8_t *)&OBJ_FIELD(bytecodes, 0);
+
+    OBJ_FIELD(literals, 0) = literal;
+    bytes[0] = BC_PUSH_LITERAL;
+    WRITE_U32(&bytes[1], 0);
+    bytes[5] = BC_RETURN;
+
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint(1);
+    OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(0);
+    OBJ_FIELD(method, CM_LITERALS) = (uint64_t)literals;
+    OBJ_FIELD(method, CM_BYTECODES) = (uint64_t)bytecodes;
+    OBJ_FIELD(method, CM_SOURCE) = tagged_nil();
+    return method;
 }
 
 static uint64_t debug_oop_class(uint64_t oop, uint64_t *class_table)
@@ -272,6 +335,18 @@ int main()
     OBJ_FIELD(undefined_object_class, CLASS_INST_SIZE) = tag_smallint(0);
     OBJ_FIELD(undefined_object_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
 
+    uint64_t *true_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(true_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(true_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(true_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(true_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
+    uint64_t *false_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
+    OBJ_FIELD(false_class, CLASS_SUPERCLASS) = tagged_nil();
+    OBJ_FIELD(false_class, CLASS_METHOD_DICT) = tagged_nil();
+    OBJ_FIELD(false_class, CLASS_INST_SIZE) = tag_smallint(0);
+    OBJ_FIELD(false_class, CLASS_INST_FORMAT) = tag_smallint(FORMAT_FIELDS);
+
     uint64_t *string_class = om_alloc(om, (uint64_t)class_class, FORMAT_FIELDS, 4);
     OBJ_FIELD(string_class, CLASS_SUPERCLASS) = tagged_nil();
     OBJ_FIELD(string_class, CLASS_METHOD_DICT) = tagged_nil();
@@ -407,34 +482,94 @@ int main()
     ctx.test_class = test_class;
     ctx.receiver = (uint64_t)recv_obj;
     ctx.method = (uint64_t)test_cm;
+    uint64_t *block_md = NULL;
+    uint64_t *true_md = NULL;
+    uint64_t *false_md = NULL;
+
+    {
+        uint64_t sel_value = intern_cstring_symbol(om, "value");
+        uint64_t sel_value_arg = intern_cstring_symbol(om, "value:");
+        uint64_t sel_if_true_if_false = intern_cstring_symbol(om, "ifTrue:ifFalse:");
+        uint64_t sel_if_true = intern_cstring_symbol(om, "ifTrue:");
+        uint64_t sel_if_false = intern_cstring_symbol(om, "ifFalse:");
+
+        block_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 4);
+        OBJ_FIELD(block_md, 0) = sel_value;
+        OBJ_FIELD(block_md, 1) = (uint64_t)make_primitive_method(om, class_class, PRIM_BLOCK_VALUE, 0);
+        OBJ_FIELD(block_md, 2) = sel_value_arg;
+        OBJ_FIELD(block_md, 3) = (uint64_t)make_primitive_method(om, class_class, PRIM_BLOCK_VALUE_ARG, 1);
+        OBJ_FIELD(block_class, CLASS_METHOD_DICT) = (uint64_t)block_md;
+
+        true_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
+        OBJ_FIELD(true_md, 0) = sel_if_true_if_false;
+        OBJ_FIELD(true_md, 1) = (uint64_t)make_send_value_arg_method(om, class_class, sel_value, 0);
+        OBJ_FIELD(true_md, 2) = sel_if_true;
+        OBJ_FIELD(true_md, 3) = (uint64_t)make_send_value_arg_method(om, class_class, sel_value, 0);
+        OBJ_FIELD(true_md, 4) = sel_if_false;
+        OBJ_FIELD(true_md, 5) = (uint64_t)make_return_literal_method(om, class_class, tagged_nil());
+        OBJ_FIELD(true_class, CLASS_METHOD_DICT) = (uint64_t)true_md;
+
+        false_md = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
+        OBJ_FIELD(false_md, 0) = sel_if_true_if_false;
+        OBJ_FIELD(false_md, 1) = (uint64_t)make_send_value_arg_method(om, class_class, sel_value, 1);
+        OBJ_FIELD(false_md, 2) = sel_if_true;
+        OBJ_FIELD(false_md, 3) = (uint64_t)make_return_literal_method(om, class_class, tagged_nil());
+        OBJ_FIELD(false_md, 4) = sel_if_false;
+        OBJ_FIELD(false_md, 5) = (uint64_t)make_send_value_arg_method(om, class_class, sel_value, 0);
+        OBJ_FIELD(false_class, CLASS_METHOD_DICT) = (uint64_t)false_md;
+    }
+
     uint64_t *class_table_obj = om_alloc(om, (uint64_t)class_class, FORMAT_INDEXABLE, 6);
     OBJ_FIELD(class_table_obj, 0) = (uint64_t)smallint_class;
     OBJ_FIELD(class_table_obj, 1) = (uint64_t)block_class;
-    OBJ_FIELD(class_table_obj, 2) = 0; // True class (not yet)
-    OBJ_FIELD(class_table_obj, 3) = 0; // False class (not yet)
+    OBJ_FIELD(class_table_obj, 2) = (uint64_t)true_class;
+    OBJ_FIELD(class_table_obj, 3) = (uint64_t)false_class;
     OBJ_FIELD(class_table_obj, 4) = (uint64_t)character_class;
     OBJ_FIELD(class_table_obj, 5) = (uint64_t)undefined_object_class;
     ctx.class_table = class_table_obj;
     ctx.passes = 0;
     ctx.failures = 0;
 
-    if (only_test == NULL || strcmp(only_test, "stack") == 0) test_stack(&ctx);
-    if (only_test == NULL || strcmp(only_test, "tagged") == 0) test_tagged(&ctx);
-    if (only_test == NULL || strcmp(only_test, "object") == 0) test_object(&ctx);
-    if (only_test == NULL || strcmp(only_test, "dispatch") == 0) test_dispatch(&ctx);
-    if (only_test == NULL || strcmp(only_test, "blocks") == 0) test_blocks(&ctx);
-    if (only_test == NULL || strcmp(only_test, "transaction") == 0) test_transaction(&ctx);
-    if (only_test == NULL || strcmp(only_test, "gc") == 0) test_gc(&ctx);
-    if (only_test == NULL || strcmp(only_test, "persist") == 0) test_persist(&ctx);
-    if (only_test == NULL || strcmp(only_test, "primitives") == 0) test_primitives(&ctx);
-    if (only_test == NULL || strcmp(only_test, "smalltalk_sources") == 0) test_smalltalk_sources(&ctx);
-    if (only_test == NULL || strcmp(only_test, "string_dispatch") == 0) test_string_dispatch(&ctx);
-    if (only_test == NULL || strcmp(only_test, "array_dispatch") == 0) test_array_dispatch(&ctx);
-    if (only_test == NULL || strcmp(only_test, "symbol_dispatch") == 0) test_symbol_dispatch(&ctx);
-    if (only_test == NULL || strcmp(only_test, "bootstrap_compiler") == 0) test_bootstrap_compiler(&ctx);
-    if (only_test == NULL || strcmp(only_test, "smalltalk_expressions") == 0) test_smalltalk_expressions(&ctx);
-    if (only_test == NULL || strcmp(only_test, "expression_fixtures") == 0) test_expression_fixtures(&ctx);
-    if (only_test == NULL || strcmp(only_test, "smalltalk_runtime") == 0) test_smalltalk_runtime(&ctx);
+#define RUN_TOP_LEVEL_TEST(name, fn)                                           \
+    do                                                                         \
+    {                                                                          \
+        if (only_test == NULL || strcmp(only_test, name) == 0)                 \
+        {                                                                      \
+            global_symbol_table = symbol_table_obj;                            \
+            global_symbol_class = symbol_class;                                \
+            global_context_class = context_class;                              \
+            global_smalltalk_dictionary = NULL;                                \
+            OBJ_FIELD(block_class, CLASS_METHOD_DICT) = (uint64_t)block_md;    \
+            OBJ_FIELD(true_class, CLASS_METHOD_DICT) = (uint64_t)true_md;      \
+            OBJ_FIELD(false_class, CLASS_METHOD_DICT) = (uint64_t)false_md;    \
+            OBJ_FIELD(class_table_obj, 1) = (uint64_t)block_class;             \
+            OBJ_FIELD(class_table_obj, 2) = (uint64_t)true_class;              \
+            OBJ_FIELD(class_table_obj, 3) = (uint64_t)false_class;             \
+            OBJ_FIELD(class_table_obj, 4) = (uint64_t)character_class;         \
+            OBJ_FIELD(class_table_obj, 5) = (uint64_t)undefined_object_class;  \
+            fn(&ctx);                                                          \
+        }                                                                      \
+    } while (0)
+
+    RUN_TOP_LEVEL_TEST("stack", test_stack);
+    RUN_TOP_LEVEL_TEST("tagged", test_tagged);
+    RUN_TOP_LEVEL_TEST("object", test_object);
+    RUN_TOP_LEVEL_TEST("dispatch", test_dispatch);
+    RUN_TOP_LEVEL_TEST("blocks", test_blocks);
+    RUN_TOP_LEVEL_TEST("transaction", test_transaction);
+    RUN_TOP_LEVEL_TEST("gc", test_gc);
+    RUN_TOP_LEVEL_TEST("persist", test_persist);
+    RUN_TOP_LEVEL_TEST("primitives", test_primitives);
+    RUN_TOP_LEVEL_TEST("smalltalk_sources", test_smalltalk_sources);
+    RUN_TOP_LEVEL_TEST("string_dispatch", test_string_dispatch);
+    RUN_TOP_LEVEL_TEST("array_dispatch", test_array_dispatch);
+    RUN_TOP_LEVEL_TEST("symbol_dispatch", test_symbol_dispatch);
+    RUN_TOP_LEVEL_TEST("bootstrap_compiler", test_bootstrap_compiler);
+    RUN_TOP_LEVEL_TEST("smalltalk_expressions", test_smalltalk_expressions);
+    RUN_TOP_LEVEL_TEST("expression_fixtures", test_expression_fixtures);
+    RUN_TOP_LEVEL_TEST("smalltalk_runtime", test_smalltalk_runtime);
+
+#undef RUN_TOP_LEVEL_TEST
 
     printf("\n%d passed, %d failed\n", ctx.passes, ctx.failures);
     return ctx.failures > 0 ? 1 : 0;

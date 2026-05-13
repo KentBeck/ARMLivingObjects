@@ -632,7 +632,7 @@ void test_smalltalk_expressions(TestContext *ctx)
     {
         static uint8_t tokenizer_om_buffer[4194304] __attribute__((aligned(8)));
         uint64_t tokenizer_om[2];
-        BCompiledMethodDef methods[64];
+        static BCompiledMethodDef methods[64];
         int method_count = 0;
         const char *tokenizer_ivars[] = {"source"};
         const char *association_ivars[] = {"key", "value"};

@@ -421,6 +421,7 @@ static uint64_t *materialize_codegen_method(SmalltalkWorld *world, uint64_t *gen
     int64_t literal_count = untag_smallint(OBJ_FIELD(generator_ptr, 3));
     int64_t temp_count = untag_smallint(OBJ_FIELD(generator_ptr, 5));
     int64_t arg_count = untag_smallint(OBJ_FIELD(generator_ptr, 7));
+    int64_t primitive_index = untag_smallint(OBJ_FIELD(generator_ptr, 11));
     if (bytecode_count < 0 || literal_count < 0 || temp_count < 0 || arg_count < 0)
     {
         return NULL;
@@ -479,7 +480,7 @@ static uint64_t *materialize_codegen_method(SmalltalkWorld *world, uint64_t *gen
     method = oop_roots_ptr(&roots, method_root);
     bytecodes = oop_roots_ptr(&roots, bytecodes_root);
     literals = literals_root == UINT64_MAX ? NULL : oop_roots_ptr(&roots, literals_root);
-    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(PRIM_NONE);
+    OBJ_FIELD(method, CM_PRIMITIVE) = tag_smallint(primitive_index >= 0 ? primitive_index : PRIM_NONE);
     OBJ_FIELD(method, CM_NUM_ARGS) = tag_smallint(arg_count);
     OBJ_FIELD(method, CM_NUM_TEMPS) = tag_smallint(temp_count);
     OBJ_FIELD(method, CM_LITERALS) = literals != NULL ? (uint64_t)literals : tagged_nil();
@@ -740,7 +741,7 @@ static uint64_t *compile_c_expression_method(SmalltalkWorld *world, const char *
              "!\n",
              selector, expression);
 
-    BCompiledMethodDef methods[1];
+    static BCompiledMethodDef methods[1];
     int method_count = 0;
     if (!bc_compile_source_methods(source, methods, 1, &method_count) || method_count != 1)
     {
@@ -1058,7 +1059,7 @@ void test_smalltalk_runtime(TestContext *ctx)
     method_gen_root = oop_roots_add(&compiler_roots, method_gen);
     have_method_gen_root = 1;
     uint64_t *method_gen_ptr = oop_roots_ptr(&compiler_roots, method_gen_root);
-    ASSERT_EQ(ctx, OBJ_SIZE(method_gen_ptr), 11,
+    ASSERT_EQ(ctx, OBJ_SIZE(method_gen_ptr), 12,
               "runtime: method CodeGenerator has expected ivar slots");
     ASSERT_EQ(ctx, OBJ_FIELD(method_gen_ptr, 1), tag_smallint(7),
               "runtime: Smalltalk compiler emits explicit return plus trailing method return");
@@ -1900,6 +1901,11 @@ void test_smalltalk_runtime(TestContext *ctx)
         run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodBinaryReturnShape");
         run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileExpressionKeywordSendShape");
         run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodUnarySendReturnShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodConditionalNonLocalReturnShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodPrimitiveShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodPrimitiveFallbackBodyShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodTemporariesShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodGlobalReferenceShape");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicCommitsObjectChanges");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicReturnsBlockValue");
@@ -1940,7 +1946,7 @@ void test_smalltalk_runtime(TestContext *ctx)
                   "runtime: rooted compiler result moves to GC to-space lower bound");
         ASSERT_EQ(ctx, moved_method_gen < (uint64_t)(compiler_gc_buf + sizeof(compiler_gc_buf)), 1,
                   "runtime: rooted compiler result moves to GC to-space upper bound");
-        ASSERT_EQ(ctx, OBJ_SIZE(moved_method_gen_ptr), 11,
+        ASSERT_EQ(ctx, OBJ_SIZE(moved_method_gen_ptr), 12,
                   "runtime: rooted compiler result remains a CodeGenerator after GC");
         ASSERT_EQ(ctx, OBJ_FIELD(moved_method_gen_ptr, 1), tag_smallint(7),
                   "runtime: rooted compiler result preserves bytecode count after GC");

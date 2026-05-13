@@ -8,6 +8,10 @@ nil subclass: #Object instanceVariableNames: ''
     ^ false
 !
 
+= anObject
+    ^ self == anObject
+!
+
 !Object methodsFor: 'introspection'!
 basicClass
     <primitive: 13>

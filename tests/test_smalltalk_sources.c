@@ -62,39 +62,39 @@ void test_smalltalk_sources(TestContext *ctx)
         {"src/smalltalk/UndefinedObject.st", "UndefinedObject.st corpus compile", 1},
         {"src/smalltalk/WriteStream.st", "WriteStream.st corpus compile", 1},
     };
-    char corpus_src[32768];
-    char class_src[4096];
-    char object_src[4096];
-    char string_src[8192];
-    char symbol_src[4096];
-    char array_src[4096];
-    char association_src[4096];
-    char collection_src[4096];
-    char dictionary_src[12288];
-    char system_dictionary_src[4096];
-    char read_stream_src[8192];
-    char stdio_src[4096];
-    char write_stream_src[8192];
-    char undefined_object_src[2048];
-    char context_src[2048];
-    char test_result_src[4096];
-    char test_case_src[4096];
-    char test_suite_src[4096];
-    char transaction_src[2048];
-    char tokenizer_src[32768];
-    char expression_spec_test_src[2048];
-    char image_src[2048];
-    char block_activation_test_src[4096];
-    char transaction_test_src[4096];
-    char durable_transaction_test_src[4096];
-    char exception_handling_test_src[4096];
-    char smalltalk_self_test_suite_src[4096];
-    char lsp_document_src[4096];
-    char lsp_method_span_src[4096];
-    char lsp_source_index_src[4096];
-    char expr_specs_src[4096];
-    char expr_fixture_specs_src[8192];
-    BCompiledMethodDef methods[64];
+    static char corpus_src[32768];
+    static char class_src[4096];
+    static char object_src[4096];
+    static char string_src[8192];
+    static char symbol_src[8192];
+    static char array_src[4096];
+    static char association_src[4096];
+    static char collection_src[4096];
+    static char dictionary_src[12288];
+    static char system_dictionary_src[4096];
+    static char read_stream_src[8192];
+    static char stdio_src[4096];
+    static char write_stream_src[8192];
+    static char undefined_object_src[2048];
+    static char context_src[2048];
+    static char test_result_src[4096];
+    static char test_case_src[4096];
+    static char test_suite_src[4096];
+    static char transaction_src[2048];
+    static char tokenizer_src[32768];
+    static char expression_spec_test_src[2048];
+    static char image_src[2048];
+    static char block_activation_test_src[4096];
+    static char transaction_test_src[4096];
+    static char durable_transaction_test_src[4096];
+    static char exception_handling_test_src[4096];
+    static char smalltalk_self_test_suite_src[4096];
+    static char lsp_document_src[4096];
+    static char lsp_method_span_src[4096];
+    static char lsp_source_index_src[4096];
+    static char expr_specs_src[4096];
+    static char expr_fixture_specs_src[8192];
+    static BCompiledMethodDef methods[64];
     int method_count = 0;
 
     for (uint64_t index = 0; index < sizeof(corpus_files) / sizeof(corpus_files[0]); index++)
@@ -118,7 +118,7 @@ void test_smalltalk_sources(TestContext *ctx)
               "Object>>isNil exists");
     ASSERT_EQ(ctx, bc_compile_source_methods(object_src, methods, 64, &method_count), 1,
               "Object.st compiles through chunk pipeline");
-    ASSERT_EQ(ctx, method_count, 9, "Object.st method count");
+    ASSERT_EQ(ctx, method_count, 10, "Object.st method count");
 
     ASSERT_EQ(ctx, read_file("src/smalltalk/Exception.st", class_src, sizeof(class_src)), 1,
               "src/smalltalk/Exception.st exists");

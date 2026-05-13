@@ -373,9 +373,9 @@ void test_expression_fixtures(TestContext *ctx)
     for (int fixture_index = 0; fixture_index < spec_count; fixture_index++)
     {
         ExpressionFixtureSpec *fixture = &specs[fixture_index];
-        BCompiledMethodDef setup_methods[8];
+        static BCompiledMethodDef setup_methods[8];
         int setup_method_count = 0;
-        BCompiledMethodDef expression_methods[2];
+        static BCompiledMethodDef expression_methods[2];
         int expression_method_count = 0;
         for (int class_index = 0; class_index < fixture->class_count; class_index++)
         {

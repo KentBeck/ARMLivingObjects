@@ -148,6 +148,8 @@ static void unsupported_bytecode(uint8_t opcode)
     raise(SIGTRAP);
 }
 
+extern void debug_mnu_context(uint64_t selector, uint64_t *current_cm, uint64_t selector_index);
+
 typedef enum
 {
     PRIMITIVE_SUCCEEDED,
@@ -2824,6 +2826,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
 
             if (method == 0)
             {
+                debug_mnu_context(selector, current_method, selector_index);
                 unsupported_bytecode(opcode);
                 break;
             }
@@ -2852,6 +2855,7 @@ Oop interpret(Oop **sp_ptr, Oop **fp_ptr, uint8_t *ip,
                     method = lookup_method_for_receiver(receiver, selector, class_table);
                     if (method == 0)
                     {
+                        debug_mnu_context(selector, current_method, selector_index);
                         unsupported_bytecode(opcode);
                         primitive_completed = 1;
                         break;

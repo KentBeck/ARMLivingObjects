@@ -9,16 +9,17 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 9.
+    selectors := Array new: 10.
     selectors at: 1 put: #testCompileExpressionLiteralShape.
     selectors at: 2 put: #testCompileExpressionBinarySendShape.
     selectors at: 3 put: #testCompileMethodBinaryReturnShape.
     selectors at: 4 put: #testCompileExpressionKeywordSendShape.
-    selectors at: 5 put: #testCompileMethodConditionalNonLocalReturnShape.
-    selectors at: 6 put: #testCompileMethodPrimitiveShape.
-    selectors at: 7 put: #testCompileMethodPrimitiveFallbackBodyShape.
-    selectors at: 8 put: #testCompileMethodTemporariesShape.
-    selectors at: 9 put: #testCompileMethodGlobalReferenceShape.
+    selectors at: 5 put: #testCompileMethodUnarySendReturnShape.
+    selectors at: 6 put: #testCompileMethodConditionalNonLocalReturnShape.
+    selectors at: 7 put: #testCompileMethodPrimitiveShape.
+    selectors at: 8 put: #testCompileMethodPrimitiveFallbackBodyShape.
+    selectors at: 9 put: #testCompileMethodTemporariesShape.
+    selectors at: 10 put: #testCompileMethodGlobalReferenceShape.
     ^ selectors
 !
 
@@ -38,6 +39,10 @@ runCompilerTestsOn: aResult selectors: selectors startingAt: index
 !CompilerTest methodsFor: 'helpers'!
 assertLiteral: index of: aGenerator equals: expected
     ^ self assert: (aGenerator literalAt: index) equals: expected
+!
+
+assert: aGenerator bytecodeAt: index equals: expected
+    ^ self assert: (aGenerator bytecodeAt: index) equals: expected
 !
 
 !CompilerTest methodsFor: 'tests'!
@@ -97,8 +102,8 @@ testCompileMethodConditionalNonLocalReturnShape
                 ifTrue: [^ true]
                 ifFalse: [^ self handlesSignalClass: aClass superclass]
         ]'.
-    self assert: generator literalCount equals: 8.
-    ^ self assertLiteral: 8 of: generator equals: #ifTrue:ifFalse:
+    self assert: generator literalCount equals: 5.
+    ^ self assert: generator bytecodeCount equals: 39
 !
 
 testCompileMethodPrimitiveShape
@@ -132,15 +137,15 @@ testCompileMethodTemporariesShape
     arr at: 1 put: a.
     ^ arr'.
     self assert: generator tempCount equals: 1.
-    ^ self assert: generator bytecodeCount equals: 55
+    self assert: generator literalCount equals: 3.
+    ^ self assert: generator bytecodeCount equals: 54
 !
 
 testCompileMethodGlobalReferenceShape
     | generator association |
     generator := Compiler compileMethod: 'smalltalkDictionary ^ Dictionary smalltalk'.
-    self assert: generator literalCount equals: 2.
+    self assert: generator literalCount equals: 1.
     self assert: generator bytecodeAt: 1 equals: 18.
     association := generator literalAt: 1.
-    self assert: (association == nil) equals: false.
-    ^ self assertLiteral: 2 of: generator equals: #smalltalk
+    ^ self assert: (association == nil) equals: false
 !
