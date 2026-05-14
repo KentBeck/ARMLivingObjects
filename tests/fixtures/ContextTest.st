@@ -9,13 +9,15 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 6.
+    selectors := Array new: 8.
     selectors at: 1 put: #testThisContextReceiverIsSelf.
     selectors at: 2 put: #testRepeatedThisContextIsIdentical.
     selectors at: 3 put: #testSenderReceiverIsSelf.
     selectors at: 4 put: #testBlockContextReceiverIsSelf.
     selectors at: 5 put: #testBlockContextHomeReceiverIsSelf.
     selectors at: 6 put: #testBlockContextHasClosure.
+    selectors at: 7 put: #testStringConcatenationProducesExpectedContents.
+    selectors at: 8 put: #testArrayAtPutRoundTripsValue.
     ^ selectors
 !
 
@@ -83,4 +85,16 @@ testBlockContextHasClosure
     | blockContext |
     blockContext := self captureBlockContext.
     ^ self assert: (blockContext closure == nil) == false
+!
+
+testStringConcatenationProducesExpectedContents
+    ^ self assert: ('ab' , 'cd') equals: 'abcd'
+!
+
+testArrayAtPutRoundTripsValue
+    | arr |
+    arr := Array new: 3.
+    arr at: 2 put: 77.
+    self assert: arr size equals: 3.
+    ^ self assert: (arr at: 2) equals: 77
 !

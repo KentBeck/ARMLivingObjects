@@ -66,7 +66,7 @@ void test_smalltalk_sources(TestContext *ctx)
     static char class_src[4096];
     static char object_src[4096];
     static char string_src[8192];
-    static char symbol_src[8192];
+    static char symbol_src[16384];
     static char array_src[4096];
     static char association_src[4096];
     static char collection_src[4096];
@@ -453,6 +453,12 @@ void test_smalltalk_sources(TestContext *ctx)
               "BlockActivationTest covers one-argument block activation");
     ASSERT_EQ(ctx, strstr(block_activation_test_src, "testNestedZeroArgumentBlocks") != NULL, 1,
               "BlockActivationTest covers nested zero-argument block activation");
+    ASSERT_EQ(ctx, read_file("tests/fixtures/ContextTest.st", context_src, sizeof(context_src)), 1,
+              "tests/fixtures/ContextTest.st exists");
+    ASSERT_EQ(ctx, strstr(context_src, "testStringConcatenationProducesExpectedContents") != NULL, 1,
+              "ContextTest covers String concatenation behavior");
+    ASSERT_EQ(ctx, strstr(context_src, "testArrayAtPutRoundTripsValue") != NULL, 1,
+              "ContextTest covers Array at:put: round-trip behavior");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/ExceptionHandlingTest.st", exception_handling_test_src,
                              sizeof(exception_handling_test_src)), 1,
@@ -538,10 +544,44 @@ void test_smalltalk_sources(TestContext *ctx)
               "CompilerTest covers temporary variable compilation");
     ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodGlobalReferenceShape") != NULL, 1,
               "CompilerTest covers global reference compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodRealWriteStreamNextPutShape") != NULL, 1,
+              "CompilerTest covers real WriteStream method compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodRealTestSuiteRunOnShape") != NULL, 1,
+              "CompilerTest covers real TestSuite runner compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodRealTestSuiteAddShape") != NULL, 1,
+              "CompilerTest covers real TestSuite add: compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodRealSmalltalkSelfTestSuiteAddTestsShape") != NULL, 1,
+              "CompilerTest covers real SmalltalkSelfTestSuite helper compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodRealParserExpressionOrAssignmentShape") != NULL, 1,
+              "CompilerTest covers real Parser assignment parsing compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodRealCodeGeneratorVisitAssignmentShape") != NULL, 1,
+              "CompilerTest covers real CodeGenerator assignment compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodRealParserTemporariesShape") != NULL, 1,
+              "CompilerTest covers real Parser temporaries compilation");
+    ASSERT_EQ(ctx, strstr(symbol_src, "testCompileMethodRealCodeGeneratorVisitStatementsShape") != NULL, 1,
+              "CompilerTest covers real CodeGenerator statement recursion compilation");
     ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileExpression: '1 + 2'") != NULL, 1,
               "CompilerTest exercises real compileExpression: for binary send");
     ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'identity: anObject") != NULL, 1,
               "CompilerTest exercises real compileMethod: for primitive methods");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'nextPut: aByte") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for WriteStream>>nextPut:");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'runOn: aResult") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for TestSuite>>runOn:");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'add: aTest") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for TestSuite>>add:");
+    ASSERT_EQ(ctx, strstr(symbol_src,
+                          "Compiler compileMethod: 'addTestsFrom: aTestClass selectors: selectors to: aSuite startingAt: index") != NULL,
+              1,
+              "CompilerTest exercises real compileMethod: for SmalltalkSelfTestSuite helper");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'parseExpressionOrAssignment") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for Parser>>parseExpressionOrAssignment");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'visitAssignment: aNode") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for CodeGenerator>>visitAssignment:");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'parseTemporaries") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for Parser>>parseTemporaries");
+    ASSERT_EQ(ctx, strstr(symbol_src, "Compiler compileMethod: 'visitStatements: stmts from: index last: lastIndex") != NULL, 1,
+              "CompilerTest exercises real compileMethod: for CodeGenerator>>visitStatements:from:last:");
     ASSERT_EQ(ctx, strstr(symbol_src, "basicNew primitive failed") != NULL, 1,
               "CompilerTest exercises real compileMethod: for primitive fallback bodies");
     ASSERT_EQ(ctx, read_file("tests/fixtures/SmalltalkSelfTestSuite.st", smalltalk_self_test_suite_src,

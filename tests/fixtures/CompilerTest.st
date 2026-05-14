@@ -9,7 +9,7 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 10.
+    selectors := Array new: 18.
     selectors at: 1 put: #testCompileExpressionLiteralShape.
     selectors at: 2 put: #testCompileExpressionBinarySendShape.
     selectors at: 3 put: #testCompileMethodBinaryReturnShape.
@@ -20,6 +20,14 @@ testSelectors
     selectors at: 8 put: #testCompileMethodPrimitiveFallbackBodyShape.
     selectors at: 9 put: #testCompileMethodTemporariesShape.
     selectors at: 10 put: #testCompileMethodGlobalReferenceShape.
+    selectors at: 11 put: #testCompileMethodRealWriteStreamNextPutShape.
+    selectors at: 12 put: #testCompileMethodRealTestSuiteRunOnShape.
+    selectors at: 13 put: #testCompileMethodRealTestSuiteAddShape.
+    selectors at: 14 put: #testCompileMethodRealSmalltalkSelfTestSuiteAddTestsShape.
+    selectors at: 15 put: #testCompileMethodRealParserExpressionOrAssignmentShape.
+    selectors at: 16 put: #testCompileMethodRealCodeGeneratorVisitAssignmentShape.
+    selectors at: 17 put: #testCompileMethodRealParserTemporariesShape.
+    selectors at: 18 put: #testCompileMethodRealCodeGeneratorVisitStatementsShape.
     ^ selectors
 !
 
@@ -148,4 +156,128 @@ testCompileMethodGlobalReferenceShape
     self assert: generator bytecodeAt: 1 equals: 18.
     association := generator literalAt: 1.
     ^ self assert: (association == nil) equals: false
+!
+
+testCompileMethodRealWriteStreamNextPutShape
+    | generator |
+    generator := Compiler compileMethod: 'nextPut: aByte
+    | one |
+    one := String new: 1.
+    one at: 1 put: aByte.
+    collection := collection , one.
+    ^ aByte'.
+    self assert: generator tempCount equals: 1.
+    self assert: generator bytecodeAt: 1 equals: 18.
+    ^ true
+!
+
+testCompileMethodRealTestSuiteRunOnShape
+    | generator |
+    generator := Compiler compileMethod: 'runOn: aResult
+    | index |
+    index := 1.
+    [index < (tally + 1)] whileTrue: [
+        (tests at: index) runOn: aResult.
+        index := index + 1
+    ].
+    ^ aResult'.
+    self assert: generator tempCount equals: 1.
+    ^ true
+!
+
+testCompileMethodRealTestSuiteAddShape
+    | generator |
+    generator := Compiler compileMethod: 'add: aTest
+    tests == nil
+        ifTrue: [self initialize]
+        ifFalse: [self].
+    tally = tests size
+        ifTrue: [self growStorage]
+        ifFalse: [self].
+    tally := tally + 1.
+    tests at: tally put: aTest.
+    ^ aTest'.
+    self assert: generator tempCount equals: 0.
+    ^ true
+!
+
+testCompileMethodRealSmalltalkSelfTestSuiteAddTestsShape
+    | generator |
+    generator := Compiler compileMethod: 'addTestsFrom: aTestClass selectors: selectors to: aSuite startingAt: index
+    | currentIndex testCase |
+    currentIndex := index.
+    [currentIndex < (selectors size + 1)] whileTrue: [
+        testCase := aTestClass new.
+        testCase selector: (selectors at: currentIndex).
+        aSuite add: testCase.
+        currentIndex := currentIndex + 1
+    ].
+    ^ aSuite'.
+    self assert: generator tempCount equals: 2.
+    ^ true
+!
+
+testCompileMethodRealParserExpressionOrAssignmentShape
+    | generator |
+    generator := Compiler compileMethod: 'parseExpressionOrAssignment
+    | expr nextToken |
+    expr := self parseExpression.
+    expr isVariable
+        ifTrue: [0]
+        ifFalse: [^ expr].
+
+    nextToken := tokenizer peek.
+    (nextToken isSpecialText: '':='')
+        ifTrue: [0]
+        ifFalse: [^ expr].
+
+    tokenizer next.
+    ^ AssignmentNode variable: expr value: self parseExpression'.
+    self assert: generator tempCount equals: 2.
+    ^ true
+!
+
+testCompileMethodRealCodeGeneratorVisitAssignmentShape
+    | generator |
+    generator := Compiler compileMethod: 'visitAssignment: aNode
+    self visitNode: aNode value.
+    self emitDuplicate.
+    self storeVariable: aNode variable name.
+    ^ self'.
+    self assert: generator tempCount equals: 0.
+    ^ true
+!
+
+testCompileMethodRealParserTemporariesShape
+    | generator |
+    generator := Compiler compileMethod: 'parseTemporaries
+    | token temps |
+    token := tokenizer next.
+    (token text = ''|'')
+        ifTrue: [
+            temps := Array new: 16.
+            ^ self collectTemporaries: temps at: 1
+        ]
+        ifFalse: [
+            tokenizer unread: token.
+            ^ Array new: 0
+        ]'.
+    self assert: generator tempCount equals: 2.
+    ^ true
+!
+
+testCompileMethodRealCodeGeneratorVisitStatementsShape
+    | generator |
+    generator := Compiler compileMethod: 'visitStatements: stmts from: index last: lastIndex
+    | stmt |
+    stmt := stmts at: index.
+    self visitNode: stmt.
+    index = lastIndex
+        ifTrue: [^ self]
+        ifFalse: [
+            self emitPop.
+            ^ self visitStatements: stmts from: index + 1 last: lastIndex
+        ]'.
+    self assert: generator tempCount equals: 1.
+    ^ true
 !

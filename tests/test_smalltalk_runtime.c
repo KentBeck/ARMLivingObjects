@@ -1221,7 +1221,6 @@ void test_smalltalk_runtime(TestContext *ctx)
             }
         }
     }
-
     uint64_t *code_generator_class = smalltalk_world_lookup_class(&world, "CodeGenerator");
     ASSERT_EQ(ctx, code_generator_class != NULL, 1, "runtime: CodeGenerator in Smalltalk dict");
     {
@@ -1443,6 +1442,170 @@ void test_smalltalk_runtime(TestContext *ctx)
             sw_send1(&world, ctx, step_gen, NULL, "visitMessage:", expr_ast);
         ASSERT_EQ(ctx, is_object_ptr(step_result), 1,
                   "runtime: visitMessage: returns generator for binary expression");
+    }
+    {
+        uint64_t *visit_assignment_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "visitAssignment: aNode\n"
+            "    self visitNode: aNode value.\n"
+            "    self emitDuplicate.\n"
+            "    self storeVariable: aNode variable name.\n"
+            "    ^ self");
+        uint64_t assignment_gen;
+        uint64_t temp_names;
+        uint64_t x_string;
+        uint64_t variable_node;
+        uint64_t literal_node;
+        uint64_t assignment_node;
+        uint64_t assignment_result;
+
+        ASSERT_EQ(ctx, visit_assignment_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real CodeGenerator>>visitAssignment:");
+        install_rooted_method(ctx, &world, "CodeGenerator", "visitAssignment:",
+                              "CurrentCompilerInstalledMethod", (Oop)visit_assignment_method);
+        assignment_gen = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                  world.class_class, "new");
+        ASSERT_EQ(ctx, is_object_ptr(assignment_gen), 1,
+                  "runtime: CodeGenerator new allocates receiver for compiler-installed visitAssignment:");
+        temp_names = sw_send1(&world, ctx, (uint64_t)world.array_class, world.class_class,
+                              "new:", tag_smallint(1));
+        ASSERT_EQ(ctx, is_object_ptr(temp_names), 1,
+                  "runtime: Array new: allocates temp name storage for compiler-installed visitAssignment:");
+        x_string = (uint64_t)sw_make_string(&world, "x");
+        (void)sw_send2(&world, ctx, temp_names, world.array_class, "at:put:",
+                       tag_smallint(1), x_string);
+        ASSERT_EQ(ctx, byte_object_equals_cstring(
+                              sw_send1(&world, ctx, temp_names, world.array_class, "at:", tag_smallint(1)),
+                              "x"),
+                  1,
+                  "runtime: temp names array stores assignment variable");
+        ASSERT_EQ(ctx, sw_send1(&world, ctx, assignment_gen, NULL, "temporaries:", temp_names),
+                  assignment_gen,
+                  "runtime: compiler-installed visitAssignment: configures temporaries");
+        variable_node = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "VariableNode"),
+                                 world.class_class, "name:", x_string);
+        literal_node = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "LiteralNode"),
+                                world.class_class, "value:", tag_smallint(1));
+        assignment_node = sw_send2(&world, ctx,
+                                   (uint64_t)smalltalk_world_lookup_class(&world, "AssignmentNode"),
+                                   world.class_class, "variable:value:", variable_node, literal_node);
+        ASSERT_EQ(ctx, is_object_ptr(assignment_node), 1,
+                  "runtime: AssignmentNode allocates input AST for compiler-installed visitAssignment:");
+        assignment_result = sw_send1(&world, ctx, assignment_gen,
+                                     smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                     "visitAssignment:", assignment_node);
+        ASSERT_EQ(ctx, assignment_result, assignment_gen,
+                  "runtime: compiler-installed CodeGenerator>>visitAssignment: returns self");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, assignment_gen,
+                                smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                "bytecodeCount"),
+                  tag_smallint(11),
+                  "runtime: compiler-installed CodeGenerator>>visitAssignment: emits literal push, dup, and store");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, assignment_gen,
+                                smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                "literalCount"),
+                  tag_smallint(1),
+                  "runtime: compiler-installed CodeGenerator>>visitAssignment: records assignment literal");
+    }
+    {
+        uint64_t *visit_statements_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "visitStatements: stmts from: index last: lastIndex\n"
+            "    | stmt |\n"
+            "    stmt := stmts at: index.\n"
+            "    self visitNode: stmt.\n"
+            "    index = lastIndex\n"
+            "        ifTrue: [^ self]\n"
+            "        ifFalse: [\n"
+            "            self emitPop.\n"
+            "            ^ self visitStatements: stmts from: index + 1 last: lastIndex\n"
+            "        ]");
+        uint64_t sequence_gen;
+        uint64_t stmts;
+        uint64_t literal_one_node;
+        uint64_t literal_two_node;
+        uint64_t sequence_node;
+        uint64_t sequence_result;
+
+        ASSERT_EQ(ctx, visit_statements_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real CodeGenerator>>visitStatements:from:last:");
+        install_rooted_method(ctx, &world, "CodeGenerator", "visitStatements:from:last:",
+                              "CurrentCompilerInstalledMethod", (Oop)visit_statements_method);
+        sequence_gen = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                world.class_class, "new");
+        ASSERT_EQ(ctx, is_object_ptr(sequence_gen), 1,
+                  "runtime: CodeGenerator new allocates receiver for compiler-installed visitStatements:from:last:");
+        literal_one_node = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "LiteralNode"),
+                                    world.class_class, "value:", tag_smallint(1));
+        literal_two_node = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "LiteralNode"),
+                                    world.class_class, "value:", tag_smallint(2));
+        stmts = sw_send2(&world, ctx, (uint64_t)world.array_class, world.class_class, "with:with:",
+                         literal_one_node, literal_two_node);
+        ASSERT_EQ(ctx, is_object_ptr(stmts), 1,
+                  "runtime: Array with:with: builds statement list for compiler-installed visitStatements:from:last:");
+        sequence_node = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "SequenceNode"),
+                                 world.class_class, "statements:", stmts);
+        ASSERT_EQ(ctx, is_object_ptr(sequence_node), 1,
+                  "runtime: SequenceNode statements: builds input AST for compiler-installed visitStatements:from:last:");
+        sequence_result = sw_send1(&world, ctx, sequence_gen,
+                                   smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                   "visitSequence:", sequence_node);
+        ASSERT_EQ(ctx, sequence_result, sequence_gen,
+                  "runtime: compiler-installed CodeGenerator>>visitStatements:from:last: returns self through visitSequence:");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, sequence_gen,
+                                smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                "bytecodeCount"),
+                  tag_smallint(11),
+                  "runtime: compiler-installed CodeGenerator>>visitStatements:from:last: emits pop between statements");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, sequence_gen,
+                                smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                "literalCount"),
+                  tag_smallint(2),
+                  "runtime: compiler-installed CodeGenerator>>visitStatements:from:last: records both literals");
+    }
+    {
+        uint64_t *visit_return_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "visitReturn: aNode\n"
+            "    self visitNode: aNode expression.\n"
+            "    inBlock\n"
+            "        ifTrue: [self emitReturnNonLocal]\n"
+            "        ifFalse: [self emitReturn].\n"
+            "    ^ self");
+        uint64_t return_gen;
+        uint64_t return_expression;
+        uint64_t return_node;
+        uint64_t return_result;
+
+        ASSERT_EQ(ctx, visit_return_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real CodeGenerator>>visitReturn:");
+        install_rooted_method(ctx, &world, "CodeGenerator", "visitReturn:",
+                              "CurrentCompilerInstalledMethod", (Oop)visit_return_method);
+        return_gen = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                              world.class_class, "new");
+        ASSERT_EQ(ctx, is_object_ptr(return_gen), 1,
+                  "runtime: CodeGenerator new allocates receiver for compiler-installed visitReturn:");
+        return_expression = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "LiteralNode"),
+                                     world.class_class, "value:", tag_smallint(1));
+        return_node = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "ReturnNode"),
+                               world.class_class, "expression:", return_expression);
+        ASSERT_EQ(ctx, is_object_ptr(return_node), 1,
+                  "runtime: ReturnNode allocates input AST for compiler-installed visitReturn:");
+        return_result = sw_send1(&world, ctx, return_gen,
+                                 smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                 "visitReturn:", return_node);
+        ASSERT_EQ(ctx, return_result, return_gen,
+                  "runtime: compiler-installed CodeGenerator>>visitReturn: returns self");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, return_gen,
+                                smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                "bytecodeCount"),
+                  tag_smallint(6),
+                  "runtime: compiler-installed CodeGenerator>>visitReturn: emits literal push and return");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, return_gen,
+                                smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                "literalCount"),
+                  tag_smallint(1),
+                  "runtime: compiler-installed CodeGenerator>>visitReturn: records return literal");
     }
     uint64_t loop_gen = sw_send0(&world, ctx, (uint64_t)code_generator_class,
                                  world.class_class, "new");
@@ -1828,8 +1991,6 @@ void test_smalltalk_runtime(TestContext *ctx)
                                                 smalltalk_world_lookup_class(&world, "TestCase"),
                                                 NULL, 0, FORMAT_FIELDS) != NULL,
               1, "runtime: CompilerTest class defined");
-    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "tests/fixtures/CompilerTest.st"),
-              1, "runtime: CompilerTest.st installs methods onto CompilerTest");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/ExceptionHandlingTest.st") != NULL,
               1, "runtime: ExceptionHandlingTest.st defines class and installs methods");
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/TransactionTest.st") != NULL,
@@ -1883,6 +2044,177 @@ void test_smalltalk_runtime(TestContext *ctx)
                   "runtime: Error does not match Exception through Smalltalk protocol");
 #endif
     }
+    ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "src/smalltalk/WriteStream.st") != NULL,
+              1, "runtime: WriteStream.st defines class and installs methods");
+    ASSERT_EQ(ctx, smalltalk_world_install_st_file(&world, "tests/fixtures/CompilerTest.st"),
+              1, "runtime: CompilerTest.st installs methods onto CompilerTest");
+    {
+        uint64_t *write_stream_compiled_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "nextPut: aByte\n"
+            "    | one |\n"
+            "    one := String new: 1.\n"
+            "    one at: 1 put: aByte.\n"
+            "    collection := collection , one.\n"
+            "    ^ aByte");
+        uint64_t stream;
+        uint64_t contents;
+        uint64_t put_result;
+
+        ASSERT_EQ(ctx, write_stream_compiled_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real WriteStream>>nextPut:");
+        install_rooted_method(ctx, &world, "WriteStream", "nextPut:",
+                              "CurrentCompilerInstalledMethod", (Oop)write_stream_compiled_method);
+        ASSERT_EQ(ctx, smalltalk_world_lookup_class(&world, "WriteStream") != NULL, 1,
+                  "runtime: WriteStream class stays available for compiler-installed method");
+        stream = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "WriteStream"),
+                          world.class_class, "on:", (uint64_t)sw_make_string(&world, ""));
+        ASSERT_EQ(ctx, is_object_ptr(stream), 1,
+                  "runtime: WriteStream on: creates receiver for compiler-installed nextPut:");
+        put_result = sw_send1(&world, ctx, stream, smalltalk_world_lookup_class(&world, "WriteStream"),
+                              "nextPut:", tag_smallint('A'));
+        ASSERT_EQ(ctx, put_result, tag_smallint('A'),
+                  "runtime: compiler-installed WriteStream>>nextPut: returns the byte");
+        contents = sw_send0(&world, ctx, stream, smalltalk_world_lookup_class(&world, "WriteStream"),
+                            "contents");
+        ASSERT_EQ(ctx, byte_object_equals_cstring(contents, "A"), 1,
+                  "runtime: compiler-installed WriteStream>>nextPut: updates contents");
+    }
+    {
+        uint64_t *suite_add_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "add: aTest\n"
+            "    tests == nil\n"
+            "        ifTrue: [self initialize]\n"
+            "        ifFalse: [self].\n"
+            "    tally = tests size\n"
+            "        ifTrue: [self growStorage]\n"
+            "        ifFalse: [self].\n"
+            "    tally := tally + 1.\n"
+            "    tests at: tally put: aTest.\n"
+            "    ^ aTest");
+        uint64_t *suite_grow_storage_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "growStorage\n"
+            "    | grown |\n"
+            "    grown := Array new: tests size + tests size.\n"
+            "    self copyTestsFrom: tests to: grown startingAt: 1.\n"
+            "    tests := grown.\n"
+            "    ^ self");
+        uint64_t *suite_copy_tests_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "copyTestsFrom: oldStorage to: newStorage startingAt: index\n"
+            "    ^ (index < (tally + 1))\n"
+            "        ifTrue: [\n"
+            "            newStorage at: index put: (oldStorage at: index).\n"
+            "            self copyTestsFrom: oldStorage to: newStorage startingAt: index + 1\n"
+            "        ]\n"
+            "        ifFalse: [newStorage]");
+        uint64_t suite;
+        uint64_t last_test_case;
+        uint64_t tests_array;
+        uint64_t stored_test_case;
+
+        ASSERT_EQ(ctx, suite_add_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real TestSuite>>add:");
+        ASSERT_EQ(ctx, suite_grow_storage_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real TestSuite>>growStorage");
+        ASSERT_EQ(ctx, suite_copy_tests_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real TestSuite>>copyTestsFrom:to:startingAt:");
+        install_rooted_method(ctx, &world, "TestSuite", "add:",
+                              "CurrentCompilerInstalledMethod", (Oop)suite_add_method);
+        install_rooted_method(ctx, &world, "TestSuite", "growStorage",
+                              "CurrentCompilerInstalledMethod", (Oop)suite_grow_storage_method);
+        install_rooted_method(ctx, &world, "TestSuite", "copyTestsFrom:to:startingAt:",
+                              "CurrentCompilerInstalledMethod", (Oop)suite_copy_tests_method);
+        ASSERT_EQ(ctx, smalltalk_world_lookup_class(&world, "TestSuite") != NULL, 1,
+                  "runtime: TestSuite available for compiler-installed add:");
+        ASSERT_EQ(ctx, smalltalk_world_lookup_class(&world, "CompilerTest") != NULL, 1,
+                  "runtime: CompilerTest available for compiler-installed add:");
+        suite = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "TestSuite"),
+                         world.class_class, "new");
+        ASSERT_EQ(ctx, is_object_ptr(suite), 1,
+                  "runtime: TestSuite new allocates receiver for compiler-installed add:");
+        for (int index = 0; index < 5; index++)
+        {
+            uint64_t test_case = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "CompilerTest"),
+                                          world.class_class, "new");
+            ASSERT_EQ(ctx, is_object_ptr(test_case), 1,
+                      "runtime: CompilerTest new allocates case for compiler-installed add:");
+            last_test_case = test_case;
+            ASSERT_EQ(ctx, sw_send1(&world, ctx, suite, smalltalk_world_lookup_class(&world, "TestSuite"),
+                                    "add:", test_case),
+                      test_case,
+                      "runtime: compiler-installed TestSuite>>add: returns added test");
+        }
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, suite, smalltalk_world_lookup_class(&world, "TestSuite"), "size"),
+                  tag_smallint(5),
+                  "runtime: compiler-installed TestSuite>>add: grows and updates tally");
+        tests_array = sw_send0(&world, ctx, suite, smalltalk_world_lookup_class(&world, "TestSuite"), "tests");
+        stored_test_case = sw_send1(&world, ctx, tests_array, world.array_class, "at:", tag_smallint(5));
+        ASSERT_EQ(ctx, stored_test_case, last_test_case,
+                  "runtime: compiler-installed TestSuite>>add: stores added test after growth");
+    }
+    {
+        uint64_t *suite_run_on_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "runOn: aResult\n"
+            "    | index |\n"
+            "    index := 1.\n"
+            "    [index < (tally + 1)] whileTrue: [\n"
+            "        (tests at: index) runOn: aResult.\n"
+            "        index := index + 1\n"
+            "    ].\n"
+            "    ^ aResult");
+        uint64_t suite;
+        uint64_t result;
+        uint64_t test_case;
+        uint64_t selector = intern_cstring_symbol(world.om, "testCompileExpressionLiteralShape");
+        uint64_t run_result;
+
+        ASSERT_EQ(ctx, suite_run_on_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real TestSuite>>runOn:");
+        install_rooted_method(ctx, &world, "TestSuite", "runOn:",
+                              "CurrentCompilerInstalledMethod", (Oop)suite_run_on_method);
+        ASSERT_EQ(ctx, smalltalk_world_lookup_class(&world, "TestSuite") != NULL, 1,
+                  "runtime: TestSuite class remains available");
+        ASSERT_EQ(ctx, smalltalk_world_lookup_class(&world, "TestResult") != NULL, 1,
+                  "runtime: TestResult class remains available");
+        ASSERT_EQ(ctx, smalltalk_world_lookup_class(&world, "CompilerTest") != NULL, 1,
+                  "runtime: CompilerTest class remains available");
+        suite = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "TestSuite"),
+                         world.class_class, "new");
+        result = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "TestResult"),
+                          world.class_class, "new");
+        test_case = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "CompilerTest"),
+                             world.class_class, "new");
+        ASSERT_EQ(ctx, is_object_ptr(suite), 1, "runtime: TestSuite new allocates suite");
+        ASSERT_EQ(ctx, is_object_ptr(result), 1, "runtime: TestResult new allocates result");
+        ASSERT_EQ(ctx, is_object_ptr(test_case), 1, "runtime: CompilerTest new allocates test case");
+        ASSERT_EQ(ctx,
+                  sw_send1(&world, ctx, test_case, smalltalk_world_lookup_class(&world, "CompilerTest"),
+                           "selector:", selector),
+                  selector, "runtime: CompilerTest selector: stores test selector");
+        ASSERT_EQ(ctx, sw_send1(&world, ctx, suite, smalltalk_world_lookup_class(&world, "TestSuite"),
+                                "add:", test_case),
+                  test_case, "runtime: TestSuite add: accepts compiler test case");
+        run_result = sw_send1(&world, ctx, suite, smalltalk_world_lookup_class(&world, "TestSuite"),
+                              "runOn:", result);
+        ASSERT_EQ(ctx, run_result, result,
+                  "runtime: compiler-installed TestSuite>>runOn: returns result");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, result, smalltalk_world_lookup_class(&world, "TestResult"),
+                                "runCount"),
+                  tag_smallint(1),
+                  "runtime: compiler-installed TestSuite>>runOn: executes one test");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, result, smalltalk_world_lookup_class(&world, "TestResult"),
+                                "passCount"),
+                  tag_smallint(1),
+                  "runtime: compiler-installed TestSuite>>runOn: records one pass");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, result, smalltalk_world_lookup_class(&world, "TestResult"),
+                                "failureCount"),
+                  tag_smallint(0),
+                  "runtime: compiler-installed TestSuite>>runOn: records no failures");
+    }
     ASSERT_EQ(ctx, smalltalk_world_install_class_file(&world, "tests/fixtures/SmalltalkSelfTestSuite.st") != NULL,
               1, "runtime: SmalltalkSelfTestSuite.st defines class and installs methods");
     {
@@ -1906,6 +2238,26 @@ void test_smalltalk_runtime(TestContext *ctx)
         run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodPrimitiveFallbackBodyShape");
         run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodTemporariesShape");
         run_smalltalk_direct_selector(ctx, &world, "CompilerTest", "testCompileMethodGlobalReferenceShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest",
+                                      "testCompileMethodRealWriteStreamNextPutShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest",
+                                      "testCompileMethodRealTestSuiteRunOnShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest",
+                                      "testCompileMethodRealTestSuiteAddShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest",
+                                      "testCompileMethodRealSmalltalkSelfTestSuiteAddTestsShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest",
+                                      "testCompileMethodRealParserExpressionOrAssignmentShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest",
+                                      "testCompileMethodRealCodeGeneratorVisitAssignmentShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest",
+                                      "testCompileMethodRealParserTemporariesShape");
+        run_smalltalk_direct_selector(ctx, &world, "CompilerTest",
+                                      "testCompileMethodRealCodeGeneratorVisitStatementsShape");
+        run_smalltalk_direct_selector(ctx, &world, "ContextTest",
+                                      "testStringConcatenationProducesExpectedContents");
+        run_smalltalk_direct_selector(ctx, &world, "ContextTest",
+                                      "testArrayAtPutRoundTripsValue");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicCommitsObjectChanges");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicReturnsBlockValue");
@@ -1926,9 +2278,230 @@ void test_smalltalk_runtime(TestContext *ctx)
         run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
                                       "testDurableCommitReplaysWithoutPostCommitCheckpoint");
 #else
-        run_smalltalk_direct_tests(ctx, &world, "ContextTest", 6);
+        run_smalltalk_direct_tests(ctx, &world, "ContextTest", 8);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);
 #endif
+    }
+    {
+        uint64_t *parse_expr_or_assignment_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "parseExpressionOrAssignment\n"
+            "    | expr nextToken |\n"
+            "    expr := self parseExpression.\n"
+            "    expr isVariable\n"
+            "        ifTrue: [0]\n"
+            "        ifFalse: [^ expr].\n"
+            "\n"
+            "    nextToken := tokenizer peek.\n"
+            "    (nextToken isSpecialText: ':=')\n"
+            "        ifTrue: [0]\n"
+            "        ifFalse: [^ expr].\n"
+            "\n"
+            "    tokenizer next.\n"
+            "    ^ AssignmentNode variable: expr value: self parseExpression");
+        uint64_t parser;
+        uint64_t assignment;
+        uint64_t assignment_variable;
+        uint64_t assignment_value;
+
+        ASSERT_EQ(ctx, parse_expr_or_assignment_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real Parser>>parseExpressionOrAssignment");
+        install_rooted_method(ctx, &world, "Parser", "parseExpressionOrAssignment",
+                              "CurrentCompilerInstalledMethod", (Oop)parse_expr_or_assignment_method);
+        parser = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "Parser"),
+                          world.class_class, "on:", (uint64_t)sw_make_string(&world, "x := 1"));
+        ASSERT_EQ(ctx, is_object_ptr(parser), 1,
+                  "runtime: Parser on: allocates receiver for compiler-installed parseExpressionOrAssignment");
+        assignment = sw_send0(&world, ctx, parser, smalltalk_world_lookup_class(&world, "Parser"),
+                              "parseExpressionOrAssignment");
+        ASSERT_EQ(ctx, is_object_ptr(assignment), 1,
+                  "runtime: compiler-installed Parser>>parseExpressionOrAssignment returns AST node");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, assignment, NULL, "isAssignment"), tagged_true(),
+                  "runtime: compiler-installed Parser>>parseExpressionOrAssignment keeps assignment node");
+        assignment_variable = sw_send0(&world, ctx,
+                                       sw_send0(&world, ctx, assignment, NULL, "variable"),
+                                       NULL, "name");
+        ASSERT_EQ(ctx, byte_object_equals_cstring(assignment_variable, "x"), 1,
+                  "runtime: compiler-installed Parser>>parseExpressionOrAssignment keeps assignment variable");
+        assignment_value = sw_send0(&world, ctx,
+                                    sw_send0(&world, ctx, assignment, NULL, "value"),
+                                    NULL, "value");
+        ASSERT_EQ(ctx, assignment_value, tag_smallint(1),
+                  "runtime: compiler-installed Parser>>parseExpressionOrAssignment keeps assignment value");
+    }
+    {
+        uint64_t *parse_temporaries_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "parseTemporaries\n"
+            "    | token temps |\n"
+            "    token := tokenizer next.\n"
+            "    (token text = '|')\n"
+            "        ifTrue: [\n"
+            "            temps := Array new: 16.\n"
+            "            ^ self collectTemporaries: temps at: 1\n"
+            "        ]\n"
+            "        ifFalse: [\n"
+            "            tokenizer unread: token.\n"
+            "            ^ Array new: 0\n"
+            "        ]");
+        uint64_t parser;
+        uint64_t temps;
+
+        ASSERT_EQ(ctx, parse_temporaries_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real Parser>>parseTemporaries");
+        install_rooted_method(ctx, &world, "Parser", "parseTemporaries",
+                              "CurrentCompilerInstalledMethod", (Oop)parse_temporaries_method);
+        parser = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "Parser"),
+                          world.class_class, "on:", (uint64_t)sw_make_string(&world, "| alpha beta |"));
+        ASSERT_EQ(ctx, is_object_ptr(parser), 1,
+                  "runtime: Parser on: allocates receiver for compiler-installed parseTemporaries");
+        temps = sw_send0(&world, ctx, parser, smalltalk_world_lookup_class(&world, "Parser"),
+                         "parseTemporaries");
+        ASSERT_EQ(ctx, is_object_ptr(temps), 1,
+                  "runtime: compiler-installed Parser>>parseTemporaries returns temp array");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, temps, world.array_class, "size"), tag_smallint(2),
+                  "runtime: compiler-installed Parser>>parseTemporaries keeps two temp names");
+        ASSERT_EQ(ctx, byte_object_equals_cstring(
+                              sw_send1(&world, ctx, temps, world.array_class, "at:", tag_smallint(1)),
+                              "alpha"),
+                  1,
+                  "runtime: compiler-installed Parser>>parseTemporaries keeps first temp name");
+        ASSERT_EQ(ctx, byte_object_equals_cstring(
+                              sw_send1(&world, ctx, temps, world.array_class, "at:", tag_smallint(2)),
+                              "beta"),
+                  1,
+                  "runtime: compiler-installed Parser>>parseTemporaries keeps second temp name");
+    }
+    {
+        uint64_t *parse_statement_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "parseStatement\n"
+            "    | token |\n"
+            "    token := tokenizer peek.\n"
+            "\n"
+            "    (token isSpecialText: '^')\n"
+            "        ifTrue: [\n"
+            "            tokenizer next.\n"
+            "            ^ ReturnNode expression: self parseExpression\n"
+            "        ]\n"
+            "        ifFalse: [0].\n"
+            "\n"
+            "    ^ self parseExpressionOrAssignment");
+        uint64_t parser;
+        uint64_t statement;
+        uint64_t expression_value;
+
+        ASSERT_EQ(ctx, parse_statement_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real Parser>>parseStatement");
+        install_rooted_method(ctx, &world, "Parser", "parseStatement",
+                              "CurrentCompilerInstalledMethod", (Oop)parse_statement_method);
+        parser = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "Parser"),
+                          world.class_class, "on:", (uint64_t)sw_make_string(&world, "^ 1"));
+        ASSERT_EQ(ctx, is_object_ptr(parser), 1,
+                  "runtime: Parser on: allocates receiver for compiler-installed parseStatement");
+        statement = sw_send0(&world, ctx, parser, smalltalk_world_lookup_class(&world, "Parser"),
+                             "parseStatement");
+        ASSERT_EQ(ctx, is_object_ptr(statement), 1,
+                  "runtime: compiler-installed Parser>>parseStatement returns AST node");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, statement, NULL, "isReturn"), tagged_true(),
+                  "runtime: compiler-installed Parser>>parseStatement keeps return node");
+        expression_value = sw_send0(&world, ctx,
+                                    sw_send0(&world, ctx, statement, NULL, "expression"),
+                                    NULL, "value");
+        ASSERT_EQ(ctx, expression_value, tag_smallint(1),
+                  "runtime: compiler-installed Parser>>parseStatement keeps return expression");
+    }
+    {
+        uint64_t *parse_method_body_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "parseMethodBody\n"
+            "    | temps statements |\n"
+            "    primitiveIndex := self parseOptionalPrimitiveIndex.\n"
+            "    temps := self parseTemporaries.\n"
+            "    statements := self parseStatements.\n"
+            "    ^ SequenceNode temporaries: temps statements: statements");
+        uint64_t parser;
+        uint64_t body;
+        uint64_t temps;
+        uint64_t statements;
+
+        ASSERT_EQ(ctx, parse_method_body_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real Parser>>parseMethodBody");
+        install_rooted_method(ctx, &world, "Parser", "parseMethodBody",
+                              "CurrentCompilerInstalledMethod", (Oop)parse_method_body_method);
+        parser = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "Parser"),
+                          world.class_class, "on:", (uint64_t)sw_make_string(&world, "| alpha | 1"));
+        ASSERT_EQ(ctx, is_object_ptr(parser), 1,
+                  "runtime: Parser on: allocates receiver for compiler-installed parseMethodBody");
+        body = sw_send0(&world, ctx, parser, smalltalk_world_lookup_class(&world, "Parser"),
+                        "parseMethodBody");
+        ASSERT_EQ(ctx, is_object_ptr(body), 1,
+                  "runtime: compiler-installed Parser>>parseMethodBody returns sequence node");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, body, NULL, "isSequence"), tagged_true(),
+                  "runtime: compiler-installed Parser>>parseMethodBody keeps sequence node");
+        temps = sw_send0(&world, ctx, body, NULL, "temporaries");
+        statements = sw_send0(&world, ctx, body, NULL, "statements");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, temps, world.array_class, "size"), tag_smallint(1),
+                  "runtime: compiler-installed Parser>>parseMethodBody keeps one temporary");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, statements, world.array_class, "size"), tag_smallint(1),
+                  "runtime: compiler-installed Parser>>parseMethodBody keeps one statement");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, parser, smalltalk_world_lookup_class(&world, "Parser"),
+                                "primitiveIndex"),
+                  tag_smallint(-1),
+                  "runtime: compiler-installed Parser>>parseMethodBody keeps default primitive index");
+    }
+    {
+        uint64_t *visit_sequence_method = compile_smalltalk_method(
+            &world, ctx, compiler_class,
+            "visitSequence: aNode\n"
+            "    self temporaries: aNode temporaries.\n"
+            "    aNode statements size > 0\n"
+            "        ifTrue: [self visitStatements: aNode statements from: 1 last: aNode statements size]\n"
+            "        ifFalse: [0].\n"
+            "    ^ self");
+        uint64_t sequence_gen;
+        uint64_t temps;
+        uint64_t stmts;
+        uint64_t literal_one_node;
+        uint64_t literal_two_node;
+        uint64_t sequence_node;
+        uint64_t sequence_result;
+
+        ASSERT_EQ(ctx, visit_sequence_method != NULL, 1,
+                  "runtime: Smalltalk compiler compiles real CodeGenerator>>visitSequence:");
+        install_rooted_method(ctx, &world, "CodeGenerator", "visitSequence:",
+                              "CurrentCompilerInstalledMethod", (Oop)visit_sequence_method);
+        sequence_gen = sw_send0(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                world.class_class, "new");
+        ASSERT_EQ(ctx, is_object_ptr(sequence_gen), 1,
+                  "runtime: CodeGenerator new allocates receiver for compiler-installed visitSequence:");
+        temps = sw_send1(&world, ctx, (uint64_t)world.array_class, world.class_class, "with:",
+                         (uint64_t)sw_make_string(&world, "tmp"));
+        literal_one_node = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "LiteralNode"),
+                                    world.class_class, "value:", tag_smallint(1));
+        literal_two_node = sw_send1(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "LiteralNode"),
+                                    world.class_class, "value:", tag_smallint(2));
+        stmts = sw_send2(&world, ctx, (uint64_t)world.array_class, world.class_class, "with:with:",
+                         literal_one_node, literal_two_node);
+        sequence_node = sw_send2(&world, ctx, (uint64_t)smalltalk_world_lookup_class(&world, "SequenceNode"),
+                                 world.class_class, "temporaries:statements:", temps, stmts);
+        ASSERT_EQ(ctx, is_object_ptr(sequence_node), 1,
+                  "runtime: SequenceNode temporaries:statements: builds input AST for compiler-installed visitSequence:");
+        sequence_result = sw_send1(&world, ctx, sequence_gen,
+                                   smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                   "visitSequence:", sequence_node);
+        ASSERT_EQ(ctx, sequence_result, sequence_gen,
+                  "runtime: compiler-installed CodeGenerator>>visitSequence: returns self");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, sequence_gen,
+                                smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                "tempCount"),
+                  tag_smallint(1),
+                  "runtime: compiler-installed CodeGenerator>>visitSequence: configures temporaries");
+        ASSERT_EQ(ctx, sw_send0(&world, ctx, sequence_gen,
+                                smalltalk_world_lookup_class(&world, "CodeGenerator"),
+                                "bytecodeCount"),
+                  tag_smallint(11),
+                  "runtime: compiler-installed CodeGenerator>>visitSequence: emits delegated statement bytecodes");
     }
 #ifdef ALO_INTERPRETER_C
     if (have_method_gen_root)
