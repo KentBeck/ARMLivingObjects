@@ -459,6 +459,8 @@ void test_smalltalk_sources(TestContext *ctx)
               "ContextTest covers String concatenation behavior");
     ASSERT_EQ(ctx, strstr(context_src, "testArrayAtPutRoundTripsValue") != NULL, 1,
               "ContextTest covers Array at:put: round-trip behavior");
+    ASSERT_EQ(ctx, strstr(context_src, "testStringAtPutRoundTripsByteValue") != NULL, 1,
+              "ContextTest covers String at:put: round-trip behavior");
 
     ASSERT_EQ(ctx, read_file("tests/fixtures/ExceptionHandlingTest.st", exception_handling_test_src,
                              sizeof(exception_handling_test_src)), 1,

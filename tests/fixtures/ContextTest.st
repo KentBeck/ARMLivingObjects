@@ -9,7 +9,7 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 8.
+    selectors := Array new: 9.
     selectors at: 1 put: #testThisContextReceiverIsSelf.
     selectors at: 2 put: #testRepeatedThisContextIsIdentical.
     selectors at: 3 put: #testSenderReceiverIsSelf.
@@ -18,6 +18,7 @@ testSelectors
     selectors at: 6 put: #testBlockContextHasClosure.
     selectors at: 7 put: #testStringConcatenationProducesExpectedContents.
     selectors at: 8 put: #testArrayAtPutRoundTripsValue.
+    selectors at: 9 put: #testStringAtPutRoundTripsByteValue.
     ^ selectors
 !
 
@@ -97,4 +98,12 @@ testArrayAtPutRoundTripsValue
     arr at: 2 put: 77.
     self assert: arr size equals: 3.
     ^ self assert: (arr at: 2) equals: 77
+!
+
+testStringAtPutRoundTripsByteValue
+    | string |
+    string := String new: 3.
+    string at: 2 put: 65.
+    self assert: string size equals: 3.
+    ^ self assert: (string at: 2) equals: 65
 !

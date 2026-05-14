@@ -2258,6 +2258,8 @@ void test_smalltalk_runtime(TestContext *ctx)
                                       "testStringConcatenationProducesExpectedContents");
         run_smalltalk_direct_selector(ctx, &world, "ContextTest",
                                       "testArrayAtPutRoundTripsValue");
+        run_smalltalk_direct_selector(ctx, &world, "ContextTest",
+                                      "testStringAtPutRoundTripsByteValue");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicCommitsObjectChanges");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicReturnsBlockValue");
@@ -2278,7 +2280,7 @@ void test_smalltalk_runtime(TestContext *ctx)
         run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
                                       "testDurableCommitReplaysWithoutPostCommitCheckpoint");
 #else
-        run_smalltalk_direct_tests(ctx, &world, "ContextTest", 8);
+        run_smalltalk_direct_tests(ctx, &world, "ContextTest", 9);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);
 #endif
     }
