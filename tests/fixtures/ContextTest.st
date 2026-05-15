@@ -9,7 +9,7 @@ selfTest
 
 testSelectors
     | selectors |
-    selectors := Array new: 9.
+    selectors := Array new: 13.
     selectors at: 1 put: #testThisContextReceiverIsSelf.
     selectors at: 2 put: #testRepeatedThisContextIsIdentical.
     selectors at: 3 put: #testSenderReceiverIsSelf.
@@ -19,6 +19,10 @@ testSelectors
     selectors at: 7 put: #testStringConcatenationProducesExpectedContents.
     selectors at: 8 put: #testArrayAtPutRoundTripsValue.
     selectors at: 9 put: #testStringAtPutRoundTripsByteValue.
+    selectors at: 10 put: #testSymbolEqualityDistinguishesSameAndDifferentSymbols.
+    selectors at: 11 put: #testStringEqualityDistinguishesSameAndDifferentContents.
+    selectors at: 12 put: #testStringAsSymbolInternsContents.
+    selectors at: 13 put: #testStringHashIsStableAndMatchesEqualContents.
     ^ selectors
 !
 
@@ -106,4 +110,28 @@ testStringAtPutRoundTripsByteValue
     string at: 2 put: 65.
     self assert: string size equals: 3.
     ^ self assert: (string at: 2) equals: 65
+!
+
+testSymbolEqualityDistinguishesSameAndDifferentSymbols
+    self assert: (#alpha = #alpha).
+    self assert: ('alpha' asSymbol = #alpha).
+    ^ self deny: (#alpha = #beta)
+!
+
+testStringEqualityDistinguishesSameAndDifferentContents
+    self assert: ('alpha' = 'alpha').
+    self assert: ('ab' , 'cd') = 'abcd'.
+    ^ self deny: ('alpha' = 'beta')
+!
+
+testStringAsSymbolInternsContents
+    self assert: ('alpha' asSymbol) equals: #alpha.
+    ^ self assert: ('ab' , 'cd') asSymbol equals: #abcd
+!
+
+testStringHashIsStableAndMatchesEqualContents
+    | value |
+    value := 'alpha' hash.
+    self assert: value equals: 'alpha' hash.
+    ^ self assert: value equals: ('al' , 'pha') hash
 !

@@ -2260,6 +2260,14 @@ void test_smalltalk_runtime(TestContext *ctx)
                                       "testArrayAtPutRoundTripsValue");
         run_smalltalk_direct_selector(ctx, &world, "ContextTest",
                                       "testStringAtPutRoundTripsByteValue");
+        run_smalltalk_direct_selector(ctx, &world, "ContextTest",
+                                      "testSymbolEqualityDistinguishesSameAndDifferentSymbols");
+        run_smalltalk_direct_selector(ctx, &world, "ContextTest",
+                                      "testStringEqualityDistinguishesSameAndDifferentContents");
+        run_smalltalk_direct_selector(ctx, &world, "ContextTest",
+                                      "testStringAsSymbolInternsContents");
+        run_smalltalk_direct_selector(ctx, &world, "ContextTest",
+                                      "testStringHashIsStableAndMatchesEqualContents");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicCommitsObjectChanges");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicRollsBackOnError");
         run_smalltalk_direct_selector(ctx, &world, "TransactionTest", "testAtomicReturnsBlockValue");
@@ -2280,7 +2288,7 @@ void test_smalltalk_runtime(TestContext *ctx)
         run_smalltalk_direct_selector(ctx, &world, "DurableTransactionTest",
                                       "testDurableCommitReplaysWithoutPostCommitCheckpoint");
 #else
-        run_smalltalk_direct_tests(ctx, &world, "ContextTest", 9);
+        run_smalltalk_direct_tests(ctx, &world, "ContextTest", 13);
         run_smalltalk_direct_tests(ctx, &world, "BlockActivationTest", 6);
 #endif
     }
